@@ -14,6 +14,7 @@ import ClosurePage from './components/pages/ClosurePage';
 import AIPage from './components/pages/AIPage';
 import AdminUsersPage from './components/pages/AdminUsersPage';
 import CommitteeDashboard from './components/pages/CommitteeDashboard';
+import ConfiguracionPage from './pages/ConfiguracionPage';
 
 function LoginGuard() {
   const { user, loading } = useAuth();
@@ -52,7 +53,7 @@ export default function App() {
             {/* Future modules */}
             <Route path="planificacion" element={<PlaceholderPage />} />
             <Route path="indicadores" element={<PlaceholderPage />} />
-            <Route path="configuracion" element={<PlaceholderPage />} />
+            <Route path="configuracion" element={<ConfiguracionPage />} />
             <Route path="admin/usuarios" element={<AdminUsersPage />} />
           </Route>
 

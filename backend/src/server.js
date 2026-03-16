@@ -34,6 +34,7 @@ const committeeRoutes = require('./routes/committee');
 const committeeCommitmentsRoutes = require('./routes/committeeCommitments');
 const biDashboardRoutes = require('./routes/biDashboard');
 const correspondenceRoutes = require('./routes/correspondence');
+const settingsRoutes = require('./routes/settings');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -146,6 +147,7 @@ app.use('/api/ai-populate', aiPopulateRoutes);
 app.use('/api/committee', committeeRoutes);
 app.use('/api/committee/:projectId/commitments', committeeCommitmentsRoutes);
 app.use('/api/dashboard', biDashboardRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK

@@ -14,7 +14,8 @@
     "db:migrate-budget": "cd backend && node scripts/migrate-budget.js",
     "db:seed-m1": "cd backend && node scripts/seed-m1.js",
     "db:setup": "npm run db:init && npm run db:seed && npm run db:migrate-m1 && npm run db:seed-m1",
-    "db:migrate-correspondence": "cd backend && node scripts/migrate-correspondence.js"
+    "db:migrate-correspondence": "cd backend && node scripts/migrate-correspondence.js",
+    "db:migrate-settings": "cd backend && node scripts/migrate-settings.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"

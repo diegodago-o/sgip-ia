@@ -117,6 +117,7 @@ router.get('/:projectId/progress', [param('projectId').isInt()], async (req, res
       let physActual = 0;
       if (!isFuture && activities.length > 0) {
         // Peso efectivo: parsear primero, fallback a 1 si es 0 o inválido
+        const totalWeight = activities.reduce((s, a) => s + (parseFloat(a.weight_pct) || 1), 0);
         let weightedProgress = 0;
 
         for (const a of activities) {

@@ -12,6 +12,27 @@ const requireAdmin = roleMiddleware('admin', 'director_pmo');
 const db = require('../config/database');
 const { sendMail, verifyConnection } = require('../services/mailer');
 
+// ── Auto-create table if it doesn't exist (self-healing) ─────────────────────
+async function ensureTable() {
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        id           INT PRIMARY KEY AUTO_INCREMENT,
+        setting_key  VARCHAR(100) NOT NULL UNIQUE,
+        setting_value LONGTEXT,
+        is_sensitive TINYINT NOT NULL DEFAULT 0,
+        updated_by   INT,
+        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (e) {
+    console.error('[settings] ensureTable error:', e.message);
+  }
+}
+// Run once at startup
+ensureTable();
+
 // ── Sensitive fields — never sent back to frontend as plaintext ───────────────
 const SENSITIVE = ['password', 'client_secret'];
 

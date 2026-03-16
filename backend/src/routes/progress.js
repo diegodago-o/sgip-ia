@@ -116,13 +116,13 @@ router.get('/:projectId/progress', [param('projectId').isInt()], async (req, res
       // Only calculate for past/current months
       let physActual = 0;
       if (!isFuture && activities.length > 0) {
-        // Calculate what % of activities should be done by this month
-        const totalWeight = activities.reduce((s, a) => s + parseFloat(a.weight_pct || 1), 0);
+        // Peso efectivo: parsear primero, fallback a 1 si es 0 o inválido
         let weightedProgress = 0;
+
         for (const a of activities) {
-          const w = parseFloat(a.weight_pct || 1) / totalWeight;
+          const w = (parseFloat(a.weight_pct) || 1) / totalWeight;
           // Actividad completada = 100%, sin importar lo que diga progress_pct
-          const actPct = a.status === 'completada' ? 100 : parseFloat(a.progress_pct || 0);
+          const actPct = a.status === 'completada' ? 100 : (parseFloat(a.progress_pct) || 0);
           // Check if activity should have started by this month
           if (a.start_date && startDate) {
             const actStart = new Date(a.start_date);
@@ -139,9 +139,9 @@ router.get('/:projectId/progress', [param('projectId').isInt()], async (req, res
         if (m < currentMonth) {
           // Scale: assume linear progress up to current value
           const currentProgress = activities.reduce((s, a) => {
-            const tw = activities.reduce((s2, a2) => s2 + parseFloat(a2.weight_pct || 1), 0);
-            const actPct = a.status === 'completada' ? 100 : parseFloat(a.progress_pct || 0);
-            return s + (actPct * parseFloat(a.weight_pct || 1) / tw);
+            const tw = activities.reduce((s2, a2) => s2 + (parseFloat(a2.weight_pct) || 1), 0);
+            const actPct = a.status === 'completada' ? 100 : (parseFloat(a.progress_pct) || 0);
+            return s + (actPct * (parseFloat(a.weight_pct) || 1) / tw);
           }, 0);
           physActual = Math.min((m / currentMonth) * currentProgress, 100);
         } else if (m === currentMonth) {

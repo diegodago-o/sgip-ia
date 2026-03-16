@@ -1,0 +1,884 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const pool = require('../config/database');
+const { authMiddleware } = require('../middleware/auth');
+
+const router = express.Router();
+router.use(authMiddleware);
+
+// ═══════════════════════════════════════════════
+// 1. EXPORT MEETING MINUTES TO WORD
+// ═══════════════════════════════════════════════
+router.get('/:projectId/minutes/:minuteId/export-word', async (req, res) => {
+  try {
+    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+            HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
+            Header, Footer, PageNumber, LevelFormat } = require('docx');
+
+    // Load data
+    const [minutes] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=? AND project_id=?', [req.params.minuteId, req.params.projectId]);
+    if (minutes.length === 0) return res.status(404).json({ error: 'Acta no encontrada' });
+    const m = minutes[0];
+
+    const [project] = await pool.execute('SELECT name, code, contract_number FROM projects WHERE id=?', [req.params.projectId]);
+    const p = project[0] || {};
+
+    // Safe JSON parse (mysql2 auto-parses JSON columns → may already be arrays)
+    function safeJSON(v) {
+      if (Array.isArray(v)) return v;
+      if (v && typeof v === 'object') return v;
+      if (!v) return [];
+      if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
+      return [];
+    }
+
+    const attendees = safeJSON(m.attendees);
+    const agreements = safeJSON(m.agreements);
+    const commitments = safeJSON(m.action_items);
+
+    const border = { style: BorderStyle.SINGLE, size: 1, color: "999999" };
+    const borders = { top: border, bottom: border, left: border, right: border };
+    const cellMargins = { top: 60, bottom: 60, left: 100, right: 100 };
+    const headerShading = { fill: "1B3A5C", type: ShadingType.CLEAR };
+    const altShading = { fill: "F0F4F8", type: ShadingType.CLEAR };
+
+    const doc = new Document({
+      styles: {
+        default: { document: { run: { font: "Arial", size: 22 } } },
+        paragraphStyles: [
+          { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+            run: { size: 28, bold: true, font: "Arial", color: "1B3A5C" },
+            paragraph: { spacing: { before: 300, after: 200 } } },
+          { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+            run: { size: 24, bold: true, font: "Arial", color: "2E5A88" },
+            paragraph: { spacing: { before: 200, after: 120 } } },
+        ]
+      },
+      numbering: {
+        config: [{
+          reference: "bullets",
+          levels: [{ level: 0, format: LevelFormat.BULLET, text: "\u2022", alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } }]
+        }]
+      },
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 }
+          }
+        },
+        headers: {
+          default: new Header({
+            children: [new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [new TextRun({ text: `${p.code || ''} — SGIP-IA`, font: "Arial", size: 16, color: "999999", italics: true })]
+            })]
+          })
+        },
+        footers: {
+          default: new Footer({
+            children: [new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({ text: "Página ", font: "Arial", size: 16, color: "999999" }),
+                new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 16, color: "999999" }),
+              ]
+            })]
+          })
+        },
+        children: [
+          // Title
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [
+            new TextRun({ text: "ACTA DE REUNIÓN", bold: true, size: 36, font: "Arial", color: "1B3A5C" })
+          ]}),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 400 }, children: [
+            new TextRun({ text: p.name || 'Proyecto', size: 24, font: "Arial", color: "555555" })
+          ]}),
+
+          // Info table
+          new Table({
+            width: { size: 10080, type: WidthType.DXA },
+            columnWidths: [3000, 7080],
+            rows: [
+              infoRow("Número de acta", m.minute_number || `ACTA-${m.id}`, borders, cellMargins),
+              infoRow("Fecha", m.meeting_date ? new Date(m.meeting_date).toLocaleDateString('es-CO', { year:'numeric', month:'long', day:'numeric' }) : 'N/A', borders, cellMargins),
+              infoRow("Hora inicio", m.start_time || 'N/A', borders, cellMargins),
+              infoRow("Hora fin", m.end_time || 'N/A', borders, cellMargins),
+              infoRow("Lugar", m.location || 'N/A', borders, cellMargins),
+              infoRow("Tipo de reunión", (m.meeting_type || '').replace(/_/g, ' '), borders, cellMargins),
+              infoRow("Contrato", p.contract_number || 'N/A', borders, cellMargins),
+            ]
+          }),
+
+          new Paragraph({ spacing: { before: 300 } }),
+
+          // Attendees
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("1. ASISTENTES")] }),
+          ...(attendees.length > 0 ? [
+            new Table({
+              width: { size: 10080, type: WidthType.DXA },
+              columnWidths: [3500, 3500, 3080],
+              rows: [
+                new TableRow({ children: ['Nombre', 'Cargo/Entidad', 'Rol'].map(h =>
+                  new TableCell({ borders, shading: headerShading, margins: cellMargins, width: { size: 3360, type: WidthType.DXA },
+                    children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: "FFFFFF", size: 20 })] })]
+                  })
+                )}),
+                ...attendees.map((a, i) => new TableRow({ children: [
+                  textCell(a.name || a, borders, cellMargins, i % 2 === 1 ? altShading : null),
+                  textCell(a.entity || a.cargo || '', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                  textCell(a.role || '', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                ]}))
+              ]
+            })
+          ] : [new Paragraph({ children: [new TextRun({ text: "No se registraron asistentes.", italics: true, color: "888888" })] })]),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // Topics / Agenda
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("2. TEMAS TRATADOS")] }),
+          ...(m.agenda ? m.agenda.split('\n').filter(l => l.trim()).map(line =>
+            new Paragraph({ numbering: { reference: "bullets", level: 0 }, children: [new TextRun({ text: line.trim(), size: 22 })] })
+          ) : [new Paragraph({ children: [new TextRun({ text: "Sin temas registrados.", italics: true, color: "888888" })] })]),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // Discussion
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("3. DESARROLLO DE LA REUNIÓN")] }),
+          ...(m.discussions ? m.discussions.split('\n').filter(l => l.trim()).map(line =>
+            new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: line.trim(), size: 22 })] })
+          ) : [new Paragraph({ children: [new TextRun({ text: "Sin registro de desarrollo.", italics: true, color: "888888" })] })]),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // Acuerdos
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("4. ACUERDOS")] }),
+          ...(agreements.length > 0 ? agreements.map(a =>
+            new Paragraph({ numbering: { reference: "bullets", level: 0 }, children: [new TextRun({ text: typeof a === 'string' ? a : (a.description || JSON.stringify(a)), size: 22 })] })
+          ) : [new Paragraph({ children: [new TextRun({ text: "Sin acuerdos registrados.", italics: true, color: "888888" })] })]),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // Commitments
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("5. COMPROMISOS")] }),
+          ...(commitments.length > 0 ? [
+            new Table({
+              width: { size: 10080, type: WidthType.DXA },
+              columnWidths: [4000, 2500, 2000, 1580],
+              rows: [
+                new TableRow({ children: ['Compromiso', 'Responsable', 'Fecha límite', 'Estado'].map(h =>
+                  new TableCell({ borders, shading: headerShading, margins: cellMargins, width: { size: 2520, type: WidthType.DXA },
+                    children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: "FFFFFF", size: 20 })] })]
+                  })
+                )}),
+                ...commitments.map((c, i) => new TableRow({ children: [
+                  textCell(c.task || c.description || c.compromiso || '', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                  textCell(c.responsible || c.responsable || '', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                  textCell(c.due_date || c.fecha || '', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                  textCell(c.status || c.estado || 'Pendiente', borders, cellMargins, i % 2 === 1 ? altShading : null),
+                ]}))
+              ]
+            })
+          ] : [new Paragraph({ children: [new TextRun({ text: "Sin compromisos registrados.", italics: true, color: "888888" })] })]),
+
+          // Next meeting
+          ...(m.next_meeting_date ? [
+            new Paragraph({ spacing: { before: 300 } }),
+            new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("6. PRÓXIMA REUNIÓN")] }),
+            new Paragraph({ children: [new TextRun({ text: `Fecha: ${new Date(m.next_meeting_date).toLocaleDateString('es-CO')}`, size: 22 })] }),
+          ] : []),
+
+          // Signature space
+          new Paragraph({ spacing: { before: 600 } }),
+          new Paragraph({ children: [new TextRun({ text: "Elaboró:", bold: true, size: 22 })] }),
+          new Paragraph({ spacing: { before: 200 }, border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" } },
+            children: [new TextRun({ text: "                                                                              ", size: 22 })] }),
+          new Paragraph({ children: [new TextRun({ text: "Nombre / Cargo", size: 18, color: "888888" })] }),
+        ]
+      }]
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const filename = `Acta_${m.minute_number || m.id}_${p.code || 'proyecto'}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Export minute Word error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// 2. EXPORT AI-GENERATED DOCUMENT TO WORD
+// ═══════════════════════════════════════════════
+router.post('/:projectId/export-word', async (req, res) => {
+  try {
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
+            BorderStyle, Header, Footer, PageNumber, LevelFormat } = require('docx');
+
+    const { title, content } = req.body;
+    if (!content) return res.status(400).json({ error: 'Contenido requerido' });
+
+    const [project] = await pool.execute('SELECT name, code FROM projects WHERE id=?', [req.params.projectId]);
+    const p = project[0] || {};
+
+    // Parse markdown-like content into docx paragraphs
+    const children = parseContentToDocx(content, { Paragraph, TextRun, HeadingLevel, AlignmentType, LevelFormat });
+
+    const doc = new Document({
+      styles: {
+        default: { document: { run: { font: "Arial", size: 22 } } },
+        paragraphStyles: [
+          { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+            run: { size: 28, bold: true, font: "Arial", color: "1B3A5C" },
+            paragraph: { spacing: { before: 300, after: 200 }, outlineLevel: 0 } },
+          { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+            run: { size: 24, bold: true, font: "Arial", color: "2E5A88" },
+            paragraph: { spacing: { before: 200, after: 120 }, outlineLevel: 1 } },
+          { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true,
+            run: { size: 22, bold: true, font: "Arial", color: "3D6FA5" },
+            paragraph: { spacing: { before: 160, after: 80 }, outlineLevel: 2 } },
+        ]
+      },
+      numbering: {
+        config: [
+          { reference: "bullets", levels: [{ level: 0, format: LevelFormat.BULLET, text: "\u2022", alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+          { reference: "numbers", levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+        ]
+      },
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 }
+          }
+        },
+        headers: {
+          default: new Header({
+            children: [new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [new TextRun({ text: `${p.code || ''} — SGIP-IA`, font: "Arial", size: 16, color: "999999", italics: true })]
+            })]
+          })
+        },
+        footers: {
+          default: new Footer({
+            children: [new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({ text: "Página ", font: "Arial", size: 16, color: "999999" }),
+                new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 16, color: "999999" }),
+              ]
+            })]
+          })
+        },
+        children: [
+          // Title
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [
+            new TextRun({ text: title || 'Documento generado por IA', bold: true, size: 36, font: "Arial", color: "1B3A5C" })
+          ]}),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 80 }, children: [
+            new TextRun({ text: p.name || '', size: 22, color: "555555" })
+          ]}),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 400 }, children: [
+            new TextRun({ text: `Generado el ${new Date().toLocaleDateString('es-CO', { year:'numeric', month:'long', day:'numeric' })}`, size: 18, color: "888888", italics: true })
+          ]}),
+          // Content
+          ...children,
+        ]
+      }]
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const filename = `${(title || 'documento').replace(/[^a-zA-Z0-9áéíóúñ ]/gi, '').substring(0, 50)}_${p.code || ''}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Export AI Word error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// 3. EXPORT BUDGET TO EXCEL
+// ═══════════════════════════════════════════════
+router.get('/:projectId/budget/export-excel', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const pid = req.params.projectId;
+
+    const [project] = await pool.execute('SELECT * FROM projects WHERE id=?', [pid]);
+    if (project.length === 0) return res.status(404).json({ error: 'Proyecto no encontrado' });
+    const p = project[0];
+
+    // Load budget data
+    const [income] = await pool.execute('SELECT * FROM budget_income WHERE project_id=? ORDER BY sort_order', [pid]);
+    const [payroll] = await pool.execute('SELECT * FROM budget_payroll WHERE project_id=? ORDER BY sort_order', [pid]);
+    const [contractors] = await pool.execute('SELECT * FROM budget_contractors WHERE project_id=? ORDER BY sort_order', [pid]);
+    const [expenses] = await pool.execute('SELECT * FROM budget_expenses WHERE project_id=? ORDER BY category, label', [pid]);
+
+    let payments = [];
+    try { const [pay] = await pool.execute('SELECT * FROM payments WHERE project_id=? ORDER BY payment_date', [pid]); payments = pay; } catch {}
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'SGIP-IA';
+    wb.created = new Date();
+
+    const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A5C' } };
+    const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Arial' };
+    const bodyFont = { size: 10, name: 'Arial' };
+    const currencyFmt = '"$"#,##0';
+    const pctFmt = '0.0%';
+
+    const totalIncome = income.reduce((s, i) => s + parseFloat(i.value || 0), 0);
+    const totalPayroll = payroll.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
+    const totalContractors = contractors.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
+    const totalExpenses = expenses.reduce((s, i) => s + parseFloat(i.valor_total || 0), 0);
+    const totalEgresos = totalPayroll + totalContractors + totalExpenses;
+    const margen = totalIncome - totalEgresos;
+
+    // ── Sheet 1: Resumen ──
+    const ws1 = wb.addWorksheet('Resumen', { properties: { tabColor: { argb: '1B3A5C' } } });
+    ws1.columns = [{ width: 30 }, { width: 25 }];
+    ws1.addRow(['RESUMEN PRESUPUESTAL']).font = { bold: true, size: 14, name: 'Arial', color: { argb: 'FF1B3A5C' } };
+    ws1.addRow([]);
+    ws1.addRow(['Proyecto', p.name]);
+    ws1.addRow(['Código', p.code]);
+    ws1.addRow(['Contrato', p.contract_number || 'N/A']);
+    ws1.addRow(['Valor del contrato', parseFloat(p.contract_value || 0)]); ws1.getCell('B6').numFmt = currencyFmt;
+    ws1.addRow([]);
+    ws1.addRow(['Total Ingresos', totalIncome]); ws1.getCell('B8').numFmt = currencyFmt;
+    ws1.addRow(['Nómina', totalPayroll]); ws1.getCell('B9').numFmt = currencyFmt;
+    ws1.addRow(['Contratistas', totalContractors]); ws1.getCell('B10').numFmt = currencyFmt;
+    ws1.addRow(['Gastos operativos', totalExpenses]); ws1.getCell('B11').numFmt = currencyFmt;
+    ws1.addRow(['Total Egresos', totalEgresos]); ws1.getCell('B12').numFmt = currencyFmt;
+    ws1.getRow(12).font = { bold: true, size: 11, name: 'Arial' };
+    ws1.addRow(['Margen', margen]); ws1.getCell('B13').numFmt = currencyFmt;
+    ws1.getRow(13).font = { bold: true, size: 11, name: 'Arial', color: { argb: margen >= 0 ? 'FF27AE60' : 'FFE74C3C' } };
+    ws1.addRow([]);
+    ws1.addRow(['Fecha de exportación', new Date().toLocaleDateString('es-CO')]);
+
+    // ── Sheet 2: Ingresos ──
+    const ws2 = wb.addWorksheet('Ingresos', { properties: { tabColor: { argb: '27AE60' } } });
+    ws2.columns = [{ width: 35 }, { width: 20 }, { width: 30 }];
+    ws2.addRow(['Concepto', 'Valor', 'Notas']);
+    ws2.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+    income.forEach((item, i) => {
+      const row = ws2.addRow([item.label, parseFloat(item.value || 0), item.notes || '']);
+      row.eachCell(c => { c.font = bodyFont; });
+      row.getCell(2).numFmt = currencyFmt;
+      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+    });
+    const incTotalRow = ws2.addRow(['TOTAL', totalIncome, '']);
+    incTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
+    incTotalRow.getCell(2).numFmt = currencyFmt;
+
+    // ── Sheet 3: Nómina ──
+    const ws3 = wb.addWorksheet('Nómina', { properties: { tabColor: { argb: '3498DB' } } });
+    ws3.columns = [{ width: 25 }, { width: 8 }, { width: 15 }, { width: 12 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 15 }];
+    ws3.addRow(['Cargo', 'Cant.', 'Salario Base', 'Aux. Transp.', 'Mes Ini', 'Mes Fin', 'Meses', 'Costo Total']);
+    ws3.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+    payroll.forEach((item, i) => {
+      const row = ws3.addRow([
+        item.cargo, item.cantidad, parseFloat(item.salario_base || 0), parseFloat(item.aux_transporte || 0),
+        item.mes_inicio, item.mes_fin, item.meses || '', parseFloat(item.costo_total || 0)
+      ]);
+      row.eachCell(c => { c.font = bodyFont; });
+      row.getCell(3).numFmt = currencyFmt;
+      row.getCell(4).numFmt = currencyFmt;
+      row.getCell(8).numFmt = currencyFmt;
+      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+    });
+    const payTotalRow = ws3.addRow(['TOTAL', '', '', '', '', '', '', totalPayroll]);
+    payTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
+    payTotalRow.getCell(8).numFmt = currencyFmt;
+
+    // ── Sheet 4: Contratistas ──
+    const ws4 = wb.addWorksheet('Contratistas', { properties: { tabColor: { argb: 'E67E22' } } });
+    ws4.columns = [{ width: 25 }, { width: 20 }, { width: 8 }, { width: 15 }, { width: 8 }, { width: 8 }, { width: 15 }];
+    ws4.addRow(['Cargo/Rol', 'Tipo Contrato', 'Cant.', 'Valor Unit.', 'Mes Ini', 'Mes Fin', 'Costo Total']);
+    ws4.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+    contractors.forEach((item, i) => {
+      const row = ws4.addRow([
+        item.cargo, item.tipo_contrato || '', item.cantidad, parseFloat(item.valor_unitario || 0),
+        item.mes_inicio, item.mes_fin, parseFloat(item.costo_total || 0)
+      ]);
+      row.eachCell(c => { c.font = bodyFont; });
+      row.getCell(4).numFmt = currencyFmt;
+      row.getCell(7).numFmt = currencyFmt;
+      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+    });
+    const conTotalRow = ws4.addRow(['TOTAL', '', '', '', '', '', totalContractors]);
+    conTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
+    conTotalRow.getCell(7).numFmt = currencyFmt;
+
+    // ── Sheet 5: Gastos Operativos ──
+    const ws5 = wb.addWorksheet('Gastos Operativos', { properties: { tabColor: { argb: 'E74C3C' } } });
+    ws5.columns = [{ width: 22 }, { width: 30 }, { width: 15 }, { width: 8 }, { width: 15 }];
+    ws5.addRow(['Categoría', 'Concepto', 'Valor Unitario', 'Meses', 'Valor Total']);
+    ws5.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+    expenses.forEach((item, i) => {
+      const row = ws5.addRow([
+        item.category || '', item.label, parseFloat(item.valor_unitario || 0),
+        item.meses || '', parseFloat(item.valor_total || 0)
+      ]);
+      row.eachCell(c => { c.font = bodyFont; });
+      row.getCell(3).numFmt = currencyFmt;
+      row.getCell(5).numFmt = currencyFmt;
+      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+    });
+    const expTotalRow = ws5.addRow(['', 'TOTAL', '', '', totalExpenses]);
+    expTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
+    expTotalRow.getCell(5).numFmt = currencyFmt;
+
+    // ── Sheet 6: Pagos (if any) ──
+    if (payments.length > 0) {
+      const ws6 = wb.addWorksheet('Pagos', { properties: { tabColor: { argb: '8E44AD' } } });
+      ws6.columns = [{ width: 10 }, { width: 15 }, { width: 35 }, { width: 18 }, { width: 20 }, { width: 15 }];
+      ws6.addRow(['# Pago', 'Fecha', 'Concepto', 'Monto', 'Factura', 'Estado']);
+      ws6.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+      payments.forEach((pay, i) => {
+        const row = ws6.addRow([
+          pay.payment_number || i + 1,
+          pay.payment_date ? new Date(pay.payment_date).toLocaleDateString('es-CO') : '',
+          pay.concept || '', parseFloat(pay.amount || 0),
+          pay.invoice_number || '', pay.status || ''
+        ]);
+        row.eachCell(c => { c.font = bodyFont; });
+        row.getCell(4).numFmt = currencyFmt;
+        if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+      });
+    }
+
+    // ── Sheet: Estado de Resultados (PUC) ──
+    let pucAccounts = [], deductions = [];
+    try { const [r] = await pool.execute('SELECT * FROM budget_puc_accounts WHERE project_id=? ORDER BY sort_order,cuenta', [pid]); pucAccounts = r; } catch {}
+    try { const [r] = await pool.execute('SELECT * FROM budget_deductions WHERE project_id=? ORDER BY sort_order', [pid]); deductions = r; } catch {}
+
+    const wsER = wb.addWorksheet('Estado de Resultados', { properties: { tabColor: { argb: '1B3A5C' } } });
+    wsER.columns = [{ width: 8 }, { width: 35 }, { width: 22 }];
+    
+    const titleFont = { bold: true, size: 12, name: 'Arial', color: { argb: 'FF1B3A5C' } };
+    const subtotalFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } };
+    const resultFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+    const greenFont = { bold: true, size: 11, name: 'Arial', color: { argb: 'FF27AE60' } };
+    const redFont = { bold: true, size: 11, name: 'Arial', color: { argb: 'FFE74C3C' } };
+
+    wsER.addRow(['', 'ESTADO DE RESULTADOS DEL PROYECTO', '']).font = titleFont;
+    wsER.addRow(['', p.name || '', '']);
+    wsER.addRow(['', `Código: ${p.code || ''}`, '']);
+    wsER.addRow([]);
+
+    wsER.addRow(['Nº Cuenta', 'Nombre', 'Total']).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+
+    // Ingresos
+    const ingresosSinIva = income.filter(r => !r.es_iva && !r.es_total_con_iva && r.tipo === 'ingreso').reduce((s, r) => s + parseFloat(r.value||0), 0);
+    const ivaTotal = income.filter(r => r.es_iva).reduce((s, r) => s + parseFloat(r.value||0), 0);
+    const totalConIva = ingresosSinIva + ivaTotal;
+
+    const r4 = wsER.addRow(['4', 'INGRESOS', totalConIva]);
+    r4.font = { bold: true, size: 11, name: 'Arial' }; r4.getCell(3).numFmt = currencyFmt; r4.eachCell(c => { c.fill = subtotalFill; });
+    const r41 = wsER.addRow(['41', 'Operacionales', totalConIva]);
+    r41.font = { bold: true, size: 10, name: 'Arial' }; r41.getCell(3).numFmt = currencyFmt;
+
+    // Gastos
+    const totalPayrollAll = parseFloat(payroll.reduce((s,i)=>s+parseFloat(i.costo_total||0),0));
+    const totalContractorsAll = parseFloat(contractors.reduce((s,i)=>s+parseFloat(i.costo_total||0),0));
+    const totalExpensesAll = parseFloat(expenses.reduce((s,i)=>s+parseFloat(i.valor_total||0),0));
+    const totalPucOnly = pucAccounts.filter(a=>a.cuenta.startsWith('5')&&!a.es_subtotal).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    const totalGastos = totalPucOnly + totalPayrollAll + totalContractorsAll + totalExpensesAll;
+
+    wsER.addRow([]);
+    const r5 = wsER.addRow(['5', 'GASTOS', totalGastos]);
+    r5.font = { bold: true, size: 11, name: 'Arial' }; r5.getCell(3).numFmt = currencyFmt; r5.eachCell(c => { c.fill = subtotalFill; });
+
+    // PUC sub-accounts
+    for (const a of pucAccounts) {
+      if (a.cuenta === '4' || a.cuenta === '41' || a.cuenta === '5') continue;
+      const val = parseFloat(a.valor || 0);
+      const row = wsER.addRow([a.cuenta, a.nombre, val]);
+      row.getCell(3).numFmt = currencyFmt;
+      row.eachCell(c => { c.font = bodyFont; });
+      if (a.es_subtotal) { row.font = { bold: true, size: 10, name: 'Arial' }; row.eachCell(c => { c.fill = subtotalFill; }); }
+    }
+
+    // Extra from budget tables
+    if (totalPayrollAll > 0) { const r = wsER.addRow(['', 'Nómina (detalle en hoja)', totalPayrollAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    if (totalContractorsAll > 0) { const r = wsER.addRow(['', 'Contratistas (detalle en hoja)', totalContractorsAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    if (totalExpensesAll > 0) { const r = wsER.addRow(['', 'Gastos operativos (detalle en hoja)', totalExpensesAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+
+    // Ganancia Contable
+    wsER.addRow([]);
+    const gc = totalConIva - totalGastos;
+    const rGC = wsER.addRow(['UC', 'GANANCIA CONTABLE (4-5)', gc]);
+    rGC.font = gc >= 0 ? greenFont : redFont; rGC.getCell(3).numFmt = currencyFmt; rGC.eachCell(c => { c.fill = resultFill; });
+
+    // Deductions
+    const retDed = deductions.filter(d => d.tipo === 'retencion');
+    const afDed = deductions.filter(d => d.tipo === 'activo_fijo');
+    const gncDed = deductions.filter(d => d.tipo === 'gnc');
+    const retTotal = retDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
+    const afTotal = afDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
+    const gncTotal = gncDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
+
+    for (const d of retDed) { const r = wsER.addRow(['R', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    for (const d of afDed) { const r = wsER.addRow(['AF', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+
+    const gd = gc - retTotal - afTotal;
+    wsER.addRow([]);
+    const rGD = wsER.addRow(['UD', 'GANANCIA DISTRIBUIBLE (4-5-R-AF)', gd]);
+    rGD.font = gd >= 0 ? greenFont : redFont; rGD.getCell(3).numFmt = currencyFmt; rGD.eachCell(c => { c.fill = resultFill; });
+
+    for (const d of gncDed) { const r = wsER.addRow(['GNC', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+
+    const gr = gd - gncTotal;
+    const rGR = wsER.addRow(['UR', 'GANANCIA REAL (4-5-GNC)', gr]);
+    rGR.font = gr >= 0 ? greenFont : redFont; rGR.getCell(3).numFmt = currencyFmt; rGR.eachCell(c => { c.fill = { type:'pattern',pattern:'solid',fgColor:{argb:'FF00FF00'} }; });
+
+    // Percentages
+    wsER.addRow([]);
+    wsER.addRow(['', 'GANANCIA CONTABLE (4-5)', totalConIva > 0 ? `${(gc/totalConIva*100).toFixed(2)}%` : '0%']);
+    wsER.addRow(['', 'GANANCIA DISTRIBUIBLE (4-5-R-AF)', totalConIva > 0 ? `${(gd/totalConIva*100).toFixed(2)}%` : '0%']);
+    wsER.addRow(['', 'GANANCIA REAL (4-5-GNC)', totalConIva > 0 ? `${(gr/totalConIva*100).toFixed(2)}%` : '0%']);
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const filename = `Presupuesto_${p.code || 'proyecto'}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('Export budget Excel error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══ HELPERS ═══
+
+function infoRow(label, value, borders, margins) {
+  const { TableRow, TableCell, Paragraph, TextRun, WidthType, ShadingType } = require('docx');
+  return new TableRow({ children: [
+    new TableCell({ borders, margins, width: { size: 3000, type: WidthType.DXA },
+      shading: { fill: "E8ECF0", type: ShadingType.CLEAR },
+      children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 20, font: "Arial", color: "333333" })] })]
+    }),
+    new TableCell({ borders, margins, width: { size: 7080, type: WidthType.DXA },
+      children: [new Paragraph({ children: [new TextRun({ text: value || '', size: 20, font: "Arial" })] })]
+    }),
+  ]});
+}
+
+function textCell(text, borders, margins, shading) {
+  const { TableCell, Paragraph, TextRun, WidthType } = require('docx');
+  const opts = { borders, margins, width: { size: 2520, type: WidthType.DXA },
+    children: [new Paragraph({ children: [new TextRun({ text: text || '', size: 20, font: "Arial" })] })] };
+  if (shading) opts.shading = shading;
+  return new TableCell(opts);
+}
+
+function parseContentToDocx(content, { Paragraph, TextRun, HeadingLevel, AlignmentType, LevelFormat }) {
+  const children = [];
+  const lines = content.split('\n');
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { children.push(new Paragraph({ spacing: { after: 80 } })); continue; }
+
+    // Headers
+    if (trimmed.startsWith('#### ')) {
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: [new TextRun(trimmed.slice(5))] }));
+    } else if (trimmed.startsWith('### ')) {
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: [new TextRun(trimmed.slice(4))] }));
+    } else if (trimmed.startsWith('## ')) {
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(trimmed.slice(3))] }));
+    } else if (trimmed.startsWith('# ')) {
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(trimmed.slice(2))] }));
+    }
+    // Horizontal rule
+    else if (trimmed === '---') {
+      children.push(new Paragraph({ border: { bottom: { style: require('docx').BorderStyle.SINGLE, size: 1, color: "CCCCCC" } }, spacing: { after: 200 } }));
+    }
+    // Bullet points
+    else if (/^[-–•]\s/.test(trimmed)) {
+      children.push(new Paragraph({
+        numbering: { reference: "bullets", level: 0 },
+        children: parseBoldItalic(trimmed.replace(/^[-–•]\s/, ''), TextRun)
+      }));
+    }
+    // Numbered list
+    else if (/^\d+\.\s/.test(trimmed)) {
+      children.push(new Paragraph({
+        numbering: { reference: "numbers", level: 0 },
+        children: parseBoldItalic(trimmed.replace(/^\d+\.\s/, ''), TextRun)
+      }));
+    }
+    // Normal paragraph
+    else {
+      children.push(new Paragraph({ spacing: { after: 100 }, children: parseBoldItalic(trimmed, TextRun) }));
+    }
+  }
+  return children;
+}
+
+function parseBoldItalic(text, TextRun) {
+  const runs = [];
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  for (const part of parts) {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      runs.push(new TextRun({ text: part.slice(2, -2), bold: true, size: 22, font: "Arial" }));
+    } else {
+      runs.push(new TextRun({ text: part, size: 22, font: "Arial" }));
+    }
+  }
+  return runs;
+}
+
+// ═══════════════════════════════════════════════
+// 4. EXPORT LIQUIDATION TO WORD (Professional)
+// ═══════════════════════════════════════════════
+router.get('/:projectId/liquidation/export-word', async (req, res) => {
+  try {
+    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun,
+            HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
+            Header, Footer, PageNumber, LevelFormat, PageBreak } = require('docx');
+
+    const pid = req.params.projectId;
+    const [liq] = await pool.execute('SELECT * FROM liquidation_records WHERE project_id=?', [pid]);
+    if (!liq.length) return res.status(404).json({ error: 'No hay acta de liquidación' });
+    const l = liq[0];
+
+    const [proj] = await pool.execute('SELECT name, code, contract_number, client_name, start_date, estimated_end_date, contract_value FROM projects WHERE id=?', [pid]);
+    const p = proj[0] || {};
+
+    // Colors
+    const DARK = '1B3A5C';
+    const ACCENT = '2E75B6';
+    const LIGHT = 'E8F0FE';
+    const WHITE = 'FFFFFF';
+    const GRAY = 'F8F9FA';
+
+    const border = { style: BorderStyle.SINGLE, size: 1, color: 'B0B8C4' };
+    const borders = { top: border, bottom: border, left: border, right: border };
+    const noBorder = { style: BorderStyle.NONE, size: 0 };
+    const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+    const cm = { top: 60, bottom: 60, left: 120, right: 120 };
+
+    const fmtM = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
+    const fmtD = d => d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+    const fmtPct = v => `${parseFloat(v || 0).toFixed(1)}%`;
+
+    // Helper: label-value row for info table
+    function infoRow(label, value, opts = {}) {
+      return new TableRow({ children: [
+        new TableCell({ borders: noBorders, width: { size: 3200, type: WidthType.DXA }, margins: { top: 40, bottom: 40, left: 120, right: 40 },
+          children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: '555555' })] })] }),
+        new TableCell({ borders: noBorders, width: { size: 6160, type: WidthType.DXA }, margins: { top: 40, bottom: 40, left: 40, right: 120 },
+          shading: opts.highlight ? { fill: LIGHT, type: ShadingType.CLEAR } : undefined,
+          children: [new Paragraph({ children: [new TextRun({ text: String(value || '—'), size: 20, font: 'Arial', bold: opts.bold, color: opts.color || '222222' })] })] }),
+      ]});
+    }
+
+    // Helper: financial table row
+    function finRow(label, value, opts = {}) {
+      return new TableRow({ children: [
+        new TableCell({ borders, width: { size: 5460, type: WidthType.DXA }, margins: cm,
+          shading: opts.header ? { fill: DARK, type: ShadingType.CLEAR } : opts.highlight ? { fill: LIGHT, type: ShadingType.CLEAR } : opts.alt ? { fill: GRAY, type: ShadingType.CLEAR } : undefined,
+          children: [new Paragraph({ children: [new TextRun({ text: label, bold: opts.header || opts.highlight, size: opts.header ? 19 : 20, font: 'Arial', color: opts.header ? WHITE : '222222' })] })] }),
+        new TableCell({ borders, width: { size: 3900, type: WidthType.DXA }, margins: cm,
+          shading: opts.header ? { fill: DARK, type: ShadingType.CLEAR } : opts.highlight ? { fill: LIGHT, type: ShadingType.CLEAR } : opts.alt ? { fill: GRAY, type: ShadingType.CLEAR } : undefined,
+          children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: opts.header ? value : fmtM(value), bold: opts.header || opts.highlight, size: opts.header ? 19 : 20, font: 'Arial', color: opts.header ? WHITE : opts.highlight ? ACCENT : '222222' })] })] }),
+      ]});
+    }
+
+    // Header image
+    let headerImg = null;
+    const imgPath = path.join(__dirname, '../../templates/acta_header.png');
+    if (fs.existsSync(imgPath)) {
+      headerImg = new ImageRun({ data: fs.readFileSync(imgPath), transformation: { width: 600, height: 192 }, type: 'png' });
+    }
+
+    // Balance info
+    const balance = parseFloat(l.balance_amount) || 0;
+    const balFavor = l.balance_in_favor_of === 'contratista' ? 'A favor del CONTRATISTA' : l.balance_in_favor_of === 'entidad' ? 'A favor de la ENTIDAD' : 'EN EQUILIBRIO';
+
+    const statusText = l.status === 'firmada' ? 'FIRMADA' : l.status === 'archivada' ? 'ARCHIVADA' : 'BORRADOR';
+
+    const doc = new Document({
+      styles: {
+        default: { document: { run: { font: 'Arial', size: 20 } } },
+        paragraphStyles: [
+          { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+            run: { size: 28, bold: true, font: 'Arial', color: DARK },
+            paragraph: { spacing: { before: 300, after: 150 }, outlineLevel: 0 } },
+          { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+            run: { size: 24, bold: true, font: 'Arial', color: ACCENT },
+            paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 } },
+        ]
+      },
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1200, right: 1200, bottom: 1200, left: 1200 },
+          },
+        },
+        headers: {
+          default: new Header({ children: [
+            ...(headerImg ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [headerImg] })] : []),
+          ]}),
+        },
+        footers: {
+          default: new Footer({ children: [
+            new Paragraph({ alignment: AlignmentType.CENTER, border: { top: { style: BorderStyle.SINGLE, size: 6, color: ACCENT, space: 8 } },
+              children: [
+                new TextRun({ text: `Acta de Liquidación — ${p.name || 'Proyecto'} — `, size: 16, color: '888888', font: 'Arial' }),
+                new TextRun({ text: `Estado: ${statusText}`, size: 16, color: '888888', font: 'Arial', bold: true }),
+                new TextRun({ text: '   |   Página ', size: 16, color: '888888', font: 'Arial' }),
+                new TextRun({ children: [PageNumber.CURRENT], size: 16, color: '888888', font: 'Arial' }),
+                new TextRun({ text: ' de ', size: 16, color: '888888', font: 'Arial' }),
+                new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 16, color: '888888', font: 'Arial' }),
+              ],
+            }),
+          ]}),
+        },
+        children: [
+          // ── TITLE ──
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 80 }, children: [
+            new TextRun({ text: 'ACTA DE LIQUIDACIÓN', bold: true, size: 32, font: 'Arial', color: DARK }),
+          ]}),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [
+            new TextRun({ text: `${l.liquidation_type === 'bilateral' ? 'BILATERAL' : l.liquidation_type === 'unilateral' ? 'UNILATERAL' : 'JUDICIAL'} DEL CONTRATO`, size: 22, font: 'Arial', color: ACCENT }),
+          ]}),
+
+          // ── 1. INFO GENERAL ──
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('1. INFORMACIÓN GENERAL')] }),
+          new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [3200, 6160], rows: [
+            infoRow('Contrato No.', p.contract_number || p.code),
+            infoRow('Proyecto', p.name),
+            infoRow('Entidad contratante', p.client_name || '—'),
+            infoRow('Tipo de liquidación', l.liquidation_type === 'bilateral' ? 'Bilateral' : l.liquidation_type === 'unilateral' ? 'Unilateral' : 'Judicial'),
+            infoRow('Fecha de liquidación', fmtD(l.liquidation_date)),
+            infoRow('Estado', statusText, { bold: true, color: l.status === 'firmada' ? '16a34a' : ACCENT }),
+          ]}),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // ── 2. PLAZOS Y EJECUCIÓN ──
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('2. PLAZOS Y EJECUCIÓN')] }),
+          new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [3200, 6160], rows: [
+            infoRow('Fecha inicio original', fmtD(l.original_start_date)),
+            infoRow('Fecha fin original', fmtD(l.original_end_date)),
+            infoRow('Fecha fin real', fmtD(l.actual_end_date)),
+            infoRow('Días de adición', String(l.total_additions_days || 0)),
+            infoRow('Días de suspensión', String(l.total_suspension_days || 0)),
+            infoRow('Ejecución física', fmtPct(l.physical_completion_pct), { highlight: true, bold: true }),
+          ]}),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // ── 3. BALANCE FINANCIERO ──
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('3. BALANCE FINANCIERO')] }),
+          new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [5460, 3900], rows: [
+            finRow('Concepto', 'Valor', { header: true }),
+            finRow('Valor original del contrato', l.original_value),
+            finRow('Valor adiciones', l.additions_value, { alt: true }),
+            finRow('Valor final del contrato', l.final_contract_value, { highlight: true }),
+            finRow('Total pagado', l.total_paid),
+            finRow('Retenciones acumuladas', l.total_retained, { alt: true }),
+            finRow('Liberación de retenciones', l.retention_release),
+          ]}),
+
+          new Paragraph({ spacing: { before: 120 } }),
+
+          // Saldo box
+          new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [9360], rows: [
+            new TableRow({ children: [
+              new TableCell({ borders, width: { size: 9360, type: WidthType.DXA }, margins: { top: 100, bottom: 100, left: 200, right: 200 },
+                shading: { fill: balance > 0 ? 'FEF3C7' : balance < 0 ? 'FEE2E2' : 'D1FAE5', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: [new TextRun({ text: 'SALDO DE LIQUIDACIÓN', bold: true, size: 20, font: 'Arial', color: '555555' })] }),
+                  new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: [new TextRun({ text: fmtM(balance), bold: true, size: 30, font: 'Arial', color: DARK })] }),
+                  new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: balFavor, size: 18, font: 'Arial', color: '666666', italics: true })] }),
+                ],
+              }),
+            ]}),
+          ]}),
+
+          new Paragraph({ spacing: { before: 200 } }),
+
+          // ── 4. OBLIGACIONES Y OBSERVACIONES ──
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('4. OBLIGACIONES PENDIENTES Y OBSERVACIONES')] }),
+
+          ...(l.pending_obligations ? [
+            new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('Obligaciones pendientes')] }),
+            ...l.pending_obligations.split('\n').filter(s => s.trim()).map(line =>
+              new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: line.trim(), size: 20, font: 'Arial' })] })
+            ),
+          ] : []),
+
+          ...(l.contractor_observations ? [
+            new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('Observaciones del contratista')] }),
+            ...l.contractor_observations.split('\n').filter(s => s.trim()).map(line =>
+              new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: line.trim(), size: 20, font: 'Arial' })] })
+            ),
+          ] : []),
+
+          ...(l.entity_observations ? [
+            new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('Observaciones de la entidad')] }),
+            ...l.entity_observations.split('\n').filter(s => s.trim()).map(line =>
+              new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: line.trim(), size: 20, font: 'Arial' })] })
+            ),
+          ] : []),
+
+          new Paragraph({ spacing: { before: 300 } }),
+
+          // ── 5. FIRMAS ──
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('5. FIRMAS')] }),
+          new Paragraph({ spacing: { after: 200 }, children: [new TextRun({ text: 'Las partes firman la presente acta de liquidación en señal de conformidad con su contenido:', size: 20, font: 'Arial', color: '555555' })] }),
+
+          new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [4680, 4680], rows: [
+            new TableRow({ children: [
+              new TableCell({ borders: noBorders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 40, bottom: 40, left: 120, right: 120 },
+                children: [
+                  new Paragraph({ spacing: { before: 400 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '333333' } }, children: [] }),
+                  new Paragraph({ spacing: { before: 60 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: l.signed_by_contractor || 'Por el Contratista', bold: true, size: 20, font: 'Arial' })] }),
+                  new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'CONTRATISTA', size: 16, font: 'Arial', color: '888888' })] }),
+                ],
+              }),
+              new TableCell({ borders: noBorders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 40, bottom: 40, left: 120, right: 120 },
+                children: [
+                  new Paragraph({ spacing: { before: 400 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '333333' } }, children: [] }),
+                  new Paragraph({ spacing: { before: 60 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: l.signed_by_entity || 'Por la Entidad', bold: true, size: 20, font: 'Arial' })] }),
+                  new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'ENTIDAD CONTRATANTE', size: 16, font: 'Arial', color: '888888' })] }),
+                ],
+              }),
+            ]}),
+          ]}),
+
+          new Paragraph({ spacing: { before: 300 }, alignment: AlignmentType.CENTER, children: [
+            new TextRun({ text: `Fecha de generación: ${new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}`, size: 16, font: 'Arial', color: 'AAAAAA', italics: true }),
+          ]}),
+        ],
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const filename = `Liquidacion_${p.code || pid}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Liquidation export error:', err);
+    res.status(500).json({ error: err.message || 'Error exportando liquidación' });
+  }
+});
+
+module.exports = router;

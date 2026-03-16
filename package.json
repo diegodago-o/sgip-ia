@@ -1,0 +1,26 @@
+{
+  "name": "sgip-ia",
+  "version": "1.0.0",
+  "description": "Sistema de Gestión Integral de Proyectos con IA",
+  "private": true,
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "db:init": "cd backend && node scripts/init-db.js",
+    "db:seed": "cd backend && node scripts/seed.js",
+    "db:migrate-m1": "cd backend && node scripts/migrate-m1.js",
+    "db:migrate-budget": "cd backend && node scripts/migrate-budget.js",
+    "db:seed-m1": "cd backend && node scripts/seed-m1.js",
+    "db:setup": "npm run db:init && npm run db:seed && npm run db:migrate-m1 && npm run db:seed-m1",
+    "db:migrate-correspondence": "cd backend && node scripts/migrate-correspondence.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "xlsx": "^0.18.5"
+  }
+}

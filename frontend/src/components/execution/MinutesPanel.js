@@ -1,0 +1,711 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { minutesAPI, exportsAPI } from '../../services/api';
+import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Download, Upload, Sparkles, Wand2 } from 'lucide-react';
+
+const MT = { comite_obra: 'Comité de obra', comite_seguimiento: 'Comité seguimiento', reunion_tecnica: 'Reunión técnica', reunion_financiera: 'Reunión financiera', otro: 'Otro' };
+const MS = { borrador: { l: 'Borrador', bg: 'bg-amber-100', t: 'text-amber-700' }, firmada: { l: 'Firmada', bg: 'bg-emerald-100', t: 'text-emerald-700' }, archivada: { l: 'Archivada', bg: 'bg-slate-100', t: 'text-slate-600' } };
+
+// Parse JSON safely - handles string, array, null, object
+function safeArr(v) {
+  if (Array.isArray(v)) return v;
+  if (!v) return [];
+  if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+  return [];
+}
+
+// ═══════════════════════════════════════
+// Minute Modal (create / edit / AI prefill)
+// ═══════════════════════════════════════
+function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
+  const isEdit = Boolean(item?.id);
+  const src = prefill || item || {};
+
+  const [form, setForm] = useState({
+    title: src.title || '',
+    minute_type: src.minute_type || 'comite_seguimiento',
+    meeting_date: (src.meeting_date || '').split('T')[0] || new Date().toISOString().split('T')[0],
+    location: src.location || '',
+    agenda: src.agenda || '',
+    discussions: src.discussions || '',
+    next_meeting_date: (src.next_meeting_date || '').split('T')[0] || '',
+    status: src.status || 'borrador',
+  });
+
+  const [attendees, setAttendees] = useState(safeArr(src.attendees));
+  const [agreements, setAgreements] = useState(safeArr(src.agreements));
+  const [actionItems, setActionItems] = useState(safeArr(src.action_items));
+  const [newAtt, setNewAtt] = useState('');
+  const [newAgr, setNewAgr] = useState('');
+  const [newAI, setNewAI] = useState({ task: '', responsible: '', due_date: '' });
+  const [saving, setSaving] = useState(false);
+
+  const set = f => e => setForm(d => ({ ...d, [f]: e.target.value }));
+  const addAtt = () => { if (newAtt.trim()) { setAttendees([...attendees, newAtt.trim()]); setNewAtt(''); } };
+  const addAgr = () => { if (newAgr.trim()) { setAgreements([...agreements, newAgr.trim()]); setNewAgr(''); } };
+  const addAI = () => { if (newAI.task.trim()) { setActionItems([...actionItems, { ...newAI }]); setNewAI({ task: '', responsible: '', due_date: '' }); } };
+
+  const handle = async e => {
+    e.preventDefault(); setSaving(true);
+    try {
+      const data = { ...form, attendees, agreements, action_items: actionItems };
+      if (isEdit) await minutesAPI.update(projectId, item.id, data);
+      else await minutesAPI.create(projectId, data);
+      onSaved();
+    } catch (err) { alert(err.response?.data?.error || 'Error'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-surface-100">
+          <div className="flex items-center gap-2">
+            <h3 className="font-display font-bold text-brand-900">{isEdit ? 'Editar' : prefill ? 'Revisar y Guardar' : 'Nueva'} Acta</h3>
+            {prefill && <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-[10px] font-semibold rounded-full">Generada con IA</span>}
+          </div>
+          <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
+        </div>
+        <form onSubmit={handle} className="p-5 space-y-3">
+          {prefill && (
+            <div className="p-2.5 bg-violet-50 border border-violet-100 rounded-lg text-xs text-violet-700">
+              Revise los datos extraídos por la IA. Puede editar cualquier campo antes de guardar.
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2"><label className="block text-xs font-medium text-brand-800 mb-1">Título *</label><input value={form.title} onChange={set('title')} required className="input-field text-sm" /></div>
+            <div><label className="block text-xs font-medium text-brand-800 mb-1">Tipo</label><select value={form.minute_type} onChange={set('minute_type')} className="input-field text-sm">{Object.entries(MT).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="block text-xs font-medium text-brand-800 mb-1">Fecha *</label><input type="date" value={form.meeting_date} onChange={set('meeting_date')} required className="input-field text-sm" /></div>
+            <div><label className="block text-xs font-medium text-brand-800 mb-1">Lugar</label><input value={form.location} onChange={set('location')} className="input-field text-sm" /></div>
+            <div><label className="block text-xs font-medium text-brand-800 mb-1">Próx. reunión</label><input type="date" value={form.next_meeting_date} onChange={set('next_meeting_date')} className="input-field text-sm" /></div>
+          </div>
+
+          {/* Attendees */}
+          <div className="p-3 bg-blue-50 rounded-lg space-y-2">
+            <p className="text-xs font-semibold text-blue-800 flex items-center gap-1"><Users className="w-3 h-3" /> Asistentes ({attendees.length})</p>
+            <div className="flex flex-wrap gap-1">{attendees.map((a, i) => <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white rounded text-xs text-blue-800">{typeof a === 'string' ? a : a.name || JSON.stringify(a)}<button type="button" onClick={() => setAttendees(attendees.filter((_, j) => j !== i))} className="text-blue-400 hover:text-red-500">×</button></span>)}</div>
+            <div className="flex gap-1"><input value={newAtt} onChange={e => setNewAtt(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addAtt())} className="input-field text-xs flex-1" placeholder="Nombre..." /><button type="button" onClick={addAtt} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">+</button></div>
+          </div>
+
+          <div><label className="block text-xs font-medium text-brand-800 mb-1">Agenda</label><textarea value={form.agenda} onChange={set('agenda')} className="input-field text-sm min-h-[50px] resize-y" /></div>
+          <div><label className="block text-xs font-medium text-brand-800 mb-1">Discusiones</label><textarea value={form.discussions} onChange={set('discussions')} className="input-field text-sm min-h-[80px] resize-y" /></div>
+
+          {/* Agreements */}
+          <div className="p-3 bg-emerald-50 rounded-lg space-y-2">
+            <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1"><CheckSquare className="w-3 h-3" /> Acuerdos ({agreements.length})</p>
+            <div className="space-y-1">{agreements.map((a, i) => <div key={i} className="flex items-center gap-1 text-xs text-emerald-800"><span className="flex-1 bg-white px-2 py-1 rounded">{typeof a === 'string' ? a : JSON.stringify(a)}</span><button type="button" onClick={() => setAgreements(agreements.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-sm">×</button></div>)}</div>
+            <div className="flex gap-1"><input value={newAgr} onChange={e => setNewAgr(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addAgr())} className="input-field text-xs flex-1" placeholder="Nuevo acuerdo..." /><button type="button" onClick={addAgr} className="px-2 py-1 bg-emerald-600 text-white rounded text-xs">+</button></div>
+          </div>
+
+          {/* Action Items */}
+          <div className="p-3 bg-amber-50 rounded-lg space-y-2">
+            <p className="text-xs font-semibold text-amber-800">Compromisos ({actionItems.length})</p>
+            <div className="space-y-1">{actionItems.map((a, i) => <div key={i} className="flex items-center gap-2 text-xs bg-white p-2 rounded"><span className="flex-1 font-medium">{a.task}</span>{a.responsible && <span className="text-surface-400">{a.responsible}</span>}{a.due_date && <span className="text-surface-400">{a.due_date}</span>}<button type="button" onClick={() => setActionItems(actionItems.filter((_, j) => j !== i))} className="text-red-400">×</button></div>)}</div>
+            <div className="grid grid-cols-5 gap-1"><input value={newAI.task} onChange={e => setNewAI({ ...newAI, task: e.target.value })} className="input-field text-xs col-span-2" placeholder="Tarea..." /><input value={newAI.responsible} onChange={e => setNewAI({ ...newAI, responsible: e.target.value })} className="input-field text-xs" placeholder="Responsable" /><input type="date" value={newAI.due_date} onChange={e => setNewAI({ ...newAI, due_date: e.target.value })} className="input-field text-xs" /><button type="button" onClick={addAI} className="px-2 py-1 bg-amber-600 text-white rounded text-xs">+</button></div>
+          </div>
+
+          {isEdit && <div><label className="block text-xs font-medium text-brand-800 mb-1">Estado</label><select value={form.status} onChange={set('status')} className="input-field text-sm">{Object.entries(MS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}</select></div>}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
+            <button type="submit" disabled={saving} className="btn-primary text-sm flex items-center gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {isEdit ? 'Guardar' : prefill ? 'Guardar Acta' : 'Crear'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+// Auto-Generate Modal (extract with AI)
+// ═══════════════════════════════════════
+function AutoGenerateModal({ projectId, onClose, onExtracted }) {
+  const [file, setFile] = useState(null);
+  const [pasteText, setPasteText] = useState('');
+  const [inputMode, setInputMode] = useState('file');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  const handleGenerate = async () => {
+    if (inputMode === 'file' && !file) return setError('Seleccione el archivo de transcripción');
+    if (inputMode === 'paste' && pasteText.trim().length < 30) return setError('Pegue la transcripción completa (mín. 30 caracteres)');
+
+    setGenerating(true); setError('');
+    try {
+      const provider = localStorage.getItem('sgip_ai_provider') || 'openai';
+      const apiKey = localStorage.getItem('sgip_ai_key') || '';
+      const model = localStorage.getItem('sgip_ai_model') || '';
+
+      const fd = new FormData();
+      if (inputMode === 'file') fd.append('transcript', file);
+      else fd.append('transcript_text', pasteText);
+      fd.append('provider', provider);
+      if (apiKey) fd.append('api_key', apiKey);
+      if (model) fd.append('model', model);
+
+      const res = await minutesAPI.autoGenerate(projectId, fd);
+      // Success — pass extracted data to parent to open prefilled form
+      onExtracted(res.data.data);
+    } catch (e) {
+      const errData = e.response?.data;
+      let msg = errData?.error || e.message;
+      if (errData?.raw_preview) msg += `\n\nRespuesta parcial de la IA:\n${errData.raw_preview}`;
+      if (errData?.hint) msg += `\n\n${errData.hint}`;
+      if (errData?.extracted_length !== undefined) msg += `\n\n(Texto extraído: ${errData.extracted_length} caracteres)`;
+      setError(msg);
+    } finally { setGenerating(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-surface-100">
+          <div className="flex items-center gap-2">
+            <Wand2 className="w-5 h-5 text-violet-500" />
+            <h3 className="font-display font-bold text-brand-900">Generar Acta con IA</h3>
+          </div>
+          <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="p-3 bg-violet-50 border border-violet-100 rounded-lg">
+            <p className="text-xs text-violet-800 leading-relaxed">
+              Suba la transcripción de Teams (.vtt, .txt, .docx) o pegue el texto. La IA extraerá asistentes, temas, acuerdos y compromisos para que los revise antes de guardar.
+            </p>
+          </div>
+
+          {/* Input mode toggle */}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setInputMode('file')}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-colors
+                ${inputMode === 'file' ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-surface-200 text-surface-400 hover:bg-surface-50'}`}>
+              <Upload className="w-4 h-4" /> Subir archivo
+            </button>
+            <button type="button" onClick={() => setInputMode('paste')}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-colors
+                ${inputMode === 'paste' ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-surface-200 text-surface-400 hover:bg-surface-50'}`}>
+              <FileText className="w-4 h-4" /> Pegar texto
+            </button>
+          </div>
+
+          {/* File upload */}
+          {inputMode === 'file' && (
+            <div onClick={() => fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors
+                ${file ? 'border-violet-300 bg-violet-50' : 'border-surface-200 hover:border-violet-300 hover:bg-violet-50/50'}`}>
+              <input ref={fileRef} type="file" accept=".vtt,.txt,.docx,.doc,.md" className="hidden"
+                onChange={e => { setFile(e.target.files[0]); setError(''); }} />
+              {file ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FileText className="w-5 h-5 text-violet-500" />
+                  <span className="text-sm font-medium text-violet-700">{file.name}</span>
+                  <span className="text-xs text-violet-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                  <button type="button" onClick={e => { e.stopPropagation(); setFile(null); }} className="text-red-400 hover:text-red-600 ml-2">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Upload className="w-8 h-8 text-surface-300 mx-auto mb-2" />
+                  <p className="text-sm text-surface-500">Haga clic para seleccionar la transcripción</p>
+                  <p className="text-[10px] text-surface-400 mt-1">Formatos: .vtt, .txt, .docx</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Paste text */}
+          {inputMode === 'paste' && (
+            <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setError(''); }}
+              className="input-field text-xs min-h-[180px] resize-y font-mono"
+              placeholder={'Pegue aquí el contenido completo de la transcripción de Teams...\n\nEjemplo formato VTT:\nWEBVTT\n\n1\n00:00:00.000 --> 00:00:05.000\n<v Juan Pérez>Buenos días, vamos a iniciar la reunión</v>\n\nEjemplo formato texto:\nJuan Pérez   0:00\nBuenos días, vamos a iniciar la reunión'} />
+          )}
+
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 whitespace-pre-wrap max-h-40 overflow-y-auto">{error}</div>}
+
+          {generating && (
+            <div className="flex items-center gap-3 p-3 bg-violet-50 border border-violet-100 rounded-lg">
+              <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+              <div>
+                <p className="text-sm font-medium text-violet-700">Analizando transcripción con IA...</p>
+                <p className="text-xs text-violet-500">Extrayendo asistentes, temas, acuerdos y compromisos</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
+            <button type="button" onClick={handleGenerate} disabled={generating}
+              className="btn-primary text-sm flex items-center gap-2 bg-violet-600 hover:bg-violet-700">
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {generating ? 'Procesando...' : 'Generar Acta con IA'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+// Create Mode Selector
+// ═══════════════════════════════════════
+function CreateModeModal({ onManual, onAutomatic, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-surface-100">
+          <h3 className="font-display font-bold text-brand-900">Nueva Acta</h3>
+          <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-surface-500 mb-2">Seleccione cómo desea crear el acta:</p>
+          <button onClick={onManual}
+            className="w-full p-4 rounded-xl border-2 border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 transition-all text-left group">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center group-hover:bg-brand-200 transition-colors">
+                <Edit2 className="w-5 h-5 text-brand-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-brand-900 text-sm">Manual</p>
+                <p className="text-xs text-surface-400">Escribir el acta manualmente en el formulario</p>
+              </div>
+            </div>
+          </button>
+          <button onClick={onAutomatic}
+            className="w-full p-4 rounded-xl border-2 border-violet-200 hover:border-violet-400 hover:bg-violet-50/50 transition-all text-left group">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center group-hover:bg-violet-200 transition-colors">
+                <Wand2 className="w-5 h-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-violet-900 text-sm">Automática con IA</p>
+                <p className="text-xs text-surface-400">Subir transcripción de Teams y generar con ChatGPT</p>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+// Main Panel
+// ═══════════════════════════════════════
+// ═══ Commitment Edit Modal ═══
+function CommitmentEditModal({ commitment, teamMembers, onSave, onClose }) {
+  const [form, setForm] = useState({
+    status: commitment.status || 'pendiente',
+    responsible: commitment.responsible || '',
+    due_date: commitment.due_date ? commitment.due_date.split('T')[0] : '',
+    start_date: commitment.start_date ? commitment.start_date.split('T')[0] : '',
+    completed_date: commitment.completed_date ? commitment.completed_date.split('T')[0] : '',
+    evidence: commitment.evidence || '',
+    notes: commitment.notes || '',
+    priority: commitment.priority || 'media',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (f) => (e) => setForm(prev => ({ ...prev, [f]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await onSave(form); } finally { setSaving(false); }
+  };
+
+  const statusOpts = [
+    { val: 'pendiente', label: 'Pendiente', color: 'bg-amber-100 text-amber-700' },
+    { val: 'en_progreso', label: 'En progreso', color: 'bg-blue-100 text-blue-700' },
+    { val: 'completado', label: 'Completado', color: 'bg-emerald-100 text-emerald-700' },
+    { val: 'cancelado', label: 'Cancelado', color: 'bg-surface-100 text-surface-500' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-surface-100">
+          <div>
+            <h3 className="font-display font-bold text-brand-900">Gestionar Compromiso</h3>
+            <p className="text-[10px] text-surface-400 mt-0.5">Acta #{commitment.minute_number}</p>
+          </div>
+          <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Task (read-only) */}
+          <div className="p-3 bg-surface-50 rounded-lg">
+            <p className="text-xs font-medium text-brand-800 mb-1">Compromiso</p>
+            <p className="text-sm text-brand-900">{commitment.task}</p>
+          </div>
+
+          {/* Status */}
+          <div>
+            <p className="text-xs font-medium text-brand-800 mb-1.5">Estado</p>
+            <div className="flex gap-1.5 flex-wrap">
+              {statusOpts.map(s => (
+                <button key={s.val} onClick={() => setForm(p => ({ ...p, status: s.val }))}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 transition-all ${form.status === s.val ? `${s.color} border-current` : 'bg-white border-surface-200 text-surface-400'}`}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Responsible */}
+          <div>
+            <p className="text-xs font-medium text-brand-800 mb-1">Responsable</p>
+            {teamMembers.length > 0 ? (
+              <select value={form.responsible} onChange={set('responsible')} className="input-field text-sm w-full">
+                <option value="">— Seleccionar —</option>
+                {teamMembers.map(t => (
+                  <option key={t.id} value={t.member_name || t.full_name}>{t.member_name || t.full_name} ({t.role_in_project || t.cargo})</option>
+                ))}
+                {form.responsible && !teamMembers.find(t => (t.member_name || t.full_name) === form.responsible) && (
+                  <option value={form.responsible}>{form.responsible} (externo)</option>
+                )}
+              </select>
+            ) : (
+              <input value={form.responsible} onChange={set('responsible')} className="input-field text-sm w-full" placeholder="Nombre del responsable" />
+            )}
+          </div>
+
+          {/* Priority */}
+          <div>
+            <p className="text-xs font-medium text-brand-800 mb-1.5">Prioridad</p>
+            <div className="flex gap-1.5">
+              {[{val:'alta',l:'Alta',c:'bg-red-100 text-red-700'},{val:'media',l:'Media',c:'bg-amber-100 text-amber-700'},{val:'baja',l:'Baja',c:'bg-blue-100 text-blue-700'}].map(p => (
+                <button key={p.val} onClick={() => setForm(prev => ({ ...prev, priority: p.val }))}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 transition-all ${form.priority === p.val ? `${p.c} border-current` : 'bg-white border-surface-200 text-surface-400'}`}>
+                  {p.l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-medium text-brand-800 mb-1">Fecha límite</p>
+              <input type="date" value={form.due_date} onChange={set('due_date')} className="input-field text-sm w-full" />
+            </div>
+            {form.status === 'completado' && (
+              <div>
+                <p className="text-xs font-medium text-brand-800 mb-1">Fecha cumplimiento</p>
+                <input type="date" value={form.completed_date} onChange={set('completed_date')} className="input-field text-sm w-full" />
+              </div>
+            )}
+          </div>
+
+          {/* Evidence */}
+          <div>
+            <p className="text-xs font-medium text-brand-800 mb-1">Evidencia de cumplimiento</p>
+            <input value={form.evidence} onChange={set('evidence')} className="input-field text-sm w-full"
+              placeholder="Ej: Correo enviado 12/mar, acta firmada, entregable aprobado..." />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <p className="text-xs font-medium text-brand-800 mb-1">Notas de seguimiento</p>
+            <textarea value={form.notes} onChange={set('notes')} className="input-field text-sm w-full min-h-[60px] resize-y"
+              placeholder="Observaciones, avances parciales, bloqueos..." />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t border-surface-100">
+          <button onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary text-sm flex items-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MinutesPanel({ projectId, perms = {} }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [view, setView] = useState('actas'); // 'actas' | 'compromisos'
+  const [editingCommitment, setEditingCommitment] = useState(null); // { minute_id, index, ...data }
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [cFilter, setCFilter] = useState('todos'); // todos | pendientes | vencidos | completados
+
+  const load = useCallback(async () => {
+    try {
+      const r = await minutesAPI.list(projectId);
+      const data = (r.data.data || []).map(m => ({
+        ...m,
+        attendees: safeArr(m.attendees),
+        agreements: safeArr(m.agreements),
+        action_items: safeArr(m.action_items),
+      }));
+      setItems(data);
+    } catch {} finally { setLoading(false); }
+  }, [projectId]);
+
+  // Load team members for responsible dropdown
+  const loadTeam = useCallback(async () => {
+    try {
+      const { teamAPI } = await import('../../services/api');
+      const r = await teamAPI.list(projectId);
+      setTeamMembers(r.data.data || []);
+    } catch {}
+  }, [projectId]);
+
+  useEffect(() => { setLoading(true); load(); }, [load]);
+  useEffect(() => { loadTeam(); }, [loadTeam]);
+  const showToast = m => { setToast(m); setTimeout(() => setToast(null), 2500); };
+  const del = async (id) => { if (!window.confirm('¿Eliminar acta?')) return; await minutesAPI.delete(projectId, id); showToast('Eliminada'); load(); };
+  const handleAIExtracted = (data) => { setModal({ prefill: data }); };
+
+  // ═══ Extract commitments from loaded actas ═══
+  const allCommitments = [];
+  for (const m of items) {
+    const ai = safeArr(m.action_items);
+    ai.forEach((item, idx) => {
+      const isDone = item.completed || item.status === 'completado';
+      allCommitments.push({
+        minute_id: m.id,
+        minute_number: m.minute_number,
+        meeting_date: m.meeting_date,
+        index: idx,
+        task: item.task || item.description || item.text || '',
+        responsible: item.responsible || item.responsable || '',
+        due_date: item.due_date || item.fecha || null,
+        start_date: item.start_date || null,
+        status: item.status || (isDone ? 'completado' : 'pendiente'),
+        completed: isDone,
+        notes: item.notes || item.notas || '',
+        evidence: item.evidence || '',
+        completed_date: item.completed_date || null,
+        priority: item.priority || 'media',
+      });
+    });
+  }
+
+  const now = new Date();
+  const cStats = {
+    total: allCommitments.length,
+    completed: allCommitments.filter(i => i.completed).length,
+    pending: allCommitments.filter(i => !i.completed).length,
+    overdue: allCommitments.filter(i => !i.completed && i.due_date && new Date(i.due_date) < now).length,
+  };
+
+  // Filter
+  const filtered = allCommitments.filter(c => {
+    if (cFilter === 'pendientes') return !c.completed;
+    if (cFilter === 'vencidos') return !c.completed && c.due_date && new Date(c.due_date) < now;
+    if (cFilter === 'completados') return c.completed;
+    return true;
+  });
+
+  const updateCommitment = async (minuteId, index, updates) => {
+    try {
+      const acta = items.find(m => m.id === minuteId);
+      if (!acta) return;
+      const ai = [...safeArr(acta.action_items)];
+      if (index >= ai.length) return;
+
+      // Merge ALL updates into the item
+      Object.keys(updates).forEach(k => {
+        if (updates[k] !== undefined) ai[index][k] = updates[k];
+      });
+
+      // Auto-set completed flag
+      if (updates.status === 'completado') {
+        ai[index].completed = true;
+        if (!ai[index].completed_date) ai[index].completed_date = now.toISOString().split('T')[0];
+      } else if (updates.status === 'pendiente' || updates.status === 'en_progreso') {
+        ai[index].completed = false;
+        ai[index].completed_date = null;
+      }
+
+      await minutesAPI.update(projectId, minuteId, { action_items: ai });
+      showToast('Compromiso actualizado');
+      setEditingCommitment(null);
+      load();
+    } catch (e) { showToast('Error: ' + (e.response?.data?.error || e.message)); }
+  };
+
+  if (loading) return <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {toast && <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-slide-up bg-emerald-600 text-white">{toast}</div>}
+
+      {/* View toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 bg-surface-100 rounded-lg p-0.5">
+          <button onClick={() => setView('actas')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-all ${view === 'actas' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>
+            Actas ({items.length})
+          </button>
+          <button onClick={() => setView('compromisos')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-all ${view === 'compromisos' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>
+            Compromisos {cStats.total > 0 ? `(${cStats.pending} pendientes)` : ''}
+          </button>
+        </div>
+        {view === 'actas' && perms.canCreate && <button onClick={() => setModal('choose')} className="btn-primary text-sm flex items-center gap-1.5"><Plus className="w-4 h-4" /> Nueva Acta</button>}
+      </div>
+
+      {/* ═══ COMMITMENTS VIEW ═══ */}
+      {view === 'compromisos' && (
+        <div className="space-y-3">
+          {allCommitments.length === 0 ? <p className="text-center py-8 text-surface-400 text-sm">Sin compromisos registrados. Cree un acta con compromisos primero.</p> : (
+            <>
+              {/* Stats */}
+              <div className="grid grid-cols-4 gap-2">
+                <button onClick={() => setCFilter('todos')} className={`p-2.5 rounded-lg text-center transition-colors ${cFilter === 'todos' ? 'ring-2 ring-brand-400' : ''} bg-surface-50`}><p className="text-lg font-bold text-brand-700">{cStats.total}</p><p className="text-[10px] text-surface-400">Total</p></button>
+                <button onClick={() => setCFilter('completados')} className={`p-2.5 rounded-lg text-center transition-colors ${cFilter === 'completados' ? 'ring-2 ring-emerald-400' : ''} bg-emerald-50`}><p className="text-lg font-bold text-emerald-600">{cStats.completed}</p><p className="text-[10px] text-emerald-500">Completados</p></button>
+                <button onClick={() => setCFilter('pendientes')} className={`p-2.5 rounded-lg text-center transition-colors ${cFilter === 'pendientes' ? 'ring-2 ring-amber-400' : ''} bg-amber-50`}><p className="text-lg font-bold text-amber-600">{cStats.pending}</p><p className="text-[10px] text-amber-500">Pendientes</p></button>
+                <button onClick={() => setCFilter('vencidos')} className={`p-2.5 rounded-lg text-center transition-colors ${cFilter === 'vencidos' ? 'ring-2 ring-red-400' : ''} bg-red-50`}><p className="text-lg font-bold text-red-600">{cStats.overdue}</p><p className="text-[10px] text-red-500">Vencidos</p></button>
+              </div>
+
+              <p className="text-[10px] text-surface-400">{filtered.length} compromiso{filtered.length !== 1 ? 's' : ''} {cFilter !== 'todos' ? `(filtro: ${cFilter})` : ''}</p>
+
+              {/* Items list */}
+              <div className="space-y-1.5">
+                {filtered.map((c, i) => {
+                  const isDone = c.completed;
+                  const isOverdue = !isDone && c.due_date && new Date(c.due_date) < now;
+                  const daysLeft = c.due_date && !isDone ? Math.ceil((new Date(c.due_date) - now) / 86400000) : null;
+                  return (
+                    <div key={`${c.minute_id}-${c.index}`}
+                      className={`bg-white border rounded-lg p-3 transition-colors ${isDone ? 'border-emerald-200 bg-emerald-50/30' : isOverdue ? 'border-red-200 bg-red-50/30' : 'border-surface-100 hover:border-surface-200'}`}>
+                      <div className="flex items-start gap-3">
+                        {/* Toggle checkbox */}
+                        <button onClick={() => updateCommitment(c.minute_id, c.index, { status: isDone ? 'pendiente' : 'completado' })}
+                          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500' : isOverdue ? 'border-red-400 hover:bg-red-50' : 'border-surface-300 hover:border-brand-400'}`}>
+                          {isDone && <CheckSquare className="w-3 h-3 text-white" />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm ${isDone ? 'line-through text-surface-400' : 'text-brand-900'}`}>{c.task}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-surface-400">
+                            <span className="bg-surface-100 px-1.5 py-0.5 rounded">Acta #{c.minute_number}</span>
+                            {c.responsible && <span className="font-medium text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">→ {c.responsible}</span>}
+                            {c.due_date && (
+                              <span className={`px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-100 text-red-600 font-semibold' : daysLeft !== null && daysLeft <= 7 ? 'bg-amber-100 text-amber-600' : 'bg-surface-100'}`}>
+                                📅 {new Date(c.due_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                {isOverdue && ` (${Math.abs(daysLeft)}d vencido)`}
+                                {!isOverdue && daysLeft !== null && daysLeft <= 7 && daysLeft > 0 && ` (${daysLeft}d restante${daysLeft !== 1 ? 's' : ''})`}
+                              </span>
+                            )}
+                            {!c.due_date && !isDone && <span className="bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded italic">Sin fecha límite</span>}
+                            {isDone && c.completed_date && <span className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">✓ Completado {new Date(c.completed_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}</span>}
+                          </div>
+                          {c.evidence && <p className="text-[10px] text-emerald-600 mt-1">📎 {c.evidence}</p>}
+                          {c.notes && <p className="text-[10px] text-surface-400 mt-1 italic">💬 {c.notes}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* Status badge */}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            isDone ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                          }`}>{isDone ? 'Completado' : isOverdue ? 'Vencido' : c.status === 'en_progreso' ? 'En progreso' : 'Pendiente'}</span>
+                          {/* Edit button */}
+                          {perms.canEdit && <button onClick={() => setEditingCommitment({...c})}
+                            className="w-6 h-6 rounded hover:bg-surface-100 flex items-center justify-center ml-1">
+                            <Edit2 className="w-3 h-3 text-surface-400" />
+                          </button>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* ═══ EDIT COMMITMENT MODAL ═══ */}
+          {editingCommitment && (
+            <CommitmentEditModal
+              commitment={editingCommitment}
+              teamMembers={teamMembers}
+              onSave={(updates) => updateCommitment(editingCommitment.minute_id, editingCommitment.index, updates)}
+              onClose={() => setEditingCommitment(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ═══ ACTAS VIEW ═══ */}
+      {view === 'actas' && (<>
+      {items.length === 0 ? <p className="text-center py-8 text-surface-400 text-sm">Sin actas registradas</p> :
+        <div className="space-y-2">{items.map(m => {
+          const s = MS[m.status] || MS.borrador;
+          const att = m.attendees || [];
+          const agr = m.agreements || [];
+          const ai = m.action_items || [];
+          return (
+            <div key={m.id} className="group bg-white border border-surface-100 rounded-lg p-4 hover:border-surface-200 transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-xs text-brand-500 font-semibold">Acta #{m.minute_number}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.bg} ${s.t}`}>{s.l}</span>
+                    <span className="text-[10px] text-surface-400">{MT[m.minute_type] || m.minute_type}</span>
+                  </div>
+                  <p className="text-sm font-medium text-brand-900">{m.title}</p>
+                  <p className="text-xs text-surface-400 mt-0.5">{new Date(m.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })} {m.location ? `· ${m.location}` : ''}</p>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {perms.canEdit && <button onClick={() => setModal(m)} className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center"><Edit2 className="w-3.5 h-3.5 text-surface-400" /></button>}
+                  <button onClick={async () => { try { const r = await exportsAPI.minuteToWord(projectId, m.id); const url = URL.createObjectURL(new Blob([r.data])); const a = document.createElement('a'); a.href = url; a.download = `Acta_${m.minute_number || m.id}.docx`; a.click(); URL.revokeObjectURL(url); } catch (e) { alert('Error exportando: ' + e.message); } }} className="w-7 h-7 rounded hover:bg-blue-50 flex items-center justify-center" title="Descargar Word"><Download className="w-3.5 h-3.5 text-blue-500" /></button>
+                  {perms.canDelete && <button onClick={() => del(m.id)} className="w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>}
+                </div>
+              </div>
+              <div className="flex gap-4 mt-2 text-[10px] text-surface-400">
+                {att.length > 0 && <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {att.length} asistentes</span>}
+                {agr.length > 0 && <span className="flex items-center gap-1"><CheckSquare className="w-3 h-3" /> {agr.length} acuerdos</span>}
+                {ai.length > 0 && <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {ai.length} compromisos</span>}
+              </div>
+            </div>
+          );
+        })}</div>}
+
+      {/* Mode chooser */}
+      {modal === 'choose' && (
+        <CreateModeModal
+          onManual={() => setModal('manual')}
+          onAutomatic={() => setModal('auto')}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {/* Manual create */}
+      {modal === 'manual' && (
+        <MinuteModal item={null} projectId={projectId}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); showToast('Acta creada'); load(); }} />
+      )}
+
+      {/* Auto-generate (extraction step) */}
+      {modal === 'auto' && (
+        <AutoGenerateModal projectId={projectId}
+          onClose={() => setModal(null)}
+          onExtracted={handleAIExtracted} />
+      )}
+
+      {/* AI prefilled form (review before save) */}
+      {modal?.prefill && (
+        <MinuteModal prefill={modal.prefill} projectId={projectId}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); showToast('Acta generada con IA y guardada'); load(); }} />
+      )}
+
+      {/* Edit existing */}
+      {modal && modal.id && !modal.prefill && (
+        <MinuteModal item={modal} projectId={projectId}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); showToast('Acta actualizada'); load(); }} />
+      )}
+      </>)}
+    </div>
+  );
+}

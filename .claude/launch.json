@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend (Express API)",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npm run dev"],
+      "cwd": "C:\\Users\\asus\\OneDrive - Tecnofactory S.A.S\\Documents\\sgip-ia\\backend",
+      "port": 4000,
+      "autoPort": false
+    },
+    {
+      "name": "Frontend (React)",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PORT=3001 && npm start"],
+      "cwd": "C:\\Users\\asus\\OneDrive - Tecnofactory S.A.S\\Documents\\sgip-ia\\frontend",
+      "port": 3001,
+      "autoPort": false
+    }
+  ]
+}

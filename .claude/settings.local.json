@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":4000 \\\\|:3000 \")",
+      "Bash(tasklist /FI \"PID eq 25180\")",
+      "Bash(powershell -command \"Get-Process -Id 25180 | Select-Object Id, ProcessName, Path\")",
+      "Bash(findstr \":3000 \")",
+      "Bash(powershell -command \"Get-Process -Id 4 | Select-Object Id, ProcessName, Path\")",
+      "Bash(findstr \":3001 \\\\|:3002 \")",
+      "Bash(findstr \":3002 \")",
+      "Bash(where npm:*)",
+      "Bash(powershell -command \"Get-Service | Where-Object {$_Name -like ''*mysql*'' -or $_DisplayName -like ''*mysql*''} | Select-Object Name, DisplayName, Status\")",
+      "Bash(mysql -u root -proot -e \"SHOW DATABASES;\")",
+      "Bash(powershell -command \"Invoke-RestMethod -Uri ''http://localhost:4000/api/health'' -Method Get | ConvertTo-Json\")",
+      "Bash(powershell -command \"try { Invoke-RestMethod -Uri ''http://localhost:4000/api/auth/login'' -Method Post -ContentType ''application/json'' -Body ''{\"\"email\"\":\"\"admin@sgip-ia.com\"\",\"\"password\"\":\"\"admin123\"\"}'' | ConvertTo-Json } catch { $_Exception.Response.StatusCode.value__; $_ErrorDetails.Message }\")",
+      "Bash(powershell -command \"netsh http show urlacl | Select-String ''3000''\")",
+      "Bash(powershell -command \"netsh interface ipv4 show excludedportrange protocol=tcp | Select-String ''3000''\")",
+      "Bash(findstr \":3001 \\\\|:3002 \\\\|:3003 \")",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(powershell -command \"try { Invoke-RestMethod -Uri ''http://localhost:4000/api/health'' } catch { ''FAILED: '' + $_Exception.Message }\")",
+      "Bash(curl -s http://localhost:4000/api/health)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(node scripts/migrate-committee-commitments.js)",
+      "Bash(node -e \"require\\(''''./src/server.js''''\\)\")",
+      "Bash(timeout 5)",
+      "Bash(ping -n 4 127.0.0.1)",
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d \"{\"\"email\"\":\"\"admin@sgip-ia.com\"\",\"\"password\"\":\"\"admin123\"\"}\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\(''''token'''',''''NO TOKEN''''\\)[:60]\\)\")",
+      "Bash(node -e \"const pool=require\\(''./src/config/database''\\); pool.execute\\(''DESCRIBE users''\\).then\\(\\([r]\\)=>{r.forEach\\(c=>console.log\\(c.Field\\)\\); process.exit\\(0\\)}\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
+      "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia/backend' -name *.sql -o -name *migration*)",
+      "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia' -type f \\\\\\(-name *.sql -o -name schema* -o -name *init* \\\\\\))",
+      "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia\\\\frontend\\\\src' -name *Execution* -o -name *execution*)",
+      "Bash(node scripts/migrate-correspondence.js)"
+    ]
+  }
+}

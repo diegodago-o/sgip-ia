@@ -1,0 +1,730 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import api from '../../services/api';
+import {
+  Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
+  ChevronRight, Search, Filter, FileText, Clock,
+  CheckCircle, Send, Archive, RotateCcw, AlertCircle,
+} from 'lucide-react';
+
+// ─── Constantes ──────────────────────────────────────────────────────────────
+const TYPES = [
+  { value: 'oficio',           label: 'Oficio' },
+  { value: 'circular',         label: 'Circular' },
+  { value: 'memorando',        label: 'Memorando' },
+  { value: 'comunicado',       label: 'Comunicado' },
+  { value: 'carta',            label: 'Carta' },
+  { value: 'radicado',         label: 'Radicado' },
+  { value: 'derecho_peticion', label: 'Derecho de Petición' },
+];
+
+const STATUS_CONFIG = {
+  borrador:    { label: 'Borrador',   color: 'bg-surface-100 text-surface-600', icon: FileText },
+  radicado:    { label: 'Radicado',   color: 'bg-blue-100 text-blue-700',       icon: CheckCircle },
+  enviado:     { label: 'Enviado',    color: 'bg-brand-100 text-brand-700',     icon: Send },
+  recibido:    { label: 'Recibido',   color: 'bg-teal-100 text-teal-700',       icon: RotateCcw },
+  respondido:  { label: 'Respondido', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
+  archivado:   { label: 'Archivado',  color: 'bg-purple-100 text-purple-700',   icon: Archive },
+};
+
+const EMPTY_FORM = {
+  correspondence_type: 'oficio',
+  subject: '',
+  reference_date: new Date().toISOString().split('T')[0],
+  recipient_name: '',
+  recipient_title: '',
+  recipient_entity: '',
+  recipient_address: '',
+  recipient_city: 'Bogotá D.C.',
+  sender_name: '',
+  sender_title: '',
+  body: '',
+  closing: 'Cordialmente,',
+  contract_reference: '',
+  project_entity: '',
+  project_start_date: '',
+  project_object: '',
+  status: 'borrador',
+  radicado_number: '',
+  sent_date: '',
+  response_date: '',
+  notes: '',
+};
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ─── Badge de estado ─────────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.borrador;
+  const Icon = cfg.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+      <Icon className="w-3 h-3" />{cfg.label}
+    </span>
+  );
+}
+
+// ─── Helpers fecha ────────────────────────────────────────────────────────────
+function fmtDateLong(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  const months = ['enero','febrero','marzo','abril','mayo','junio','julio',
+                  'agosto','septiembre','octubre','noviembre','diciembre'];
+  return `${dt.getDate()} de ${months[dt.getMonth()]} de ${dt.getFullYear()}`;
+}
+
+const TYPE_LABEL_MAP = {
+  oficio: 'OFICIO', circular: 'CIRCULAR', memorando: 'MEMORANDO',
+  comunicado: 'COMUNICADO', carta: 'CARTA', radicado: 'RADICADO',
+  derecho_peticion: 'DERECHO DE PETICIÓN',
+};
+
+// ─── Modal de vista previa / descarga Word ───────────────────────────────────
+function PreviewModal({ projectId, record, onClose }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadDocx = async () => {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('sgip_token') || '';
+      const response = await fetch(
+        `${process.env.REACT_APP_API_URL || 'http://localhost:4000/api'}/exec/${projectId}/correspondence/${record.id}/download`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error('Error al generar el documento');
+      const blob = await response.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `${record.consecutive_code}.docx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error al descargar: ' + e.message);
+    } finally { setDownloading(false); }
+  };
+
+  const typeLabel   = TYPE_LABEL_MAP[record.correspondence_type] || 'COMUNICACIÓN';
+  const firstName   = (record.recipient_name || '').split(' ')[0] || 'señor(a)';
+  const bodyLines   = (record.body || '').split('\n').filter(l => l.trim());
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+
+        {/* ── Barra superior modal ── */}
+        <div className="flex items-center justify-between px-6 py-3 bg-[#1E3A5F] text-white flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <FileText className="w-4 h-4 text-blue-200" />
+            <div>
+              <span className="text-[11px] text-blue-300 font-mono block">{record.consecutive_code}</span>
+              <span className="text-sm font-semibold leading-tight line-clamp-1">{record.subject}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleDownloadDocx} disabled={downloading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2E86AB] hover:bg-[#257696] disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors">
+              {downloading
+                ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block mr-1"/>Generando...</>
+                : <><Download className="w-3.5 h-3.5"/>Descargar Word (.docx)</>}
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Hoja de carta simulada ── */}
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-6">
+          <div className="bg-white shadow-lg mx-auto max-w-2xl" style={{ fontFamily: 'Calibri, sans-serif' }}>
+
+            {/* Encabezado corporativo */}
+            <div className="flex">
+              <div className="flex-1 bg-[#1E3A5F] px-6 py-5">
+                <p className="text-white font-bold text-base leading-tight">{record.project_entity || record.project_name || 'Entidad'}</p>
+                {record.project_name && <p className="text-blue-200 text-xs mt-1">Proyecto: {record.project_name}</p>}
+                {record.project_code && <p className="text-blue-200 text-xs">Código: {record.project_code}</p>}
+              </div>
+              <div className="bg-[#2E86AB] px-5 py-5 text-center flex flex-col justify-center min-w-[160px]">
+                <p className="text-white font-bold text-sm tracking-widest">{typeLabel}</p>
+                <p className="text-blue-100 text-xs font-mono mt-1">{record.consecutive_code}</p>
+                <p className="text-blue-200 text-xs mt-1">{fmtDateLong(record.reference_date)}</p>
+              </div>
+            </div>
+
+            {/* Línea azul */}
+            <div className="h-1 bg-[#2E86AB]" />
+
+            {/* Cuerpo de la carta */}
+            <div className="px-8 py-6 space-y-4 text-sm text-gray-800">
+
+              {/* Lugar y fecha */}
+              <p className="text-right text-gray-500 text-xs">
+                {record.recipient_city || 'Bogotá D.C.'}, {fmtDateLong(record.reference_date)}
+              </p>
+
+              {/* Destinatario */}
+              <div className="space-y-0.5">
+                {record.recipient_name  && <p className="font-semibold text-[#1E3A5F]">{record.recipient_name}</p>}
+                {record.recipient_title && <p className="text-gray-600 text-xs">{record.recipient_title}</p>}
+                {record.recipient_entity&& <p className="text-gray-600 text-xs">{record.recipient_entity}</p>}
+                {record.recipient_address&&<p className="text-gray-500 text-xs">{record.recipient_address}</p>}
+                <p className="text-gray-500 text-xs">{record.recipient_city || 'Bogotá D.C.'}</p>
+              </div>
+
+              {/* Asunto */}
+              <div className="flex gap-2 bg-gray-50 border-l-4 border-[#2E86AB] px-3 py-2 rounded-r">
+                <span className="font-bold text-[#1E3A5F] text-xs whitespace-nowrap">ASUNTO:</span>
+                <span className="font-semibold text-xs">{record.subject}</span>
+              </div>
+
+              {/* Referencia contrato */}
+              {record.contract_reference && (
+                <div className="flex gap-2 text-xs text-gray-600">
+                  <span className="font-semibold text-[#1E3A5F]">REF:</span>
+                  <span>Contrato No. {record.contract_reference}</span>
+                </div>
+              )}
+
+              {/* Saludo */}
+              <p>Respetado(a) señor(a) <strong>{firstName}</strong>:</p>
+
+              {/* Cuerpo */}
+              <div className="space-y-3 text-justify leading-relaxed">
+                {bodyLines.map((line, i) => (
+                  <p key={i}>{line}</p>
+                ))}
+              </div>
+
+              {/* Cierre */}
+              <p className="pt-2">{record.closing || 'Cordialmente,'}</p>
+
+              {/* Firma */}
+              <div className="pt-8 space-y-0.5">
+                <div className="w-40 border-b border-gray-400 mb-2" />
+                {record.sender_name  && <p className="font-bold text-[#1E3A5F]">{record.sender_name}</p>}
+                {record.sender_title && <p className="text-gray-600 text-xs">{record.sender_title}</p>}
+                {record.project_entity&&<p className="text-gray-500 text-xs">{record.project_entity}</p>}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 border-t border-gray-200 px-8 py-2 flex justify-between items-center">
+              <span className="text-[10px] text-gray-400">{typeLabel} No. {record.consecutive_code}</span>
+              <span className="text-[10px] text-gray-400">Generado por SGIP-IA · {fmtDateLong(new Date().toISOString())}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-2 bg-gray-50 border-t border-gray-100 flex-shrink-0">
+          <p className="text-[11px] text-gray-400 text-center">
+            Vista previa aproximada — el Word descargado incluirá formato corporativo completo con tipografía y colores oficiales
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Extrae YYYY-MM-DD de cualquier valor de fecha
+function toInputDate(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+// ─── Modal de formulario (crear / editar) ────────────────────────────────────
+function FormModal({ projectId, initial, onClose, onSaved }) {
+  const [form, setForm] = useState(() => {
+    if (!initial) return { ...EMPTY_FORM };
+    return {
+      ...EMPTY_FORM,
+      ...initial,
+      reference_date:     toInputDate(initial.reference_date),
+      project_start_date: toInputDate(initial.project_start_date),
+      sent_date:          toInputDate(initial.sent_date),
+      response_date:      toInputDate(initial.response_date),
+      // Pre-llenar radicado con el consecutivo si aún no tiene uno
+      radicado_number: initial.radicado_number || initial.consecutive_code || '',
+    };
+  });
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
+  const [aiPanel, setAiPanel] = useState(false);
+  const isEdit = !!initial?.id;
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setError('');
+    try {
+      // Leer config de IA guardada en el Motor de IA (Módulo 7)
+      const aiProvider = localStorage.getItem('sgip_ai_provider') || 'anthropic';
+      const aiKey      = localStorage.getItem('sgip_ai_key')      || '';
+      const aiModel    = localStorage.getItem('sgip_ai_model')     || '';
+
+      const { data } = await api.post(`/exec/${projectId}/correspondence/ai-generate`, {
+        prompt:   aiPrompt,
+        provider: aiProvider,
+        api_key:  aiKey   || undefined,
+        model:    aiModel || undefined,
+      });
+      const g = data.data;
+      // Mezclar campos generados con el formulario
+      setForm(f => ({
+        ...f,
+        correspondence_type: g.correspondence_type || f.correspondence_type,
+        subject:             g.subject             || f.subject,
+        reference_date:      g.reference_date      || f.reference_date,
+        recipient_name:      g.recipient_name      || f.recipient_name,
+        recipient_title:     g.recipient_title     || f.recipient_title,
+        recipient_entity:    g.recipient_entity    || f.recipient_entity,
+        recipient_city:      g.recipient_city      || f.recipient_city,
+        sender_name:         g.sender_name         || f.sender_name,
+        sender_title:        g.sender_title        || f.sender_title,
+        body:                g.body                || f.body,
+        closing:             g.closing             || f.closing,
+        contract_reference:  g.contract_reference  || f.contract_reference,
+        project_entity:      g.project_entity      || f.project_entity,
+        notes:               g.notes               || f.notes,
+        ai_prompt:           aiPrompt,
+      }));
+      setAiPanel(false);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al generar con IA');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!form.subject.trim()) { setError('El asunto es requerido'); return; }
+    if (!form.reference_date)  { setError('La fecha es requerida'); return; }
+    setSaving(true); setError('');
+    try {
+      if (isEdit) {
+        await api.put(`/exec/${projectId}/correspondence/${initial.id}`, form);
+      } else {
+        await api.post(`/exec/${projectId}/correspondence`, form);
+      }
+      onSaved();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const Input = ({ label, field, type = 'text', required, placeholder, className = '' }) => (
+    <div className={`space-y-1 ${className}`}>
+      <label className="block text-xs font-medium text-surface-600">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</label>
+      <input
+        type={type}
+        value={form[field] || ''}
+        onChange={e => set(field, e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all"
+      />
+    </div>
+  );
+
+  const Textarea = ({ label, field, rows = 4, placeholder, className = '' }) => (
+    <div className={`space-y-1 ${className}`}>
+      <label className="block text-xs font-medium text-surface-600">{label}</label>
+      <textarea
+        rows={rows}
+        value={form[field] || ''}
+        onChange={e => set(field, e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all resize-y"
+      />
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Mail className="w-5 h-5 text-brand-600" />
+            <h2 className="text-base font-semibold text-brand-900">
+              {isEdit ? 'Editar Correspondencia' : 'Nueva Correspondencia'}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-surface-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {/* Botón IA */}
+          <div className="bg-gradient-to-r from-brand-50 to-violet-50 border border-brand-100 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-brand-600" />
+                <span className="text-sm font-semibold text-brand-800">Generar con IA</span>
+              </div>
+              <button onClick={() => setAiPanel(!aiPanel)}
+                className="text-xs text-brand-600 hover:text-brand-800 font-medium">
+                {aiPanel ? 'Ocultar' : 'Expandir'}
+              </button>
+            </div>
+            {aiPanel && (
+              <div className="space-y-2 mt-2">
+                <p className="text-xs text-surface-500">
+                  Describe en lenguaje natural qué necesitas comunicar. La IA llenará los campos automáticamente.
+                </p>
+                <textarea
+                  rows={3}
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  placeholder="Ej: Necesito un oficio informando al Ministerio que el contrato lleva un 65% de avance y solicitando aprobación del informe mensual..."
+                  className="w-full px-3 py-2 text-sm border border-brand-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none resize-none"
+                />
+                <button
+                  onClick={handleAiGenerate}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  {aiLoading
+                    ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />Generando...</>
+                    : <><Sparkles className="w-3.5 h-3.5" />Generar campos</>}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+            </div>
+          )}
+
+          {/* Tipo, fecha y estado */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Tipo<span className="text-red-500 ml-0.5">*</span></label>
+              <select value={form.correspondence_type} onChange={e => set('correspondence_type', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
+                {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <Input label="Fecha" field="reference_date" type="date" required />
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Estado</label>
+              <select value={form.status} onChange={e => set('status', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
+                {Object.entries(STATUS_CONFIG).map(([v, c]) =>
+                  <option key={v} value={v}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <Input label="Asunto" field="subject" required placeholder="Asunto de la comunicación" />
+
+          {/* Separador Destinatario */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Destinatario</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Nombre completo"  field="recipient_name"   placeholder="Nombre del destinatario" />
+            <Input label="Cargo"            field="recipient_title"  placeholder="Cargo / Función" />
+            <Input label="Entidad"          field="recipient_entity" placeholder="Nombre de la entidad" />
+            <Input label="Ciudad"           field="recipient_city"   placeholder="Ciudad" />
+            <Input label="Dirección"        field="recipient_address" placeholder="Dirección (opcional)" className="col-span-2" />
+          </div>
+
+          {/* Separador Remitente */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Remitente</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Nombre del remitente" field="sender_name"  placeholder="Gerente de Proyecto" />
+            <Input label="Cargo del remitente"  field="sender_title" placeholder="Cargo" />
+          </div>
+
+          {/* Separador Referencia contrato */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Referencia del Contrato</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="N° de Contrato"       field="contract_reference"  placeholder="Ej: 001-2025" />
+            <Input label="Entidad contratante"  field="project_entity"      placeholder="Nombre de la entidad" />
+            <Input label="Fecha de inicio"      field="project_start_date"  type="date" />
+          </div>
+          <Textarea label="Objeto del contrato (referencia)" field="project_object" rows={2}
+            placeholder="Resumen del objeto del contrato" />
+
+          {/* Separador Cuerpo */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Contenido</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+
+          <Textarea label="Cuerpo de la comunicación" field="body" rows={8}
+            placeholder="Redacta el cuerpo completo de la comunicación..." />
+          <Input label="Cierre" field="closing" placeholder="Ej: Cordialmente," />
+
+          {/* Separador Seguimiento */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Seguimiento</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <Input label="N° de radicado"    field="radicado_number" placeholder="RAD-2026-001" />
+            <Input label="Fecha de envío"    field="sent_date"       type="date" />
+            <Input label="Fecha de respuesta" field="response_date"  type="date" />
+          </div>
+          <Textarea label="Observaciones internas" field="notes" rows={2}
+            placeholder="Notas de seguimiento..." />
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-surface-100 flex-shrink-0 bg-surface-50 rounded-b-2xl">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm text-surface-600 hover:bg-surface-100 rounded-lg transition-colors">
+            Cancelar
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-1.5 px-5 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors">
+            {saving
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />Guardando...</>
+              : <>{isEdit ? 'Guardar cambios' : 'Crear correspondencia'}</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Panel principal ─────────────────────────────────────────────────────────
+export default function CorrespondencePanel({ projectId, perms }) {
+  const [items, setItems]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [search, setSearch]           = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterType, setFilterType]   = useState('');
+  const [showForm, setShowForm]       = useState(false);
+  const [editItem, setEditItem]       = useState(null);
+  const [previewItem, setPreviewItem] = useState(null);
+  const [deleting, setDeleting]       = useState(null);
+
+  const load = useCallback(() => {
+    if (!projectId) return;
+    setLoading(true);
+    api.get(`/exec/${projectId}/correspondence`)
+      .then(r => setItems(r.data.data || []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('¿Eliminar esta correspondencia?')) return;
+    setDeleting(id);
+    try {
+      await api.delete(`/exec/${projectId}/correspondence/${id}`);
+      load();
+    } catch { /* ignore */ }
+    finally { setDeleting(null); }
+  };
+
+  // Filtros
+  const filtered = items.filter(c => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || c.consecutive_code?.toLowerCase().includes(q)
+      || c.subject?.toLowerCase().includes(q)
+      || c.recipient_entity?.toLowerCase().includes(q)
+      || c.recipient_name?.toLowerCase().includes(q);
+    const matchStatus = !filterStatus || c.status === filterStatus;
+    const matchType   = !filterType   || c.correspondence_type === filterType;
+    return matchSearch && matchStatus && matchType;
+  });
+
+  // Conteo por estado
+  const counts = items.reduce((acc, c) => { acc[c.status] = (acc[c.status] || 0) + 1; return acc; }, {});
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-40">
+      <div className="w-6 h-6 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-brand-900 flex items-center gap-2">
+            <Mail className="w-5 h-5 text-brand-600" />Correspondencia del Proyecto
+          </h3>
+          <p className="text-xs text-surface-400 mt-0.5">{items.length} comunicación{items.length !== 1 ? 'es' : ''} registrada{items.length !== 1 ? 's' : ''}</p>
+        </div>
+        {perms?.canEdit && (
+          <button onClick={() => { setEditItem(null); setShowForm(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 shadow-sm transition-colors">
+            <Plus className="w-4 h-4" />Nueva
+          </button>
+        )}
+      </div>
+
+      {/* Resumen de estados */}
+      {items.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {Object.entries(STATUS_CONFIG).map(([status, cfg]) => {
+            const Icon = cfg.icon;
+            return (
+              <button key={status}
+                onClick={() => setFilterStatus(filterStatus === status ? '' : status)}
+                className={`flex flex-col items-center p-2 rounded-xl border transition-all text-center
+                  ${filterStatus === status ? 'border-brand-400 bg-brand-50' : 'border-surface-100 bg-white hover:bg-surface-50'}`}>
+                <Icon className={`w-4 h-4 mb-1 ${filterStatus === status ? 'text-brand-600' : 'text-surface-400'}`} />
+                <span className="text-lg font-bold text-brand-900">{counts[status] || 0}</span>
+                <span className="text-[10px] text-surface-500">{cfg.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Barra de búsqueda y filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-300" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por asunto, código, entidad..."
+            className="w-full pl-9 pr-3 py-2 text-sm border border-surface-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Filter className="w-3.5 h-3.5 text-surface-400" />
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="text-sm border border-surface-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-brand-500 outline-none">
+            <option value="">Todos los tipos</option>
+            {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Lista */}
+      {filtered.length === 0
+        ? (
+          <div className="text-center py-16 bg-surface-50 rounded-2xl border-2 border-dashed border-surface-200">
+            <Mail className="w-10 h-10 text-surface-300 mx-auto mb-3" />
+            <p className="text-sm font-medium text-surface-400">
+              {items.length === 0 ? 'No hay correspondencia registrada' : 'No hay resultados para los filtros aplicados'}
+            </p>
+            {items.length === 0 && perms?.canEdit && (
+              <button onClick={() => { setEditItem(null); setShowForm(true); }}
+                className="mt-4 flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 mx-auto transition-colors">
+                <Plus className="w-4 h-4" />Crear primera comunicación
+              </button>
+            )}
+          </div>
+        )
+        : (
+          <div className="space-y-2">
+            {filtered.map(item => {
+              const typeLabel = TYPES.find(t => t.value === item.correspondence_type)?.label || item.correspondence_type;
+              return (
+                <div key={item.id}
+                  className="group bg-white border border-surface-100 rounded-xl hover:border-brand-200 hover:shadow-sm transition-all">
+                  <div className="flex items-start gap-4 p-4">
+                    {/* Ícono tipo */}
+                    <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <FileText className="w-4 h-4 text-brand-600" />
+                    </div>
+
+                    {/* Contenido principal */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-mono text-xs text-brand-600 font-semibold bg-brand-50 px-2 py-0.5 rounded">
+                          {item.consecutive_code}
+                        </span>
+                        <span className="text-xs text-surface-400 bg-surface-50 px-2 py-0.5 rounded">{typeLabel}</span>
+                        <StatusBadge status={item.status} />
+                      </div>
+                      <p className="text-sm font-semibold text-brand-900 truncate">{item.subject}</p>
+                      <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-surface-400">
+                        {item.recipient_entity && (
+                          <span className="flex items-center gap-1">
+                            <ChevronRight className="w-3 h-3" />{item.recipient_entity}
+                          </span>
+                        )}
+                        {item.recipient_name && <span>{item.recipient_name}</span>}
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />{fmtDate(item.reference_date)}
+                        </span>
+                        {item.radicado_number && (
+                          <span className="text-blue-600 font-medium">Rad: {item.radicado_number}</span>
+                        )}
+                        {item.contract_reference && (
+                          <span>Contrato: {item.contract_reference}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Acciones */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button onClick={() => setPreviewItem(item)} title="Vista previa"
+                        className="p-1.5 hover:bg-brand-50 rounded-lg transition-colors text-surface-400 hover:text-brand-600">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {perms?.canEdit && (
+                        <button onClick={() => { setEditItem(item); setShowForm(true); }} title="Editar"
+                          className="p-1.5 hover:bg-brand-50 rounded-lg transition-colors text-surface-400 hover:text-brand-600">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      {perms?.canEdit && (
+                        <button onClick={() => handleDelete(item.id)} disabled={deleting === item.id} title="Eliminar"
+                          className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-surface-400 hover:text-red-500 disabled:opacity-50">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      }
+
+      {/* Modales */}
+      {showForm && (
+        <FormModal
+          projectId={projectId}
+          initial={editItem}
+          onClose={() => { setShowForm(false); setEditItem(null); }}
+          onSaved={() => { setShowForm(false); setEditItem(null); load(); }}
+        />
+      )}
+      {previewItem && (
+        <PreviewModal
+          projectId={projectId}
+          record={previewItem}
+          onClose={() => setPreviewItem(null)}
+        />
+      )}
+    </div>
+  );
+}

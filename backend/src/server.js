@@ -36,6 +36,7 @@ const biDashboardRoutes = require('./routes/biDashboard');
 const correspondenceRoutes = require('./routes/correspondence');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 4000;
 const isDev = process.env.NODE_ENV !== 'production';
 

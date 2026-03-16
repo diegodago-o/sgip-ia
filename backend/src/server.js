@@ -34,8 +34,9 @@ const committeeRoutes = require('./routes/committee');
 const committeeCommitmentsRoutes = require('./routes/committeeCommitments');
 const biDashboardRoutes = require('./routes/biDashboard');
 const correspondenceRoutes = require('./routes/correspondence');
-const settingsRoutes = require('./routes/settings');
-const apiKeysRoutes  = require('./routes/apiKeys');
+const settingsRoutes       = require('./routes/settings');
+const apiKeysRoutes        = require('./routes/apiKeys');
+const notificationsRoutes  = require('./routes/notifications');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -150,6 +151,7 @@ app.use('/api/committee/:projectId/commitments', committeeCommitmentsRoutes);
 app.use('/api/dashboard', biDashboardRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/settings/api-keys', apiKeysRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK

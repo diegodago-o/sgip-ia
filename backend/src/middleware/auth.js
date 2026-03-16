@@ -123,4 +123,41 @@ function canApprove(role) {
   return r === 'admin' || r === 'gerente_proyecto';
 }
 
-module.exports = { authMiddleware, roleMiddleware, projectAccessMiddleware, getVisibleProjectIds, canApprove, normalizeRole, ROLES };
+// ════════════════════════════════════════════════════════════
+// API KEY MIDDLEWARE — for external integrations (N8N, etc.)
+// Checks X-API-Key header against hashed keys in api_keys table
+// ════════════════════════════════════════════════════════════
+const apiKeyMiddleware = async (req, res, next) => {
+  const key = req.headers['x-api-key'];
+  if (!key) return res.status(401).json({ error: 'API Key no proporcionada' });
+
+  const { createHash } = require('crypto');
+  const hash = createHash('sha256').update(key).digest('hex');
+
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, name FROM api_keys WHERE key_hash = ? AND is_active = 1',
+      [hash]
+    );
+    if (!rows.length) return res.status(401).json({ error: 'API Key inválida o revocada' });
+
+    // Update last_used_at (fire and forget)
+    pool.execute('UPDATE api_keys SET last_used_at = NOW() WHERE id = ?', [rows[0].id]).catch(() => {});
+
+    req.apiKey = rows[0]; // { id, name }
+    next();
+  } catch (err) {
+    return res.status(500).json({ error: 'Error verificando API Key' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// ANY AUTH — accepts JWT Bearer token OR X-API-Key
+// ════════════════════════════════════════════════════════════
+const anyAuth = (req, res, next) => {
+  if (req.headers.authorization?.startsWith('Bearer ')) return authMiddleware(req, res, next);
+  if (req.headers['x-api-key']) return apiKeyMiddleware(req, res, next);
+  return res.status(401).json({ error: 'Autenticación requerida (Bearer token o X-API-Key)' });
+};
+
+module.exports = { authMiddleware, roleMiddleware, projectAccessMiddleware, getVisibleProjectIds, canApprove, normalizeRole, ROLES, apiKeyMiddleware, anyAuth };

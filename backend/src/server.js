@@ -35,6 +35,7 @@ const committeeCommitmentsRoutes = require('./routes/committeeCommitments');
 const biDashboardRoutes = require('./routes/biDashboard');
 const correspondenceRoutes = require('./routes/correspondence');
 const settingsRoutes = require('./routes/settings');
+const apiKeysRoutes  = require('./routes/apiKeys');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -61,7 +62,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   maxAge: 86400, // Cache preflight for 24h
 }));
 
@@ -148,6 +149,7 @@ app.use('/api/committee', committeeRoutes);
 app.use('/api/committee/:projectId/commitments', committeeCommitmentsRoutes);
 app.use('/api/dashboard', biDashboardRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/settings/api-keys', apiKeysRoutes);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK

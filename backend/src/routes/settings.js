@@ -155,4 +155,82 @@ router.post('/email/test', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// N8N / Webhooks — helpers
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadN8nConfig() {
+  const [rows] = await db.execute(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'n8n_config'"
+  );
+  if (!rows.length || !rows[0].setting_value) return { enabled: false, webhook_secret: '', events: [] };
+  try { return JSON.parse(rows[0].setting_value); } catch { return { enabled: false, webhook_secret: '', events: [] }; }
+}
+
+async function saveN8nConfig(cfg, userId) {
+  await db.execute(
+    `INSERT INTO system_settings (setting_key, setting_value, is_sensitive, updated_by)
+     VALUES ('n8n_config', ?, 0, ?)
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)`,
+    [JSON.stringify(cfg), userId]
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/settings/n8n
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/n8n', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const cfg = await loadN8nConfig();
+    // Mask secret in response
+    if (cfg.webhook_secret) cfg.webhook_secret = '********';
+    res.json({ success: true, data: cfg });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/settings/n8n
+// ─────────────────────────────────────────────────────────────────────────────
+router.put('/n8n', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const incoming = req.body || {};
+    let existing = {};
+    try { existing = await loadN8nConfig(); } catch {}
+
+    const cfg = { ...incoming };
+    // Preserve existing secret if placeholder sent back
+    if (cfg.webhook_secret === '********' || cfg.webhook_secret === '') {
+      cfg.webhook_secret = existing.webhook_secret || '';
+    }
+
+    await saveN8nConfig(cfg, req.user.id);
+    res.json({ success: true, message: 'Configuración N8N guardada correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings/n8n/test
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/n8n/test', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { webhook_url, webhook_secret: incomingSecret } = req.body || {};
+    if (!webhook_url) return res.status(400).json({ error: 'URL del webhook requerida' });
+
+    let existing = {};
+    try { existing = await loadN8nConfig(); } catch {}
+
+    const secret = (incomingSecret && incomingSecret !== '********')
+      ? incomingSecret
+      : existing.webhook_secret;
+
+    const { testWebhook } = require('../services/webhook');
+    const result = await testWebhook(webhook_url, secret);
+
+    if (result.ok) {
+      res.json({ success: true, message: `Webhook respondió correctamente (HTTP ${result.status})` });
+    } else {
+      res.status(400).json({ error: result.error || `El webhook falló (HTTP ${result.status})` });
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

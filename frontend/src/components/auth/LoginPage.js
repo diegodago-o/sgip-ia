@@ -3,16 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, Lock, Mail, Cpu, ShieldCheck, ArrowRight } from 'lucide-react';
 
-const YEAR = new Date().getFullYear();
-
 export default function LoginPage() {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
-  const { login }    = useAuth();
-  const navigate     = useNavigate();
+  const { login }  = useAuth();
+  const navigate   = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,10 +37,6 @@ export default function LoginPage() {
         {/* Glow orbs */}
         <div className="absolute top-[-8%] right-[-4%] w-[520px] h-[520px] rounded-full bg-brand-400 opacity-20 blur-[130px] pointer-events-none" />
         <div className="absolute bottom-[-12%] left-[-6%] w-[420px] h-[420px] rounded-full bg-accent-400 opacity-10 blur-[110px] pointer-events-none" />
-        {/* Diagonal line accent */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute bottom-0 right-0 w-[1px] h-[70%] bg-gradient-to-t from-transparent via-white/10 to-transparent" style={{ left: '65%' }} />
-        </div>
 
         <div className="relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full">
           {/* Logo */}
@@ -55,10 +49,6 @@ export default function LoginPage() {
 
           {/* Hero copy */}
           <div className="space-y-6 max-w-lg">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/10 backdrop-blur-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-white/70 text-xs font-medium">Sistema activo</span>
-            </div>
             <h1 className="text-4xl xl:text-5xl font-display font-extrabold text-white leading-tight">
               Gestión de Proyectos<br />
               <span className="text-brand-300">potenciada con IA</span>
@@ -79,21 +69,16 @@ export default function LoginPage() {
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between">
-            <p className="text-brand-400 text-xs">
-              © {YEAR} Tecnofactory S.A.S · SGIP-IA v1.0
-            </p>
-            <div className="flex items-center gap-1.5 text-brand-400 text-xs">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Acceso protegido
-            </div>
+          <div className="flex items-center gap-1.5 text-brand-400 text-xs">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Acceso protegido
           </div>
         </div>
       </div>
 
       {/* ── Right panel — Login form ──────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-white">
-        <div className="w-full max-w-[400px] animate-fade-in">
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-white">
+        <div className="w-full max-w-[380px] animate-fade-in">
 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
@@ -190,12 +175,8 @@ export default function LoginPage() {
             <span>Conexión cifrada · Acceso corporativo</span>
           </div>
         </div>
-
-        {/* Page footer */}
-        <p className="mt-auto pt-10 text-[11px] text-surface-300">
-          © {YEAR} Tecnofactory S.A.S · Sistema de Gestión Integral de Proyectos
-        </p>
       </div>
+
     </div>
   );
 }

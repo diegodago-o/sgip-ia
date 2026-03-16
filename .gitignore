@@ -4,3 +4,16 @@ build/
 dist/
 .DS_Store
 *.log
+
+# Uploads (archivos subidos por usuarios)
+backend/uploads/projects/
+backend/uploads/tmp/
+backend/uploads/generated/
+
+# Frontend build (se genera en cada deploy)
+frontend/build/
+frontend/static/
+frontend/asset-manifest.json
+
+# Mantener estructura de carpetas
+!backend/uploads/.gitkeep

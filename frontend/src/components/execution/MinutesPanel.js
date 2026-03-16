@@ -436,8 +436,9 @@ export default function MinutesPanel({ projectId, perms = {} }) {
   const [editingCommitment, setEditingCommitment] = useState(null); // { minute_id, index, ...data }
   const [teamMembers, setTeamMembers] = useState([]);
   const [cFilter, setCFilter]       = useState('todos'); // todos | pendientes | vencidos | completados
-  const [selected, setSelected]     = useState(new Set()); // keys: `${minute_id}-${index}`
+  const [selected, setSelected]       = useState(new Set()); // keys: `${minute_id}-${index}`
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [closedAccordions, setClosedAccordions] = useState(new Set()); // minute ids that are collapsed
 
   const load = useCallback(async () => {
     try {
@@ -476,6 +477,8 @@ export default function MinutesPanel({ projectId, perms = {} }) {
       allCommitments.push({
         minute_id: m.id,
         minute_number: m.minute_number,
+        minute_title: m.title || `Acta #${m.minute_number}`,
+        minute_type: m.minute_type || 'otro',
         meeting_date: m.meeting_date,
         index: idx,
         task: item.task || item.description || item.text || '',
@@ -550,6 +553,12 @@ export default function MinutesPanel({ projectId, perms = {} }) {
   };
 
   const clearSelection = () => setSelected(new Set());
+
+  const toggleAccordion = (id) => setClosedAccordions(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const bulkUpdate = async (statusValue) => {
     if (selected.size === 0) return;
@@ -655,75 +664,142 @@ export default function MinutesPanel({ projectId, perms = {} }) {
                 </div>
               )}
 
-              {/* Items list */}
-              <div className="space-y-1.5">
-                {filtered.map((c) => {
-                  const key = `${c.minute_id}-${c.index}`;
-                  const isSelected = selected.has(key);
-                  const isDone = c.completed;
-                  const isOverdue = !isDone && c.due_date && new Date(c.due_date) < now;
-                  const daysLeft = c.due_date && !isDone ? Math.ceil((new Date(c.due_date) - now) / 86400000) : null;
-                  return (
-                    <div key={key}
-                      className={`bg-white border rounded-lg p-3 transition-all ${
-                        isSelected ? 'border-brand-400 bg-brand-50/40 shadow-sm' :
-                        isDone ? 'border-emerald-200 bg-emerald-50/30' :
-                        isOverdue ? 'border-red-200 bg-red-50/30' :
-                        'border-surface-100 hover:border-surface-200'
-                      }`}>
-                      <div className="flex items-start gap-3">
+              {/* ── Accordion per acta ── */}
+              {(() => {
+                // Group filtered commitments by minute_id preserving acta order
+                const actaOrder = [];
+                const byActa = {};
+                for (const c of filtered) {
+                  if (!byActa[c.minute_id]) { actaOrder.push(c.minute_id); byActa[c.minute_id] = []; }
+                  byActa[c.minute_id].push(c);
+                }
+                return (
+                  <div className="space-y-2">
+                    {actaOrder.map(mid => {
+                      const group = byActa[mid];
+                      const isOpen = !closedAccordions.has(mid);
+                      const info = group[0];
+                      const pendingCount = group.filter(c => !c.completed).length;
+                      const allKeys = group.map(c => `${c.minute_id}-${c.index}`);
+                      const allSel = allKeys.every(k => selected.has(k));
+                      const someSel = !allSel && allKeys.some(k => selected.has(k));
 
-                        {/* Multi-select checkbox */}
-                        <button
-                          onClick={() => toggleSelect(key)}
-                          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
-                            isSelected
-                              ? 'bg-brand-600 border-brand-600'
-                              : 'border-surface-300 hover:border-brand-400 bg-white'
-                          }`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
-                        </button>
+                      const toggleActaSelect = (e) => {
+                        e.stopPropagation();
+                        setSelected(prev => {
+                          const next = new Set(prev);
+                          if (allSel) allKeys.forEach(k => next.delete(k));
+                          else allKeys.forEach(k => next.add(k));
+                          return next;
+                        });
+                      };
 
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm ${isDone ? 'line-through text-surface-400' : 'text-brand-900'}`}>{c.task}</p>
-                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-surface-400">
-                            <span className="bg-surface-100 px-1.5 py-0.5 rounded">Acta #{c.minute_number}</span>
-                            {c.responsible && <span className="font-medium text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">→ {c.responsible}</span>}
-                            {c.due_date && (
-                              <span className={`px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-100 text-red-600 font-semibold' : daysLeft !== null && daysLeft <= 7 ? 'bg-amber-100 text-amber-600' : 'bg-surface-100'}`}>
-                                📅 {new Date(c.due_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                {isOverdue && ` (${Math.abs(daysLeft)}d vencido)`}
-                                {!isOverdue && daysLeft !== null && daysLeft <= 7 && daysLeft > 0 && ` (${daysLeft}d restante${daysLeft !== 1 ? 's' : ''})`}
-                              </span>
-                            )}
-                            {!c.due_date && !isDone && <span className="bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded italic">Sin fecha límite</span>}
-                            {isDone && c.completed_date && <span className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">✓ Completado {new Date(c.completed_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}</span>}
-                          </div>
-                          {c.evidence && <p className="text-[10px] text-emerald-600 mt-1">📎 {c.evidence}</p>}
-                          {c.notes && <p className="text-[10px] text-surface-400 mt-1 italic">💬 {c.notes}</p>}
-                        </div>
-
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {/* Status badge */}
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            isDone ? 'bg-emerald-100 text-emerald-700' :
-                            isOverdue ? 'bg-red-100 text-red-700' :
-                            c.status === 'en_progreso' ? 'bg-blue-100 text-blue-700' :
-                            'bg-amber-100 text-amber-700'
-                          }`}>{isDone ? 'Completado' : isOverdue ? 'Vencido' : c.status === 'en_progreso' ? 'En progreso' : 'Pendiente'}</span>
-                          {/* Edit button */}
-                          {perms.canEdit && (
-                            <button onClick={() => setEditingCommitment({...c})}
-                              className="w-6 h-6 rounded hover:bg-surface-100 flex items-center justify-center ml-1">
-                              <Edit2 className="w-3 h-3 text-surface-400" />
+                      return (
+                        <div key={mid} className="border border-surface-200 rounded-xl overflow-hidden shadow-sm">
+                          {/* Accordion header */}
+                          <div
+                            className={`flex items-center gap-3 px-4 py-3 cursor-pointer select-none transition-colors ${isOpen ? 'bg-brand-50 border-b border-surface-100' : 'bg-white hover:bg-surface-50'}`}
+                            onClick={() => toggleAccordion(mid)}>
+                            {/* Per-acta select checkbox */}
+                            <button
+                              onClick={toggleActaSelect}
+                              className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                allSel ? 'bg-brand-600 border-brand-600' :
+                                someSel ? 'bg-brand-100 border-brand-400' :
+                                'border-surface-300 hover:border-brand-400 bg-white'
+                              }`}>
+                              {allSel && <Check className="w-3 h-3 text-white" />}
+                              {someSel && <div className="w-2 h-0.5 bg-brand-600 rounded" />}
                             </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-wide">Acta #{info.minute_number}</span>
+                                <span className="text-sm font-semibold text-brand-900 truncate">{info.minute_title}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-surface-400">
+                                  {new Date(info.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                  pendingCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                                }`}>
+                                  {pendingCount > 0 ? `${pendingCount} pendiente${pendingCount !== 1 ? 's' : ''}` : '✓ Todos completos'}
+                                </span>
+                                <span className="text-[10px] text-surface-400">{group.length} compromiso{group.length !== 1 ? 's' : ''}</span>
+                              </div>
+                            </div>
+                            <ChevronDown className={`w-4 h-4 text-surface-400 transition-transform duration-200 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+                          </div>
+
+                          {/* Accordion body */}
+                          {isOpen && (
+                            <div className="p-3 space-y-1.5 bg-white">
+                              {group.map((c) => {
+                                const key = `${c.minute_id}-${c.index}`;
+                                const isSelected = selected.has(key);
+                                const isDone = c.completed;
+                                const isOverdue = !isDone && c.due_date && new Date(c.due_date) < now;
+                                const daysLeft = c.due_date && !isDone ? Math.ceil((new Date(c.due_date) - now) / 86400000) : null;
+                                return (
+                                  <div key={key}
+                                    className={`border rounded-lg p-3 transition-all ${
+                                      isSelected ? 'border-brand-400 bg-brand-50/40 shadow-sm' :
+                                      isDone ? 'border-emerald-200 bg-emerald-50/30' :
+                                      isOverdue ? 'border-red-200 bg-red-50/30' :
+                                      'border-surface-100 hover:border-surface-200 bg-white'
+                                    }`}>
+                                    <div className="flex items-start gap-3">
+                                      {/* Multi-select checkbox */}
+                                      <button
+                                        onClick={() => toggleSelect(key)}
+                                        className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
+                                          isSelected ? 'bg-brand-600 border-brand-600' : 'border-surface-300 hover:border-brand-400 bg-white'
+                                        }`}>
+                                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                                      </button>
+                                      <div className="flex-1 min-w-0">
+                                        <p className={`text-sm ${isDone ? 'line-through text-surface-400' : 'text-brand-900'}`}>{c.task}</p>
+                                        <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-surface-400">
+                                          {c.responsible && <span className="font-medium text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">→ {c.responsible}</span>}
+                                          {c.due_date && (
+                                            <span className={`px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-100 text-red-600 font-semibold' : daysLeft !== null && daysLeft <= 7 ? 'bg-amber-100 text-amber-600' : 'bg-surface-100'}`}>
+                                              📅 {new Date(c.due_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                              {isOverdue && ` (${Math.abs(daysLeft)}d vencido)`}
+                                              {!isOverdue && daysLeft !== null && daysLeft <= 7 && daysLeft > 0 && ` (${daysLeft}d)`}
+                                            </span>
+                                          )}
+                                          {!c.due_date && !isDone && <span className="bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded italic">Sin fecha límite</span>}
+                                          {isDone && c.completed_date && <span className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">✓ {new Date(c.completed_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}</span>}
+                                        </div>
+                                        {c.evidence && <p className="text-[10px] text-emerald-600 mt-1">📎 {c.evidence}</p>}
+                                        {c.notes && <p className="text-[10px] text-surface-400 mt-1 italic">💬 {c.notes}</p>}
+                                      </div>
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                          isDone ? 'bg-emerald-100 text-emerald-700' :
+                                          isOverdue ? 'bg-red-100 text-red-700' :
+                                          c.status === 'en_progreso' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-amber-100 text-amber-700'
+                                        }`}>{isDone ? 'Completado' : isOverdue ? 'Vencido' : c.status === 'en_progreso' ? 'En progreso' : 'Pendiente'}</span>
+                                        {perms.canEdit && (
+                                          <button onClick={() => setEditingCommitment({...c})}
+                                            className="w-6 h-6 rounded hover:bg-surface-100 flex items-center justify-center ml-1">
+                                            <Edit2 className="w-3 h-3 text-surface-400" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </>
           )}
 

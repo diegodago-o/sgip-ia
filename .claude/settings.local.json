@@ -35,7 +35,9 @@
       "Bash(node scripts/migrate-correspondence.js)",
       "Bash(gh pr:*)",
       "Bash(where gh:*)",
-      "Bash(winget list:*)"
+      "Bash(winget list:*)",
+      "Bash(winget install:*)",
+      "Bash(powershell -command \"winget install --id GitHub.cli -e --source winget\")"
     ]
   }
 }

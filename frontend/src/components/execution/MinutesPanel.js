@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { minutesAPI, exportsAPI } from '../../services/api';
-import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Download, Upload, Sparkles, Wand2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown } from 'lucide-react';
 
 const MT = { comite_obra: 'Comité de obra', comite_seguimiento: 'Comité seguimiento', reunion_tecnica: 'Reunión técnica', reunion_financiera: 'Reunión financiera', otro: 'Otro' };
 const MS = { borrador: { l: 'Borrador', bg: 'bg-amber-100', t: 'text-amber-700' }, firmada: { l: 'Firmada', bg: 'bg-emerald-100', t: 'text-emerald-700' }, archivada: { l: 'Archivada', bg: 'bg-slate-100', t: 'text-slate-600' } };
@@ -435,7 +435,9 @@ export default function MinutesPanel({ projectId, perms = {} }) {
   const [view, setView] = useState('actas'); // 'actas' | 'compromisos'
   const [editingCommitment, setEditingCommitment] = useState(null); // { minute_id, index, ...data }
   const [teamMembers, setTeamMembers] = useState([]);
-  const [cFilter, setCFilter] = useState('todos'); // todos | pendientes | vencidos | completados
+  const [cFilter, setCFilter]       = useState('todos'); // todos | pendientes | vencidos | completados
+  const [selected, setSelected]     = useState(new Set()); // keys: `${minute_id}-${index}`
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -534,6 +536,54 @@ export default function MinutesPanel({ projectId, perms = {} }) {
     } catch (e) { showToast('Error: ' + (e.response?.data?.error || e.message)); }
   };
 
+  // ═══ Multi-select helpers ═══
+  const toggleSelect = (key) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
+  const toggleSelectAll = () => {
+    const keys = filtered.map(c => `${c.minute_id}-${c.index}`);
+    const allSelected = keys.every(k => selected.has(k));
+    setSelected(allSelected ? new Set() : new Set(keys));
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkUpdate = async (statusValue) => {
+    if (selected.size === 0) return;
+    setBulkLoading(true);
+    try {
+      // Group selected by minute_id to minimize API calls
+      const byMinute = {};
+      for (const key of selected) {
+        const [mid, idx] = key.split('-');
+        if (!byMinute[mid]) byMinute[mid] = [];
+        byMinute[mid].push(parseInt(idx));
+      }
+      for (const [minuteId, indexes] of Object.entries(byMinute)) {
+        const acta = items.find(m => m.id === parseInt(minuteId));
+        if (!acta) continue;
+        const ai = [...safeArr(acta.action_items)];
+        for (const idx of indexes) {
+          if (idx >= ai.length) continue;
+          ai[idx].status = statusValue;
+          ai[idx].completed = statusValue === 'completado';
+          if (statusValue === 'completado' && !ai[idx].completed_date)
+            ai[idx].completed_date = new Date().toISOString().split('T')[0];
+          else if (statusValue !== 'completado')
+            ai[idx].completed_date = null;
+        }
+        await minutesAPI.update(projectId, parseInt(minuteId), { action_items: ai });
+      }
+      showToast(`${selected.size} compromisos actualizados a "${statusValue}"`);
+      clearSelection();
+      load();
+    } catch (e) { showToast('Error: ' + (e.response?.data?.error || e.message)); }
+    finally { setBulkLoading(false); }
+  };
+
   if (loading) return <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" /></div>;
 
   return (
@@ -568,23 +618,72 @@ export default function MinutesPanel({ projectId, perms = {} }) {
                 <button onClick={() => setCFilter('vencidos')} className={`p-2.5 rounded-lg text-center transition-colors ${cFilter === 'vencidos' ? 'ring-2 ring-red-400' : ''} bg-red-50`}><p className="text-lg font-bold text-red-600">{cStats.overdue}</p><p className="text-[10px] text-red-500">Vencidos</p></button>
               </div>
 
-              <p className="text-[10px] text-surface-400">{filtered.length} compromiso{filtered.length !== 1 ? 's' : ''} {cFilter !== 'todos' ? `(filtro: ${cFilter})` : ''}</p>
+              {/* ── Barra de acciones masivas ── */}
+              {selected.size > 0 ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-brand-600 rounded-lg text-white text-sm shadow-md">
+                  <button onClick={clearSelection} className="p-0.5 hover:bg-white/20 rounded transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-medium flex-1">{selected.size} seleccionado{selected.size !== 1 ? 's' : ''}</span>
+                  {bulkLoading
+                    ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <>
+                        <button onClick={() => bulkUpdate('completado')}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 rounded-md text-xs font-medium transition-colors">
+                          <Check className="w-3 h-3" /> Completar
+                        </button>
+                        <button onClick={() => bulkUpdate('en_progreso')}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-blue-500 hover:bg-blue-400 rounded-md text-xs font-medium transition-colors">
+                          En progreso
+                        </button>
+                        <button onClick={() => bulkUpdate('pendiente')}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 rounded-md text-xs font-medium transition-colors">
+                          Pendiente
+                        </button>
+                      </>
+                  }
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-surface-400">{filtered.length} compromiso{filtered.length !== 1 ? 's' : ''} {cFilter !== 'todos' ? `(filtro: ${cFilter})` : ''}</p>
+                  {filtered.length > 0 && (
+                    <button onClick={toggleSelectAll}
+                      className="flex items-center gap-1 text-[10px] text-surface-400 hover:text-brand-600 transition-colors">
+                      <Square className="w-3 h-3" /> Seleccionar todos
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Items list */}
               <div className="space-y-1.5">
-                {filtered.map((c, i) => {
+                {filtered.map((c) => {
+                  const key = `${c.minute_id}-${c.index}`;
+                  const isSelected = selected.has(key);
                   const isDone = c.completed;
                   const isOverdue = !isDone && c.due_date && new Date(c.due_date) < now;
                   const daysLeft = c.due_date && !isDone ? Math.ceil((new Date(c.due_date) - now) / 86400000) : null;
                   return (
-                    <div key={`${c.minute_id}-${c.index}`}
-                      className={`bg-white border rounded-lg p-3 transition-colors ${isDone ? 'border-emerald-200 bg-emerald-50/30' : isOverdue ? 'border-red-200 bg-red-50/30' : 'border-surface-100 hover:border-surface-200'}`}>
+                    <div key={key}
+                      className={`bg-white border rounded-lg p-3 transition-all ${
+                        isSelected ? 'border-brand-400 bg-brand-50/40 shadow-sm' :
+                        isDone ? 'border-emerald-200 bg-emerald-50/30' :
+                        isOverdue ? 'border-red-200 bg-red-50/30' :
+                        'border-surface-100 hover:border-surface-200'
+                      }`}>
                       <div className="flex items-start gap-3">
-                        {/* Toggle checkbox */}
-                        <button onClick={() => updateCommitment(c.minute_id, c.index, { status: isDone ? 'pendiente' : 'completado' })}
-                          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500' : isOverdue ? 'border-red-400 hover:bg-red-50' : 'border-surface-300 hover:border-brand-400'}`}>
-                          {isDone && <CheckSquare className="w-3 h-3 text-white" />}
+
+                        {/* Multi-select checkbox */}
+                        <button
+                          onClick={() => toggleSelect(key)}
+                          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
+                            isSelected
+                              ? 'bg-brand-600 border-brand-600'
+                              : 'border-surface-300 hover:border-brand-400 bg-white'
+                          }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
                         </button>
+
                         <div className="flex-1 min-w-0">
                           <p className={`text-sm ${isDone ? 'line-through text-surface-400' : 'text-brand-900'}`}>{c.task}</p>
                           <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-surface-400">
@@ -603,16 +702,22 @@ export default function MinutesPanel({ projectId, perms = {} }) {
                           {c.evidence && <p className="text-[10px] text-emerald-600 mt-1">📎 {c.evidence}</p>}
                           {c.notes && <p className="text-[10px] text-surface-400 mt-1 italic">💬 {c.notes}</p>}
                         </div>
+
                         <div className="flex items-center gap-1 flex-shrink-0">
                           {/* Status badge */}
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            isDone ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                            isDone ? 'bg-emerald-100 text-emerald-700' :
+                            isOverdue ? 'bg-red-100 text-red-700' :
+                            c.status === 'en_progreso' ? 'bg-blue-100 text-blue-700' :
+                            'bg-amber-100 text-amber-700'
                           }`}>{isDone ? 'Completado' : isOverdue ? 'Vencido' : c.status === 'en_progreso' ? 'En progreso' : 'Pendiente'}</span>
                           {/* Edit button */}
-                          {perms.canEdit && <button onClick={() => setEditingCommitment({...c})}
-                            className="w-6 h-6 rounded hover:bg-surface-100 flex items-center justify-center ml-1">
-                            <Edit2 className="w-3 h-3 text-surface-400" />
-                          </button>}
+                          {perms.canEdit && (
+                            <button onClick={() => setEditingCommitment({...c})}
+                              className="w-6 h-6 rounded hover:bg-surface-100 flex items-center justify-center ml-1">
+                              <Edit2 className="w-3 h-3 text-surface-400" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

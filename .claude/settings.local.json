@@ -32,7 +32,10 @@
       "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia/backend' -name *.sql -o -name *migration*)",
       "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia' -type f \\\\\\(-name *.sql -o -name schema* -o -name *init* \\\\\\))",
       "Bash(find 'C:\\\\Users\\\\asus\\\\OneDrive - Tecnofactory S.A.S\\\\Documents\\\\sgip-ia\\\\frontend\\\\src' -name *Execution* -o -name *execution*)",
-      "Bash(node scripts/migrate-correspondence.js)"
+      "Bash(node scripts/migrate-correspondence.js)",
+      "Bash(gh pr:*)",
+      "Bash(where gh:*)",
+      "Bash(winget list:*)"
     ]
   }
 }

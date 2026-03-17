@@ -139,40 +139,58 @@ function IncomeTab({ projectId, onUpdate }) {
           </div>
         )}
 
-        {/* Add custom payment */}
+        {/* Add payment — modal */}
         {addingSched && (
-          <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 mb-3">
-            <p className="text-xs font-semibold text-emerald-800 mb-3 flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5"/> Nuevo pago
-            </p>
-            <div className="flex items-end gap-3 flex-wrap">
-              <div className="w-36 shrink-0">
-                <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-1.5">Tipo</label>
-                <select value={newSched.tipo_pago} onChange={e=>setNewSched(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
-                  <option value="mensual">Mensual</option>
-                  <option value="hito">Hito / Entregable</option>
-                  <option value="unico">Pago único</option>
-                </select>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={()=>setAddingSched(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 bg-emerald-50">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-emerald-600"/>
+                  </div>
+                  <h3 className="text-sm font-bold text-emerald-900">Agregar pago al flujo</h3>
+                </div>
+                <button onClick={()=>setAddingSched(false)} className="text-surface-400 hover:text-surface-600 transition-colors"><X className="w-4 h-4"/></button>
               </div>
-              <div className="w-16 shrink-0">
-                <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-1.5">Mes</label>
-                <input type="number" value={newSched.mes} onChange={e=>setNewSched(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="1"/>
+              {/* Body */}
+              <div className="px-6 py-5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-brand-800 mb-1.5">Tipo de pago</label>
+                    <select value={newSched.tipo_pago} onChange={e=>setNewSched(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
+                      <option value="mensual">Mensual</option>
+                      <option value="hito">Hito / Entregable</option>
+                      <option value="unico">Pago único</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-brand-800 mb-1.5">Mes</label>
+                    <input type="number" value={newSched.mes} onChange={e=>setNewSched(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="1"/>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-brand-800 mb-1.5">Descripción</label>
+                  <input value={newSched.descripcion} onChange={e=>setNewSched(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Entrega fase 1 — Hito de inicio"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-brand-800 mb-1.5">Valor sin IVA</label>
+                  <input type="number" value={newSched.valor_sin_iva} onChange={e=>setNewSched(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
+                  {parseFloat(newSched.valor_sin_iva) > 0 && (
+                    <div className="mt-2 flex gap-3 text-xs text-surface-500 justify-end font-mono">
+                      <span>IVA 19%: <b className="text-surface-700">{fm((parseFloat(newSched.valor_sin_iva)||0)*0.19)}</b></span>
+                      <span className="text-brand-600 font-semibold">Con IVA: {fm((parseFloat(newSched.valor_sin_iva)||0)*1.19)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-40">
-                <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-1.5">Descripción</label>
-                <input value={newSched.descripcion} onChange={e=>setNewSched(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Entrega fase 1"/>
-              </div>
-              <div className="w-48 shrink-0">
-                <label className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-1.5">Valor sin IVA</label>
-                <input type="number" value={newSched.valor_sin_iva} onChange={e=>setNewSched(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
-                {newSched.valor_sin_iva > 0 && <p className="text-[10px] text-emerald-600 mt-1 text-right font-mono">Con IVA: <span className="font-semibold">{fm((parseFloat(newSched.valor_sin_iva)||0)*1.19)}</span></p>}
-              </div>
-              <div className="flex gap-2 shrink-0 pb-0.5">
-                <button onClick={()=>setAddingSched(false)} className="px-3 py-2 text-xs font-medium text-surface-500 hover:text-surface-700 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors">
+              {/* Footer */}
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-surface-100 bg-surface-50">
+                <button onClick={()=>setAddingSched(false)} className="px-4 py-2 text-sm font-medium text-surface-600 hover:text-surface-800 bg-white hover:bg-surface-100 rounded-lg border border-surface-200 transition-colors">
                   Cancelar
                 </button>
-                <button onClick={handleAddSched} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
-                  <Plus className="w-3.5 h-3.5"/> Agregar pago
+                <button onClick={handleAddSched} className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors">
+                  <Plus className="w-4 h-4"/> Agregar pago
                 </button>
               </div>
             </div>
@@ -190,51 +208,62 @@ function IncomeTab({ projectId, onUpdate }) {
               </tr></thead>
               <tbody>
                 {schedule.map((s, idx) => editSchedId === s.id ? (
-                  <tr key={s.id} className="bg-brand-50 border-y-2 border-brand-300">
-                    <td colSpan={8} className="px-5 py-4">
-                      <div className="flex items-end gap-3 flex-wrap">
-                        {/* Tipo */}
-                        <div className="w-36 shrink-0">
-                          <label className="block text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-1.5">Tipo de pago</label>
-                          <select value={editSchedData.tipo_pago} onChange={e=>setEditSchedData(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
-                            <option value="mensual">Mensual</option>
-                            <option value="hito">Hito / Entregable</option>
-                            <option value="unico">Pago único</option>
-                          </select>
+                  <tr key={s.id} className="border-y-2 border-brand-200">
+                    <td colSpan={8} className="p-0">
+                      <div className="bg-brand-50 px-5 py-4 space-y-3">
+                        {/* Fila 1: Tipo · Mes · Descripción */}
+                        <div className="grid grid-cols-8 gap-3">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Tipo de pago</label>
+                            <select value={editSchedData.tipo_pago} onChange={e=>setEditSchedData(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
+                              <option value="mensual">Mensual</option>
+                              <option value="hito">Hito / Entregable</option>
+                              <option value="unico">Pago único</option>
+                            </select>
+                          </div>
+                          <div className="col-span-1">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Mes</label>
+                            <input type="number" value={editSchedData.mes||''} onChange={e=>setEditSchedData(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="—"/>
+                          </div>
+                          <div className="col-span-5">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Descripción</label>
+                            <input value={editSchedData.descripcion||''} onChange={e=>setEditSchedData(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Pago mensual — Mes 1"/>
+                          </div>
                         </div>
-                        {/* Mes */}
-                        <div className="w-16 shrink-0">
-                          <label className="block text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-1.5">Mes</label>
-                          <input type="number" value={editSchedData.mes||''} onChange={e=>setEditSchedData(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="—"/>
-                        </div>
-                        {/* Descripción */}
-                        <div className="flex-1 min-w-40">
-                          <label className="block text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-1.5">Descripción</label>
-                          <input value={editSchedData.descripcion||''} onChange={e=>setEditSchedData(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Pago mensual — Mes 1"/>
-                        </div>
-                        {/* Valor sin IVA */}
-                        <div className="w-48 shrink-0">
-                          <label className="block text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-1.5">Valor sin IVA</label>
-                          <input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
-                          <p className="text-[10px] text-brand-500 mt-1 text-right font-mono">Con IVA: <span className="font-semibold">{fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}</span></p>
-                        </div>
-                        {/* Estado */}
-                        <div className="w-36 shrink-0">
-                          <label className="block text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-1.5">Estado</label>
-                          <select value={editSchedData.estado} onChange={e=>setEditSchedData(d=>({...d,estado:e.target.value}))} className="input-field text-sm w-full">
-                            <option value="pendiente">Pendiente</option>
-                            <option value="facturado">Facturado</option>
-                            <option value="pagado">Pagado</option>
-                          </select>
-                        </div>
-                        {/* Acciones */}
-                        <div className="flex gap-2 shrink-0 pb-0.5">
-                          <button onClick={()=>setEditSchedId(null)} className="px-3 py-2 text-xs font-medium text-surface-500 hover:text-surface-700 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors">
-                            Cancelar
-                          </button>
-                          <button onClick={()=>handleSaveSched(s.id)} className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
-                            <Save className="w-3.5 h-3.5"/> Guardar
-                          </button>
+                        {/* Fila 2: Valores · Estado · Botones */}
+                        <div className="grid grid-cols-8 gap-3 items-end">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Valor sin IVA</label>
+                            <input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-1">IVA 19%</label>
+                            <div className="input-field text-sm w-full text-right font-mono bg-surface-50 text-surface-500 cursor-default select-none">
+                              {fm((parseFloat(editSchedData.valor_sin_iva)||0)*0.19)}
+                            </div>
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Con IVA</label>
+                            <div className="input-field text-sm w-full text-right font-mono font-semibold text-brand-700 bg-brand-50 cursor-default select-none">
+                              {fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}
+                            </div>
+                          </div>
+                          <div className="col-span-1">
+                            <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Estado</label>
+                            <select value={editSchedData.estado} onChange={e=>setEditSchedData(d=>({...d,estado:e.target.value}))} className="input-field text-sm w-full">
+                              <option value="pendiente">Pendiente</option>
+                              <option value="facturado">Facturado</option>
+                              <option value="pagado">Pagado</option>
+                            </select>
+                          </div>
+                          <div className="col-span-1 flex gap-2 justify-end">
+                            <button onClick={()=>setEditSchedId(null)} className="px-3 py-2 text-xs font-medium text-surface-500 hover:text-surface-700 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors whitespace-nowrap">
+                              Cancelar
+                            </button>
+                            <button onClick={()=>handleSaveSched(s.id)} className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors whitespace-nowrap">
+                              <Save className="w-3.5 h-3.5"/> Guardar
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </td>

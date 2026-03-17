@@ -5,6 +5,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, TrendingUp, TrendingDown,
   DollarSign, Shield, Users, CalendarRange, ClipboardList, FileText,
   ChevronDown, ChevronRight, AlertCircle, Target, Eye, BarChart3, Sparkles,
+  Calendar,
 } from 'lucide-react';
 import { committeeAPI, aiAPI } from '../../services/api';
 import CommitteeCommitmentsPanel from './CommitteeCommitmentsPanel';
@@ -83,6 +84,10 @@ export default function CommitteeDashboard() {
   const [fullscreen, setFullscreen] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [committeeType, setCommitteeType] = useState('mensual');
+  const today = new Date().toISOString().split('T')[0];
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+  const [dateFrom, setDateFrom] = useState(monthAgo);
+  const [dateTo, setDateTo]     = useState(today);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [commitmentUpdating, setCommitmentUpdating] = useState(null); // 'minuteId-index'
@@ -91,12 +96,12 @@ export default function CommitteeDashboard() {
   const load = useCallback(async () => {
     setLoading(true); setError(null); setAiAnalysis(null);
     try {
-      const r = await committeeAPI.dashboard(id, committeeType);
+      const r = await committeeAPI.dashboard(id, committeeType, committeeType === 'custom' ? dateFrom : undefined, committeeType === 'custom' ? dateTo : undefined);
       setData(r.data.data);
       setLastRefresh(new Date());
     } catch (e) { setError(e.response?.data?.error || e.message); }
     finally { setLoading(false); }
-  }, [id, committeeType]);
+  }, [id, committeeType, dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -332,13 +337,31 @@ REGLAS:
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">
               {/* Committee type selector */}
-              <div className="flex bg-white/70 rounded-lg border border-surface-200 text-xs overflow-hidden">
-                {['quincenal','mensual','extraordinario'].map(t => (
-                  <button key={t} onClick={() => setCommitteeType(t)}
-                    className={`px-3 py-1.5 capitalize transition-colors ${committeeType === t ? 'bg-brand-600 text-white' : 'text-surface-600 hover:bg-white'}`}>
-                    {t}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex bg-white/70 rounded-lg border border-surface-200 text-xs overflow-hidden">
+                  {[
+                    { id: 'quincenal',      label: 'Quincenal' },
+                    { id: 'mensual',        label: 'Mensual' },
+                    { id: 'extraordinario', label: 'Extraordinario' },
+                    { id: 'custom',         label: <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/>Personalizado</span> },
+                  ].map(({ id: t, label }) => (
+                    <button key={t} onClick={() => setCommitteeType(t)}
+                      className={`px-3 py-1.5 transition-colors whitespace-nowrap ${committeeType === t ? 'bg-brand-600 text-white' : 'text-surface-600 hover:bg-white'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {committeeType === 'custom' && (
+                  <div className="flex items-center gap-1.5 bg-white/80 border border-brand-200 rounded-lg px-2 py-1">
+                    <input type="date" value={dateFrom} max={dateTo}
+                      onChange={e => setDateFrom(e.target.value)}
+                      className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
+                    <span className="text-[10px] text-surface-400">→</span>
+                    <input type="date" value={dateTo} min={dateFrom} max={today}
+                      onChange={e => setDateTo(e.target.value)}
+                      className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
+                  </div>
+                )}
               </div>
               <button onClick={load} disabled={loading} className="btn-ghost text-xs flex items-center gap-1">
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />

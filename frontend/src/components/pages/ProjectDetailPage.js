@@ -328,9 +328,6 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(`/adjudicacion/${id}/comite`)} className="btn-ghost flex items-center gap-2 text-sm border border-brand-200">
-            <BarChart3 className="w-3.5 h-3.5" /> Comité
-          </button>
           {perms.canEdit && (
             <button onClick={() => navigate(`/adjudicacion/${id}/editar`)} className="btn-primary flex items-center gap-2 text-sm">
               <Edit2 className="w-3.5 h-3.5" /> Editar

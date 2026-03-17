@@ -272,7 +272,7 @@ export const exportsAPI = {
 
 // ═══ COMMITTEE ═══
 export const committeeAPI = {
-  dashboard: (pid, type) => api.get(`/committee/${pid}/dashboard`, { params: { type } }),
+  dashboard: (pid, type, dateFrom, dateTo) => api.get(`/committee/${pid}/dashboard`, { params: { type, date_from: dateFrom, date_to: dateTo } }),
   history: (pid) => api.get(`/committee/${pid}/history`),
   updateCommitment: (pid, minuteId, index, data) => api.patch(`/committee/${pid}/commitments/${minuteId}/${index}`, data),
 };

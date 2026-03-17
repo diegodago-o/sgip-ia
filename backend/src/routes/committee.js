@@ -245,10 +245,16 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
     };
 
     // ── PERIOD CALCULATION based on committee type ──
-    const periodEnd = new Date();
+    let periodEnd = new Date();
     let periodStart = new Date();
     let periodLabel = '';
-    if (committeeType === 'quincenal') {
+    if (committeeType === 'custom') {
+      const df = req.query.date_from;
+      const dt = req.query.date_to;
+      if (df) periodStart = new Date(df + 'T00:00:00');
+      if (dt) periodEnd   = new Date(dt + 'T23:59:59');
+      periodLabel = 'Personalizado';
+    } else if (committeeType === 'quincenal') {
       periodStart.setDate(periodEnd.getDate() - 15);
       periodLabel = 'Quincenal';
     } else if (committeeType === 'extraordinario') {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { projectsAPI } from '../../services/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import SchedulePanel from '../execution/SchedulePanel';
@@ -35,6 +36,7 @@ const STATUS_C = {
 function fmtMoney(v) { return v ? new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(v) : '—'; }
 
 export default function ExecutionPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -112,6 +114,13 @@ export default function ExecutionPage() {
             <p className="text-xs text-surface-400 mt-0.5">{sp?.client_name} · {fmtMoney(sp?.contract_value)}</p>
           </div>
 
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => selectedId && navigate(`/adjudicacion/${selectedId}/comite`)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors">
+              <BarChart3 className="w-4 h-4" /> Comité
+            </button>
+
           {/* Project dropdown */}
           <div className="relative">
             <button onClick={() => setDropOpen(!dropOpen)}
@@ -138,6 +147,7 @@ export default function ExecutionPage() {
                 })}
               </div>
             )}
+          </div>
           </div>
         </div>
 

@@ -212,7 +212,7 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   try {
-    const [[minute]] = await pool.execute('SELECT * FROM minutes WHERE id=? AND project_id=?', [minuteId, projectId]);
+    const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=? AND project_id=?', [minuteId, projectId]);
     if (!minute) return res.status(404).json({ error: 'Acta no encontrada' });
 
     const [[project]] = await pool.execute('SELECT id,name,code FROM projects WHERE id=?', [projectId]);
@@ -323,7 +323,7 @@ publicRouter.get('/:token', async (req, res) => {
     );
 
     const [[minute]] = await pool.execute(
-      'SELECT id,title,minute_type,meeting_date,location,agenda,discussions,attendees,agreements,action_items,minute_number FROM minutes WHERE id=?',
+      'SELECT id,title,minute_type,meeting_date,location,agenda,discussions,attendees,agreements,action_items,minute_number FROM meeting_minutes WHERE id=?',
       [req_.minute_id]
     );
     const [[project]] = await pool.execute('SELECT name,code,client_name FROM projects WHERE id=?', [req_.project_id]);
@@ -400,7 +400,7 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       [signer.request_id]
     );
 
-    const [[minute]] = await pool.execute('SELECT * FROM minutes WHERE id=?', [req_.minute_id]);
+    const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [req_.minute_id]);
     const [[project]] = await pool.execute('SELECT * FROM projects WHERE id=?', [req_.project_id]);
     const emailCfg = await loadEmailConfig();
 
@@ -466,7 +466,7 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
     );
 
     const [reqs] = await pool.execute('SELECT * FROM signature_requests WHERE id=?', [signer.request_id]);
-    const [[minute]] = await pool.execute('SELECT * FROM minutes WHERE id=?', [reqs[0].minute_id]);
+    const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [reqs[0].minute_id]);
     const [[project]] = await pool.execute('SELECT * FROM projects WHERE id=?', [reqs[0].project_id]);
 
     // Notify creator

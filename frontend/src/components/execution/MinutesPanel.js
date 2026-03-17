@@ -457,7 +457,13 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
     setSaving(true); setErr('');
     try {
       await signaturesAPI.create(projectId, minute.id, {
-        signers: valid.map((s, i) => ({ ...s, sign_order: i + 1 })),
+        // Backend expects: name, email, role, order
+        signers: valid.map((s, i) => ({
+          name:  s.signer_name.trim(),
+          email: s.signer_email.trim(),
+          role:  s.signer_role?.trim() || '',
+          order: i + 1,
+        })),
       });
       onChanged();
       onClose();

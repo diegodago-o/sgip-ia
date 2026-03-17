@@ -37,6 +37,7 @@ const correspondenceRoutes = require('./routes/correspondence');
 const settingsRoutes       = require('./routes/settings');
 const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
+const { signaturesRouter, firmaRouter } = require('./routes/signatures');
 const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
@@ -153,6 +154,8 @@ app.use('/api/dashboard', biDashboardRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/settings/api-keys', apiKeysRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/exec/:projectId/minutes/:minuteId/firma', signaturesRouter);
+app.use('/api/firma', firmaRouter);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK

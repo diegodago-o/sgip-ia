@@ -291,4 +291,35 @@ export const dashboardAPI = {
   bi: () => api.get('/dashboard/bi'),
 };
 
+// ═══ DIGITAL SIGNATURES ═══
+// signaturesAPI uses the authenticated `api` instance (Bearer token)
+export const signaturesAPI = {
+  // Get active signature request + signers for a minute
+  get: (pid, mid) =>
+    api.get(`/exec/${pid}/minutes/${mid}/firma`),
+  // Create a new signature request
+  create: (pid, mid, data) =>
+    api.post(`/exec/${pid}/minutes/${mid}/firma`, data),
+  // Cancel active request
+  cancel: (pid, mid) =>
+    api.delete(`/exec/${pid}/minutes/${mid}/firma`),
+  // Batch-load statuses for multiple minutes
+  batchStatus: async (pid, minuteIds) => {
+    const results = await Promise.allSettled(
+      minuteIds.map(mid =>
+        api.get(`/exec/${pid}/minutes/${mid}/firma`)
+          .then(r => ({ mid, data: r.data }))
+          .catch(() => ({ mid, data: null }))
+      )
+    );
+    const map = {};
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value.data) {
+        map[r.value.mid] = r.value.data;
+      }
+    });
+    return map;
+  },
+};
+
 export default api;

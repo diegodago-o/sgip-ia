@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { minutesAPI, exportsAPI } from '../../services/api';
-import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown } from 'lucide-react';
+import { minutesAPI, exportsAPI, signaturesAPI } from '../../services/api';
+import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown, PenLine, Shield, UserPlus, AlertTriangle } from 'lucide-react';
 
 const MT = { comite_obra: 'Comité de obra', comite_seguimiento: 'Comité seguimiento', reunion_tecnica: 'Reunión técnica', reunion_financiera: 'Reunión financiera', otro: 'Otro' };
 const MS = { borrador: { l: 'Borrador', bg: 'bg-amber-100', t: 'text-amber-700' }, firmada: { l: 'Firmada', bg: 'bg-emerald-100', t: 'text-emerald-700' }, archivada: { l: 'Archivada', bg: 'bg-slate-100', t: 'text-slate-600' } };
@@ -427,6 +427,263 @@ function CommitmentEditModal({ commitment, teamMembers, onSave, onClose }) {
   );
 }
 
+// ═══════════════════════════════════════
+// Signature Modal (create / view request)
+// ═══════════════════════════════════════
+const EMPTY_SIGNER = { signer_name: '', signer_email: '', signer_role: '' };
+
+function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged }) {
+  const [mode,    setMode]    = useState(existingRequest ? 'status' : 'create');
+  const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
+  const [saving,  setSaving]  = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [err,     setErr]     = useState('');
+
+  const setSigner = (i, field, val) =>
+    setSigners(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: val } : s));
+
+  const addSigner = () => setSigners(prev => [...prev, { ...EMPTY_SIGNER }]);
+  const removeSigner = (i) => setSigners(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleCreate = async () => {
+    const valid = signers.filter(s => s.signer_name.trim() && s.signer_email.trim());
+    if (valid.length < 1) { setErr('Agregue al menos un firmante con nombre y correo.'); return; }
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const s of valid) {
+      if (!emailRx.test(s.signer_email)) { setErr(`Correo inválido: ${s.signer_email}`); return; }
+    }
+    setSaving(true); setErr('');
+    try {
+      await signaturesAPI.create(projectId, minute.id, {
+        signers: valid.map((s, i) => ({ ...s, sign_order: i + 1 })),
+      });
+      onChanged();
+      onClose();
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Error al iniciar el proceso de firmas.');
+    } finally { setSaving(false); }
+  };
+
+  const handleCancel = async () => {
+    if (!window.confirm('¿Cancelar el proceso de firmas? Se notificará a los firmantes.')) return;
+    setCancelling(true);
+    try {
+      await signaturesAPI.cancel(projectId, minute.id);
+      onChanged();
+      onClose();
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Error al cancelar.');
+    } finally { setCancelling(false); }
+  };
+
+  const req = existingRequest?.request;
+  const reqSigners = existingRequest?.signers || [];
+  const signedCount = reqSigners.filter(s => s.status === 'signed').length;
+
+  const statusColor = (s) => {
+    if (s === 'signed')    return 'bg-green-100 text-green-700';
+    if (s === 'rejected')  return 'bg-red-100 text-red-700';
+    if (s === 'notified')  return 'bg-blue-100 text-blue-700';
+    if (s === 'viewed')    return 'bg-yellow-100 text-yellow-700';
+    return 'bg-gray-100 text-gray-500';
+  };
+  const statusLabel = (s) => ({
+    pending: 'Pendiente', notified: 'Notificado', viewed: 'Visto',
+    signed: 'Firmado', rejected: 'Rechazado',
+  }[s] || s);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-brand-50 to-blue-50">
+          <div className="flex items-center gap-2">
+            <Shield size={18} className="text-brand-600" />
+            <div>
+              <h2 className="font-semibold text-gray-800 text-sm">Firmas Digitales</h2>
+              <p className="text-xs text-gray-400 truncate max-w-xs">{minute.title}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center">
+            <X size={16} className="text-gray-400" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          {/* Tab toggle when request exists */}
+          {existingRequest && (
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+              <button
+                onClick={() => setMode('status')}
+                className={`flex-1 py-2 transition-colors ${mode === 'status' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >Estado actual</button>
+              {req?.status === 'in_progress' && (
+                <button
+                  onClick={() => setMode('create')}
+                  className={`flex-1 py-2 transition-colors ${mode === 'create' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                >Nuevo proceso</button>
+              )}
+            </div>
+          )}
+
+          {/* STATUS view */}
+          {mode === 'status' && existingRequest && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>Estado: <strong className={
+                  req?.status === 'completed' ? 'text-green-600' :
+                  req?.status === 'rejected'  ? 'text-red-600'  :
+                  req?.status === 'cancelled' ? 'text-gray-400' : 'text-brand-600'
+                }>{
+                  { in_progress: 'En progreso', completed: 'Completado', rejected: 'Rechazado', cancelled: 'Cancelado' }[req?.status] || req?.status
+                }</strong></span>
+                <span>{signedCount} / {reqSigners.length} firmados</span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-brand-500 h-1.5 rounded-full transition-all"
+                  style={{ width: `${reqSigners.length ? (signedCount / reqSigners.length) * 100 : 0}%` }}
+                />
+              </div>
+
+              {/* Signers list */}
+              <div className="space-y-2">
+                {reqSigners.map((s, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700">
+                      {s.status === 'signed' ? '✓' : i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{s.signer_name}</p>
+                      <p className="text-xs text-gray-400 truncate">{s.signer_role} · {s.signer_email}</p>
+                      {s.signed_at && (
+                        <p className="text-[10px] text-green-600 mt-0.5">
+                          Firmado: {new Date(s.signed_at).toLocaleString('es-CO')}
+                        </p>
+                      )}
+                      {s.rejection_reason && (
+                        <p className="text-[10px] text-red-500 mt-0.5">Rechazó: {s.rejection_reason}</p>
+                      )}
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor(s.status)}`}>
+                      {statusLabel(s.status)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {req?.status === 'in_progress' && (
+                <button
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="w-full text-xs text-red-500 border border-red-200 rounded-xl py-2
+                    hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  {cancelling ? <Loader2 size={12} className="animate-spin" /> : null}
+                  Cancelar proceso de firmas
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* CREATE view */}
+          {mode === 'create' && (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-500 leading-relaxed bg-blue-50 rounded-lg p-3 border border-blue-100">
+                <strong>Firma electrónica con validez legal</strong> conforme a la Ley 527 de 1999 y
+                Decreto 2364 de 2012. Cada firmante recibirá un correo con un enlace único para firmar
+                el documento de forma secuencial.
+              </p>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-600">Firmantes (en orden de firma)</p>
+                  <button
+                    onClick={addSigner}
+                    className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700"
+                  >
+                    <UserPlus size={12} /> Agregar
+                  </button>
+                </div>
+
+                {signers.map((s, i) => (
+                  <div key={i} className="rounded-xl border border-gray-200 p-3 space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
+                        Firmante #{i + 1}
+                      </span>
+                      {signers.length > 1 && (
+                        <button onClick={() => removeSigner(i)} className="text-gray-300 hover:text-red-400">
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nombre completo *"
+                        value={s.signer_name}
+                        onChange={e => setSigner(i, 'signer_name', e.target.value)}
+                        className="col-span-2 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs
+                          focus:outline-none focus:border-brand-400"
+                      />
+                      <input
+                        type="email"
+                        placeholder="Correo electrónico *"
+                        value={s.signer_email}
+                        onChange={e => setSigner(i, 'signer_email', e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs
+                          focus:outline-none focus:border-brand-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Cargo / Rol"
+                        value={s.signer_role}
+                        onChange={e => setSigner(i, 'signer_role', e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs
+                          focus:outline-none focus:border-brand-400"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {err && (
+                <div className="flex items-center gap-2 text-red-600 text-xs bg-red-50
+                  rounded-lg px-3 py-2 border border-red-100">
+                  <AlertTriangle size={12} /> {err}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {mode === 'create' && (
+          <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+            <button onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
+            <button
+              onClick={handleCreate}
+              disabled={saving}
+              className="btn-primary text-sm flex items-center gap-2"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <PenLine size={14} />}
+              Iniciar proceso de firmas
+            </button>
+          </div>
+        )}
+        {mode === 'status' && (
+          <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MinutesPanel({ projectId, perms = {} }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -439,6 +696,8 @@ export default function MinutesPanel({ projectId, perms = {} }) {
   const [selected, setSelected]       = useState(new Set()); // keys: `${minute_id}-${index}`
   const [bulkLoading, setBulkLoading] = useState(false);
   const [closedAccordions, setClosedAccordions] = useState(new Set()); // minute ids that are collapsed
+  const [sigModal,    setSigModal]    = useState(null);   // minute object | null
+  const [sigStatuses, setSigStatuses] = useState({});     // { [minuteId]: { request, signers } | null }
 
   const load = useCallback(async () => {
     try {
@@ -450,6 +709,11 @@ export default function MinutesPanel({ projectId, perms = {} }) {
         action_items: safeArr(m.action_items),
       }));
       setItems(data);
+      // Load signature statuses for all actas (best-effort, no crash on fail)
+      if (data.length > 0) {
+        const statuses = await signaturesAPI.batchStatus(projectId, data.map(m => m.id));
+        setSigStatuses(statuses);
+      }
     } catch {} finally { setLoading(false); }
   }, [projectId]);
 
@@ -823,11 +1087,19 @@ export default function MinutesPanel({ projectId, perms = {} }) {
           const att = m.attendees || [];
           const agr = m.agreements || [];
           const ai = m.action_items || [];
+          const sigStatus = sigStatuses[m.id];
+          const sigReq = sigStatus?.request;
+          const sigBadge = sigReq
+            ? sigReq.status === 'completed'   ? { bg: 'bg-emerald-100', t: 'text-emerald-700', l: '✓ Firmada' }
+            : sigReq.status === 'in_progress' ? { bg: 'bg-blue-100',    t: 'text-blue-700',    l: `✍ Firmando (${(sigStatus.signers||[]).filter(x=>x.status==='signed').length}/${(sigStatus.signers||[]).length})` }
+            : sigReq.status === 'rejected'    ? { bg: 'bg-red-100',     t: 'text-red-600',     l: '✕ Rechazada' }
+            : null
+            : null;
           return (
             <div key={m.id} className="group bg-white border border-surface-100 rounded-lg p-4 hover:border-surface-200 transition-colors">
               <div className="flex items-start justify-between gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-mono text-xs text-brand-500 font-semibold">Acta #{m.minute_number}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.bg} ${s.t}`}>{s.l}</span>
                     <span className="text-[10px] text-surface-400">{MT[m.minute_type] || m.minute_type}</span>
@@ -835,10 +1107,38 @@ export default function MinutesPanel({ projectId, perms = {} }) {
                   <p className="text-sm font-medium text-brand-900">{m.title}</p>
                   <p className="text-xs text-surface-400 mt-0.5">{new Date(m.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })} {m.location ? `· ${m.location}` : ''}</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {perms.canEdit && <button onClick={() => setModal(m)} className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center"><Edit2 className="w-3.5 h-3.5 text-surface-400" /></button>}
-                  <button onClick={async () => { try { const r = await exportsAPI.minuteToWord(projectId, m.id); const url = URL.createObjectURL(new Blob([r.data])); const a = document.createElement('a'); a.href = url; a.download = `Acta_${m.minute_number || m.id}.docx`; a.click(); URL.revokeObjectURL(url); } catch (e) { alert('Error exportando: ' + e.message); } }} className="w-7 h-7 rounded hover:bg-blue-50 flex items-center justify-center" title="Descargar Word"><Download className="w-3.5 h-3.5 text-blue-500" /></button>
-                  {perms.canDelete && <button onClick={() => del(m.id)} className="w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>}
+                {/* Action buttons — always visible */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {perms.canEdit && (
+                    <button onClick={() => setModal(m)} className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Editar">
+                      <Edit2 className="w-3.5 h-3.5 text-surface-400" />
+                    </button>
+                  )}
+                  <button onClick={async () => { try { const r = await exportsAPI.minuteToWord(projectId, m.id); const url = URL.createObjectURL(new Blob([r.data])); const a = document.createElement('a'); a.href = url; a.download = `Acta_${m.minute_number || m.id}.docx`; a.click(); URL.revokeObjectURL(url); } catch (e) { alert('Error exportando: ' + e.message); } }} className="w-7 h-7 rounded hover:bg-blue-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Descargar Word">
+                    <Download className="w-3.5 h-3.5 text-blue-500" />
+                  </button>
+                  {perms.canDelete && (
+                    <button onClick={() => del(m.id)} className="w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Eliminar">
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    </button>
+                  )}
+                  {/* Firma button — ALWAYS visible, adapts to status */}
+                  <button
+                    onClick={() => setSigModal(m)}
+                    title={sigReq ? 'Ver estado de firmas' : 'Solicitar firmas digitales'}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                      sigReq?.status === 'completed'   ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' :
+                      sigReq?.status === 'in_progress' ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100' :
+                      sigReq?.status === 'rejected'    ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' :
+                      'bg-purple-50 border-purple-200 text-purple-600 hover:bg-purple-100'
+                    }`}
+                  >
+                    <PenLine className="w-3 h-3" />
+                    {sigReq?.status === 'completed'   ? 'Firmada' :
+                     sigReq?.status === 'in_progress' ? `${(sigStatus?.signers||[]).filter(x=>x.status==='signed').length}/${(sigStatus?.signers||[]).length} firmados` :
+                     sigReq?.status === 'rejected'    ? 'Rechazada' :
+                     'Firmas'}
+                  </button>
                 </div>
               </div>
               <div className="flex gap-4 mt-2 text-[10px] text-surface-400">
@@ -885,6 +1185,17 @@ export default function MinutesPanel({ projectId, perms = {} }) {
         <MinuteModal item={modal} projectId={projectId}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); showToast('Acta actualizada'); load(); }} />
+      )}
+
+      {/* Signature modal */}
+      {sigModal && (
+        <SignatureModal
+          projectId={projectId}
+          minute={sigModal}
+          existingRequest={sigStatuses[sigModal.id] || null}
+          onClose={() => setSigModal(null)}
+          onChanged={() => { setSigModal(null); showToast('Proceso de firmas actualizado'); load(); }}
+        />
       )}
       </>)}
     </div>

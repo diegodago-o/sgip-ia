@@ -14,6 +14,7 @@ import ClosurePage from './components/pages/ClosurePage';
 import AIPage from './components/pages/AIPage';
 import AdminUsersPage from './components/pages/AdminUsersPage';
 import CommitteeDashboard from './components/pages/CommitteeDashboard';
+import SigningPage from './components/pages/SigningPage';
 import ConfiguracionPage from './pages/ConfiguracionPage';
 
 function LoginGuard() {
@@ -29,6 +30,8 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginGuard />} />
+          {/* Public: signing page — no auth required */}
+          <Route path="/firma/:token" element={<SigningPage />} />
 
           <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             {/* Dashboard */}

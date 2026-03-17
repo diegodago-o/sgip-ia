@@ -2,6 +2,7 @@ const express = require('express');
 const { param, body, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
+const notifier = require('../services/notifier');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -164,6 +165,20 @@ router.put('/:projectId/payments/:id', roleMiddleware('admin','gerente_proyecto'
       vals.push(req.params.id);
       await pool.execute(`UPDATE payments SET ${sets.join(',')} WHERE id=?`, vals);
       const [rows] = await pool.execute('SELECT * FROM payments WHERE id=?', [req.params.id]);
+
+      // Notify if status just changed to 'aprobado' (fire-and-forget)
+      if (b.status === 'aprobado' && ex[0].status !== 'aprobado') {
+        const [proj] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [req.params.projectId]);
+        notifier.notify('payment.approved', {
+          project_id:   Number(req.params.projectId),
+          project_code: proj[0]?.code || '',
+          project_name: proj[0]?.name || '',
+          concept:      rows[0].concept || '',
+          net_value:    rows[0].net_value,
+          period_to:    rows[0].period_to,
+        }).catch(() => {});
+      }
+
       res.json({ data: rows[0], message: 'Pago actualizado' });
     } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Error' }); }
 });

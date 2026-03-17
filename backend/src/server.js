@@ -37,6 +37,7 @@ const correspondenceRoutes = require('./routes/correspondence');
 const settingsRoutes       = require('./routes/settings');
 const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
+const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -184,6 +185,9 @@ app.use((err, _req, res, _next) => {
 // ══════════════════════════════════════════════
 // GRACEFUL SHUTDOWN
 // ══════════════════════════════════════════════
+// Start notification scheduler
+startScheduler();
+
 const server = app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════════╗

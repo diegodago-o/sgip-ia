@@ -3,21 +3,24 @@ import {
   Mail, Save, Send, Eye, EyeOff, CheckCircle2, XCircle,
   Loader2, Shield, Server, User, Lock, Settings, ChevronRight,
   AlertTriangle, Info, Zap, Key, Plus, Trash2, Copy, RefreshCw,
-  ToggleLeft, ToggleRight, Link, ExternalLink, Clock,
+  ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell,
 } from 'lucide-react';
 import api from '../services/api';
 
 // ─── settingsAPI ─────────────────────────────────────────────────────────────
 const settingsAPI = {
-  getEmail:    ()     => api.get('/settings/email'),
-  saveEmail:   (d)    => api.put('/settings/email', d),
-  testEmail:   (d)    => api.post('/settings/email/test', d),
-  getN8n:      ()     => api.get('/settings/n8n'),
-  saveN8n:     (d)    => api.put('/settings/n8n', d),
-  testN8n:     (d)    => api.post('/settings/n8n/test', d),
-  listApiKeys: ()     => api.get('/settings/api-keys'),
-  createKey:   (d)    => api.post('/settings/api-keys', d),
-  revokeKey:   (id)   => api.delete(`/settings/api-keys/${id}`),
+  getEmail:       ()    => api.get('/settings/email'),
+  saveEmail:      (d)   => api.put('/settings/email', d),
+  testEmail:      (d)   => api.post('/settings/email/test', d),
+  getN8n:         ()    => api.get('/settings/n8n'),
+  saveN8n:        (d)   => api.put('/settings/n8n', d),
+  testN8n:        (d)   => api.post('/settings/n8n/test', d),
+  listApiKeys:    ()    => api.get('/settings/api-keys'),
+  createKey:      (d)   => api.post('/settings/api-keys', d),
+  revokeKey:      (id)  => api.delete(`/settings/api-keys/${id}`),
+  getNotifs:      ()    => api.get('/settings/notifications'),
+  saveNotifs:     (d)   => api.put('/settings/notifications', d),
+  testNotif:      (d)   => api.post('/settings/notifications/test', d),
 };
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -92,10 +95,28 @@ function Feedback({ fb, onClose }) {
   );
 }
 
+// ─── Notification type definitions (mirrors backend) ─────────────────────────
+const NOTIF_TYPES = [
+  { id: 'acta.created',            category: 'instant',   label: 'Acta creada',                   desc: 'Al firmar y crear una nueva acta de comité',                default_recipients: 'project_team' },
+  { id: 'commitment.created',      category: 'instant',   label: 'Compromiso creado',              desc: 'Al registrar un nuevo compromiso en un acta',               default_recipients: 'project_team' },
+  { id: 'correspondence.received', category: 'instant',   label: 'Correspondencia recibida',       desc: 'Al ingresar nueva correspondencia al sistema',              default_recipients: 'project_team' },
+  { id: 'payment.approved',        category: 'instant',   label: 'Pago aprobado',                  desc: 'Al aprobar un pago de proyecto',                            default_recipients: 'admins'       },
+  { id: 'commitment.reminder',     category: 'scheduled', label: 'Recordatorio de compromiso',     desc: 'Días antes del vencimiento de un compromiso (configurable)', default_recipients: 'project_team', default_lead_days: 3 },
+  { id: 'commitment.overdue',      category: 'scheduled', label: 'Alerta compromisos vencidos',    desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',  default_recipients: 'admins'       },
+  { id: 'payment.due_reminder',    category: 'scheduled', label: 'Recordatorio de corte de pago',  desc: 'Días antes del cierre de período de un pago (configurable)',  default_recipients: 'admins',      default_lead_days: 5 },
+];
+
+const RECIPIENT_OPTIONS = [
+  { value: 'project_team', label: 'Equipo del proyecto',    desc: 'Usuarios asignados al proyecto' },
+  { value: 'admins',       label: 'Administradores',        desc: 'Usuarios con rol admin / director PMO' },
+  { value: 'custom',       label: 'Correos personalizados', desc: 'Ingresa los destinatarios manualmente' },
+];
+
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'email',         label: 'Correo electrónico', icon: Mail },
-  { id: 'integraciones', label: 'Integraciones',       icon: Zap  },
+  { id: 'email',           label: 'Correo electrónico', icon: Mail },
+  { id: 'notificaciones',  label: 'Notificaciones',      icon: Bell },
+  { id: 'integraciones',   label: 'Integraciones',       icon: Zap  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -620,14 +641,274 @@ function IntegracionesSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// NOTIFICACIONES SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+function NotificacionesSection() {
+  const [cfg, setCfg]           = useState({ enabled: false, notifications: {} });
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [testing, setTesting]   = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [fb, setFb]             = useState(null);
+
+  const showFb = (type, msg) => { setFb({ type, msg }); if (type === 'success') setTimeout(() => setFb(null), 5000); };
+
+  useEffect(() => {
+    settingsAPI.getNotifs()
+      .then(r => setCfg(r.data?.data || { enabled: false, notifications: {} }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  // ── Config helpers ──
+  const setEnabled = (v) => setCfg(s => ({ ...s, enabled: v }));
+
+  const getTypeCfg = (id) => (cfg.notifications || {})[id] || {};
+
+  const setTypeCfg = (id, patch) => setCfg(s => ({
+    ...s,
+    notifications: {
+      ...s.notifications,
+      [id]: { ...getTypeCfg(id), ...patch },
+    },
+  }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsAPI.saveNotifs(cfg);
+      showFb('success', 'Configuración de notificaciones guardada correctamente');
+    } catch (e) { showFb('error', e.response?.data?.error || e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    if (!testEmail) return showFb('error', 'Ingresa un correo destinatario para la prueba');
+    setTesting(true);
+    try {
+      const r = await settingsAPI.testNotif({ email: testEmail });
+      showFb('success', r.data?.message || 'Correo de prueba enviado');
+    } catch (e) { showFb('error', e.response?.data?.error || e.message); }
+    finally { setTesting(false); }
+  };
+
+  const instant   = NOTIF_TYPES.filter(t => t.category === 'instant');
+  const scheduled = NOTIF_TYPES.filter(t => t.category === 'scheduled');
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-400" /></div>;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Feedback fb={fb} onClose={() => setFb(null)} />
+
+      {/* Global toggle */}
+      <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-surface-200 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center">
+            <Bell className="w-4.5 h-4.5 text-brand-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-brand-900">Notificaciones por correo</p>
+            <p className="text-[10px] text-surface-400">Activa o desactiva todas las notificaciones del sistema</p>
+          </div>
+        </div>
+        <button type="button" onClick={() => setEnabled(!cfg.enabled)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            cfg.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'
+          }`}>
+          {cfg.enabled ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+          {cfg.enabled ? 'Activo' : 'Inactivo'}
+        </button>
+      </div>
+
+      {/* Prerequisite warning */}
+      <div className="flex gap-2 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <p className="text-[10px] text-amber-800 leading-relaxed">
+          Las notificaciones usan el servidor configurado en <b>Correo electrónico</b>. Asegúrate de que esté configurado y probado antes de activarlas.
+        </p>
+      </div>
+
+      {/* ── Immediate notifications ── */}
+      <div className="rounded-2xl border border-surface-200 bg-white overflow-hidden shadow-sm">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-surface-100 bg-surface-50">
+          <Send className="w-3.5 h-3.5 text-brand-500" />
+          <span className="text-xs font-semibold text-brand-800 uppercase tracking-wide">Notificaciones inmediatas</span>
+          <span className="text-[10px] text-surface-400 ml-1">Se envían en el momento del evento</span>
+        </div>
+        <div className="divide-y divide-surface-50">
+          {instant.map(t => {
+            const tc = getTypeCfg(t.id);
+            const isEnabled = tc.enabled ?? false;
+            return (
+              <div key={t.id} className={`p-4 transition-colors ${!cfg.enabled ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand-800">{t.label}</p>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{t.desc}</p>
+                  </div>
+                  <button type="button"
+                    disabled={!cfg.enabled}
+                    onClick={() => setTypeCfg(t.id, { enabled: !isEnabled })}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:cursor-not-allowed ${
+                      isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'
+                    }`}>
+                    {isEnabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    {isEnabled ? 'Activo' : 'Inactivo'}
+                  </button>
+                </div>
+
+                {isEnabled && cfg.enabled && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-surface-50">
+                    {/* Recipients */}
+                    <div>
+                      <label className="block text-[10px] font-medium text-surface-500 mb-1">Destinatarios</label>
+                      <select
+                        value={tc.recipients || t.default_recipients}
+                        onChange={e => setTypeCfg(t.id, { recipients: e.target.value })}
+                        className="input-field text-xs w-full py-1.5">
+                        {RECIPIENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {/* Custom emails */}
+                    {(tc.recipients || t.default_recipients) === 'custom' && (
+                      <div>
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Correos (separados por coma)</label>
+                        <input
+                          type="text"
+                          value={(tc.custom_emails || []).join(', ')}
+                          onChange={e => setTypeCfg(t.id, { custom_emails: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
+                          placeholder="a@empresa.com, b@empresa.com"
+                          className="input-field text-xs w-full py-1.5"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Scheduled notifications ── */}
+      <div className="rounded-2xl border border-surface-200 bg-white overflow-hidden shadow-sm">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-surface-100 bg-surface-50">
+          <Clock className="w-3.5 h-3.5 text-brand-500" />
+          <span className="text-xs font-semibold text-brand-800 uppercase tracking-wide">Recordatorios programados</span>
+          <span className="text-[10px] text-surface-400 ml-1">Se verifican cada hora automáticamente</span>
+        </div>
+        <div className="divide-y divide-surface-50">
+          {scheduled.map(t => {
+            const tc = getTypeCfg(t.id);
+            const isEnabled = tc.enabled ?? false;
+            return (
+              <div key={t.id} className={`p-4 transition-colors ${!cfg.enabled ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand-800">{t.label}</p>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{t.desc}</p>
+                  </div>
+                  <button type="button"
+                    disabled={!cfg.enabled}
+                    onClick={() => setTypeCfg(t.id, { enabled: !isEnabled })}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:cursor-not-allowed ${
+                      isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'
+                    }`}>
+                    {isEnabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    {isEnabled ? 'Activo' : 'Inactivo'}
+                  </button>
+                </div>
+
+                {isEnabled && cfg.enabled && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-surface-50">
+                    {/* Destinatarios */}
+                    <div>
+                      <label className="block text-[10px] font-medium text-surface-500 mb-1">Destinatarios</label>
+                      <select
+                        value={tc.recipients || t.default_recipients}
+                        onChange={e => setTypeCfg(t.id, { recipients: e.target.value })}
+                        className="input-field text-xs w-full py-1.5">
+                        {RECIPIENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {/* Días de anticipación */}
+                    {t.default_lead_days !== undefined && (
+                      <div>
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Días de anticipación</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1" max="30"
+                            value={tc.lead_days ?? t.default_lead_days}
+                            onChange={e => setTypeCfg(t.id, { lead_days: Number(e.target.value) })}
+                            className="input-field text-xs w-20 py-1.5"
+                          />
+                          <span className="text-[10px] text-surface-400">días antes del vencimiento</span>
+                        </div>
+                      </div>
+                    )}
+                    {/* Custom emails */}
+                    {(tc.recipients || t.default_recipients) === 'custom' && (
+                      <div className="col-span-2">
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Correos (separados por coma)</label>
+                        <input
+                          type="text"
+                          value={(tc.custom_emails || []).join(', ')}
+                          onChange={e => setTypeCfg(t.id, { custom_emails: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
+                          placeholder="a@empresa.com, b@empresa.com"
+                          className="input-field text-xs w-full py-1.5"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Test send */}
+      <div className="p-4 bg-white rounded-2xl border border-surface-200 shadow-sm space-y-3">
+        <h4 className="text-xs font-semibold text-brand-800 flex items-center gap-1.5">
+          <Send className="w-3.5 h-3.5" /> Probar envío de notificación
+        </h4>
+        <div className="flex gap-2">
+          <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)}
+            placeholder="destinatario@empresa.com"
+            className="input-field text-sm flex-1" />
+          <button type="button" onClick={handleTest} disabled={testing}
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+            {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            {testing ? 'Enviando...' : 'Enviar prueba'}
+          </button>
+        </div>
+        <p className="text-[10px] text-surface-400">Envía un correo de prueba para verificar que las notificaciones llegan correctamente.</p>
+      </div>
+
+      {/* Save */}
+      <div className="flex justify-end pt-2">
+        <button type="button" onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Guardando...' : 'Guardar configuración'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Main ConfiguracionPage
 // ══════════════════════════════════════════════════════════════════════════════
 export default function ConfiguracionPage() {
   const [active, setActive] = useState('email');
 
   const titles = {
-    email:         { h: 'Correo electrónico',   sub: 'Configura el servidor de correo para enviar notificaciones del sistema' },
-    integraciones: { h: 'Integraciones',         sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
+    email:           { h: 'Correo electrónico',   sub: 'Configura el servidor de correo para enviar notificaciones del sistema' },
+    notificaciones:  { h: 'Notificaciones',        sub: 'Define qué eventos del sistema disparan emails, a quién y con cuánta anticipación' },
+    integraciones:   { h: 'Integraciones',         sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
   };
 
   return (
@@ -668,8 +949,9 @@ export default function ConfiguracionPage() {
           <h2 className="text-lg font-display font-bold text-brand-900">{titles[active]?.h}</h2>
           <p className="text-sm text-surface-400 mt-0.5">{titles[active]?.sub}</p>
         </div>
-        {active === 'email'         && <EmailSection />}
-        {active === 'integraciones' && <IntegracionesSection />}
+        {active === 'email'          && <EmailSection />}
+        {active === 'notificaciones' && <NotificacionesSection />}
+        {active === 'integraciones'  && <IntegracionesSection />}
       </main>
     </div>
   );

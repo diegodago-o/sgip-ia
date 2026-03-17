@@ -156,6 +156,78 @@ router.post('/email/test', authenticate, requireAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Notifications config
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadNotifConfig() {
+  const [rows] = await db.execute(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'notification_config'"
+  );
+  if (!rows.length || !rows[0].setting_value) return { enabled: false, notifications: {} };
+  try { return JSON.parse(rows[0].setting_value); } catch { return { enabled: false, notifications: {} }; }
+}
+
+async function saveNotifConfig(cfg, userId) {
+  await db.execute(
+    `INSERT INTO system_settings (setting_key, setting_value, is_sensitive, updated_by)
+     VALUES ('notification_config', ?, 0, ?)
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)`,
+    [JSON.stringify(cfg), userId]
+  );
+}
+
+// GET /api/settings/notifications
+router.get('/notifications', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const cfg = await loadNotifConfig();
+    res.json({ success: true, data: cfg });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/settings/notifications
+router.put('/notifications', authenticate, requireAdmin, async (req, res) => {
+  try {
+    await saveNotifConfig(req.body || {}, req.user.id);
+    res.json({ success: true, message: 'Configuración de notificaciones guardada correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/settings/notifications/test
+router.post('/notifications/test', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Correo destinatario requerido' });
+
+    const [eRows] = await db.execute(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'email_config'"
+    );
+    if (!eRows.length || !eRows[0].setting_value) {
+      return res.status(400).json({ error: 'Configure primero el servidor de correo en la pestaña "Correo electrónico"' });
+    }
+    const emailCfg = JSON.parse(eRows[0].setting_value);
+    if (!emailCfg.provider_type) {
+      return res.status(400).json({ error: 'Servidor de correo no configurado' });
+    }
+
+    const { sendMail } = require('../services/mailer');
+    await sendMail(emailCfg, {
+      to: email,
+      subject: '[SGIP-IA] Prueba de notificaciones',
+      html: `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:8px">
+          <h2 style="color:#1e3a5f;margin-top:0">SGIP-IA · Prueba de notificaciones</h2>
+          <p style="color:#4a5568">Las notificaciones por correo están configuradas y funcionando correctamente.</p>
+          <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:12px 16px;border-radius:4px;margin:16px 0">
+            <strong style="color:#15803d">✓ Sistema de notificaciones activo</strong>
+          </div>
+          <p style="color:#718096;font-size:12px;margin-bottom:0">Este es un mensaje automático de SGIP-IA.</p>
+        </div>`,
+    });
+
+    res.json({ success: true, message: `Correo de prueba enviado a ${email}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // N8N / Webhooks — helpers
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadN8nConfig() {

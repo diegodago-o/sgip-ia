@@ -2,6 +2,7 @@ const express = require('express');
 const { param, body, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
+const notifier = require('../services/notifier');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -80,6 +81,17 @@ router.post('/:projectId/minutes', roleMiddleware('admin','gerente_proyecto','ap
       
       const [rows] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [r.insertId]);
       parseMinuteRow(rows[0]);
+      // Notify (fire-and-forget)
+      const [proj] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
+      notifier.notify('acta.created', {
+        project_id: Number(pid),
+        project_code: proj[0]?.code || '',
+        project_name: proj[0]?.name || '',
+        minute_type: b.minute_type || 'comite_seguimiento',
+        title:       b.title || '',
+        meeting_date: b.meeting_date || null,
+      }).catch(() => {});
+
       res.status(201).json({ data: rows[0], message: `Acta #${mx[0].n} creada` });
     } catch (err) { console.error('Create minute error:', err); res.status(500).json({ error: err.message || 'Error creando acta' }); }
 });

@@ -2,6 +2,7 @@ const express = require('express');
 const { param, body, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
+const notifier = require('../services/notifier');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -159,6 +160,18 @@ router.post('/:projectId/correspondence',
       const [[created]] = await pool.execute(
         'SELECT * FROM correspondence WHERE id = ?', [r.insertId]
       );
+      // Notify (fire-and-forget)
+      const [proj] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
+      notifier.notify('correspondence.received', {
+        project_id:          Number(pid),
+        project_code:        proj[0]?.code || '',
+        project_name:        proj[0]?.name || '',
+        subject:             created.subject || '',
+        correspondence_type: created.correspondence_type || '',
+        radicado_number:     created.radicado_number || '',
+        reference_date:      created.reference_date || null,
+      }).catch(() => {});
+
       res.status(201).json({ data: created, message: 'Correspondencia creada' });
     } catch (err) {
       console.error(err);

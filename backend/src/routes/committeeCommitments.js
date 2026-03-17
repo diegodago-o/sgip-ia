@@ -6,6 +6,7 @@
 const express = require('express');
 const pool = require('../config/database');
 const { authMiddleware } = require('../middleware/auth');
+const notifier = require('../services/notifier');
 
 const router = express.Router({ mergeParams: true }); // hereda :projectId
 router.use(authMiddleware);
@@ -113,6 +114,20 @@ router.post('/', async (req, res) => {
         'SELECT * FROM committee_commitments WHERE id = ?', [result.insertId]
       );
       created.push(newRow[0]);
+    }
+
+    // Notify for each created commitment (fire-and-forget)
+    const [proj] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [projectId]);
+    for (const c of created) {
+      notifier.notify('commitment.created', {
+        project_id: Number(projectId),
+        project_code: proj[0]?.code || '',
+        project_name: proj[0]?.name || '',
+        description: c.description,
+        responsible: c.responsible,
+        due_date: c.due_date,
+        priority: c.priority,
+      }).catch(() => {});
     }
 
     res.status(201).json({ data: created, message: `${created.length} compromiso(s) creado(s)` });

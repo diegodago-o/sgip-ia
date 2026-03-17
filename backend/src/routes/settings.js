@@ -197,19 +197,19 @@ router.post('/notifications/test', authenticate, requireAdmin, async (req, res) 
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'Correo destinatario requerido' });
 
-    const [eRows] = await db.execute(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'email_config'"
-    );
-    if (!eRows.length || !eRows[0].setting_value) {
+    // Reuse the same helper used by the email section
+    const cfg = await loadEmailConfig();
+
+    if (!cfg || !cfg.provider_type) {
       return res.status(400).json({ error: 'Configure primero el servidor de correo en la pestaña "Correo electrónico"' });
     }
-    const emailCfg = JSON.parse(eRows[0].setting_value);
-    if (!emailCfg.provider_type) {
-      return res.status(400).json({ error: 'Servidor de correo no configurado' });
+
+    // Verify transport before sending (same as email/test does), skip for Graph API
+    if (cfg.provider_type !== 'oauth2_m365') {
+      await verifyConnection(cfg);
     }
 
-    const { sendMail } = require('../services/mailer');
-    await sendMail(emailCfg, {
+    await sendMail(cfg, {
       to: email,
       subject: '[SGIP-IA] Prueba de notificaciones',
       html: `
@@ -217,14 +217,18 @@ router.post('/notifications/test', authenticate, requireAdmin, async (req, res) 
           <h2 style="color:#1e3a5f;margin-top:0">SGIP-IA · Prueba de notificaciones</h2>
           <p style="color:#4a5568">Las notificaciones por correo están configuradas y funcionando correctamente.</p>
           <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:12px 16px;border-radius:4px;margin:16px 0">
-            <strong style="color:#15803d">✓ Sistema de notificaciones activo</strong>
+            <strong style="color:#15803d">✓ Sistema de notificaciones activo</strong><br>
+            <span style="color:#166534;font-size:13px">Proveedor: <b>${cfg.provider_type}</b></span>
           </div>
           <p style="color:#718096;font-size:12px;margin-bottom:0">Este es un mensaje automático de SGIP-IA.</p>
         </div>`,
     });
 
     res.json({ success: true, message: `Correo de prueba enviado a ${email}` });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[notifications/test] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

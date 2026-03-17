@@ -433,7 +433,9 @@ function CommitmentEditModal({ commitment, teamMembers, onSave, onClose }) {
 const EMPTY_SIGNER = { signer_name: '', signer_email: '', signer_role: '' };
 
 function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged }) {
-  const [mode,    setMode]    = useState(existingRequest ? 'status' : 'create');
+  // Show 'status' only when there's a real active/completed request
+  const hasActiveRequest = existingRequest && existingRequest.status;
+  const [mode,    setMode]    = useState(hasActiveRequest ? 'status' : 'create');
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
   const [saving,  setSaving]  = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -476,7 +478,8 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
     } finally { setCancelling(false); }
   };
 
-  const req = existingRequest?.request;
+  // Backend returns flat object: { id, status, document_hash, signers: [...] }
+  const req = existingRequest;                          // the request itself
   const reqSigners = existingRequest?.signers || [];
   const signedCount = reqSigners.filter(s => s.status === 'signed').length;
 
@@ -511,7 +514,7 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
 
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Tab toggle when request exists */}
-          {existingRequest && (
+          {hasActiveRequest && (
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
               <button
                 onClick={() => setMode('status')}
@@ -527,7 +530,7 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
           )}
 
           {/* STATUS view */}
-          {mode === 'status' && existingRequest && (
+          {mode === 'status' && hasActiveRequest && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>Estado: <strong className={

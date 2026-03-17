@@ -308,13 +308,13 @@ export const signaturesAPI = {
     const results = await Promise.allSettled(
       minuteIds.map(mid =>
         api.get(`/exec/${pid}/minutes/${mid}/firma`)
-          .then(r => ({ mid, data: r.data }))
+          .then(r => ({ mid, data: r.data.data }))   // extract inner .data (null when no request)
           .catch(() => ({ mid, data: null }))
       )
     );
     const map = {};
     results.forEach(r => {
-      if (r.status === 'fulfilled' && r.value.data) {
+      if (r.status === 'fulfilled' && r.value.data !== null && r.value.data !== undefined) {
         map[r.value.mid] = r.value.data;
       }
     });

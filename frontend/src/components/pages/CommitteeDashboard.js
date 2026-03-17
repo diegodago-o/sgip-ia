@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, RefreshCw, Maximize2, Minimize2, Download,
@@ -88,6 +88,11 @@ export default function CommitteeDashboard() {
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const [dateFrom, setDateFrom] = useState(monthAgo);
   const [dateTo, setDateTo]     = useState(today);
+  // Refs so load() always reads the latest dates without them being in its deps
+  const dateFromRef = useRef(monthAgo);
+  const dateToRef   = useRef(today);
+  useEffect(() => { dateFromRef.current = dateFrom; }, [dateFrom]);
+  useEffect(() => { dateToRef.current   = dateTo;   }, [dateTo]);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [commitmentUpdating, setCommitmentUpdating] = useState(null); // 'minuteId-index'
@@ -96,12 +101,12 @@ export default function CommitteeDashboard() {
   const load = useCallback(async () => {
     setLoading(true); setError(null); setAiAnalysis(null);
     try {
-      const r = await committeeAPI.dashboard(id, committeeType, committeeType === 'custom' ? dateFrom : undefined, committeeType === 'custom' ? dateTo : undefined);
+      const r = await committeeAPI.dashboard(id, committeeType, committeeType === 'custom' ? dateFromRef.current : undefined, committeeType === 'custom' ? dateToRef.current : undefined);
       setData(r.data.data);
       setLastRefresh(new Date());
     } catch (e) { setError(e.response?.data?.error || e.message); }
     finally { setLoading(false); }
-  }, [id, committeeType, dateFrom, dateTo]);
+  }, [id, committeeType]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -352,14 +357,20 @@ REGLAS:
                   ))}
                 </div>
                 {committeeType === 'custom' && (
-                  <div className="flex items-center gap-1.5 bg-white/80 border border-brand-200 rounded-lg px-2 py-1">
-                    <input type="date" value={dateFrom} max={dateTo}
-                      onChange={e => setDateFrom(e.target.value)}
-                      className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
-                    <span className="text-[10px] text-surface-400">→</span>
-                    <input type="date" value={dateTo} min={dateFrom} max={today}
-                      onChange={e => setDateTo(e.target.value)}
-                      className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 bg-white/80 border border-brand-200 rounded-lg px-2 py-1">
+                      <input type="date" value={dateFrom} max={dateTo}
+                        onChange={e => setDateFrom(e.target.value)}
+                        className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
+                      <span className="text-[10px] text-surface-400">→</span>
+                      <input type="date" value={dateTo} min={dateFrom} max={today}
+                        onChange={e => setDateTo(e.target.value)}
+                        className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
+                    </div>
+                    <button onClick={load} disabled={loading}
+                      className="px-3 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-50">
+                      Aplicar
+                    </button>
                   </div>
                 )}
               </div>

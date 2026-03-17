@@ -161,11 +161,11 @@ router.post('/:projectId/correspondence',
         'SELECT * FROM correspondence WHERE id = ?', [r.insertId]
       );
       // Notify (fire-and-forget)
-      const [proj] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
+      const [projNotify] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
       notifier.notify('correspondence.received', {
         project_id:          Number(pid),
-        project_code:        proj[0]?.code || '',
-        project_name:        proj[0]?.name || '',
+        project_code:        projNotify[0]?.code || '',
+        project_name:        projNotify[0]?.name || '',
         subject:             created.subject || '',
         correspondence_type: created.correspondence_type || '',
         radicado_number:     created.radicado_number || '',

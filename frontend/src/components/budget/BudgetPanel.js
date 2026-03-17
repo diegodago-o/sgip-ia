@@ -141,12 +141,41 @@ function IncomeTab({ projectId, onUpdate }) {
 
         {/* Add custom payment */}
         {addingSched && (
-          <div className="bg-emerald-50 rounded-lg p-3 mb-3 grid grid-cols-6 gap-2 items-end">
-            <div><label className="text-[10px] text-emerald-700">Tipo</label><select value={newSched.tipo_pago} onChange={e=>setNewSched(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-xs"><option value="mensual">Mensual</option><option value="hito">Hito/Entregable</option><option value="unico">Pago único</option></select></div>
-            <div><label className="text-[10px] text-emerald-700">Mes</label><input type="number" value={newSched.mes} onChange={e=>setNewSched(d=>({...d,mes:e.target.value}))} className="input-field text-xs" min="1"/></div>
-            <div className="col-span-2"><label className="text-[10px] text-emerald-700">Descripción</label><input value={newSched.descripcion} onChange={e=>setNewSched(d=>({...d,descripcion:e.target.value}))} className="input-field text-xs" placeholder="Ej: Entrega fase 1"/></div>
-            <div><label className="text-[10px] text-emerald-700">Valor sin IVA</label><input type="number" value={newSched.valor_sin_iva} onChange={e=>setNewSched(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-xs text-right"/></div>
-            <button onClick={handleAddSched} className="btn-primary text-xs bg-emerald-600 hover:bg-emerald-700">Agregar</button>
+          <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 mb-3">
+            <p className="text-xs font-semibold text-emerald-800 mb-3 flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5"/> Nuevo pago
+            </p>
+            <div className="grid grid-cols-12 gap-3 items-end">
+              <div className="col-span-2">
+                <label className="block text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Tipo</label>
+                <select value={newSched.tipo_pago} onChange={e=>setNewSched(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
+                  <option value="mensual">Mensual</option>
+                  <option value="hito">Hito / Entregable</option>
+                  <option value="unico">Pago único</option>
+                </select>
+              </div>
+              <div className="col-span-1">
+                <label className="block text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Mes</label>
+                <input type="number" value={newSched.mes} onChange={e=>setNewSched(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="1"/>
+              </div>
+              <div className="col-span-4">
+                <label className="block text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Descripción</label>
+                <input value={newSched.descripcion} onChange={e=>setNewSched(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Entrega fase 1"/>
+              </div>
+              <div className="col-span-3">
+                <label className="block text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Valor sin IVA</label>
+                <input type="number" value={newSched.valor_sin_iva} onChange={e=>setNewSched(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" placeholder="0"/>
+                {newSched.valor_sin_iva > 0 && <p className="text-[10px] text-emerald-600 mt-0.5 text-right font-mono">Con IVA: {fm((parseFloat(newSched.valor_sin_iva)||0)*1.19)}</p>}
+              </div>
+              <div className="col-span-2 flex gap-1.5 justify-end">
+                <button onClick={()=>setAddingSched(false)} className="px-2.5 py-2 text-xs text-surface-500 hover:text-surface-700 hover:bg-white rounded-lg border border-surface-200 transition-colors">
+                  <X className="w-3.5 h-3.5"/>
+                </button>
+                <button onClick={handleAddSched} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors">
+                  <Plus className="w-3.5 h-3.5"/> Agregar
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -161,15 +190,54 @@ function IncomeTab({ projectId, onUpdate }) {
               </tr></thead>
               <tbody>
                 {schedule.map((s, idx) => editSchedId === s.id ? (
-                  <tr key={s.id} className="bg-brand-50/30">
-                    <td className="px-2 py-1"><select value={editSchedData.tipo_pago} onChange={e=>setEditSchedData(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-xs"><option value="mensual">Mensual</option><option value="hito">Hito</option><option value="unico">Único</option></select></td>
-                    <td className="px-2 py-1"><input type="number" value={editSchedData.mes||''} onChange={e=>setEditSchedData(d=>({...d,mes:e.target.value}))} className="input-field text-xs w-14 text-center" min="1"/></td>
-                    <td className="px-2 py-1"><input value={editSchedData.descripcion||''} onChange={e=>setEditSchedData(d=>({...d,descripcion:e.target.value}))} className="input-field text-xs w-full"/></td>
-                    <td className="px-2 py-1"><input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-xs w-28 text-right"/></td>
-                    <td className="px-2 py-1 text-right text-xs font-mono text-surface-400">{fm((parseFloat(editSchedData.valor_sin_iva)||0)*0.19)}</td>
-                    <td className="px-2 py-1 text-right text-xs font-mono">{fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}</td>
-                    <td className="px-2 py-1"><select value={editSchedData.estado} onChange={e=>setEditSchedData(d=>({...d,estado:e.target.value}))} className="input-field text-xs"><option value="pendiente">Pend.</option><option value="facturado">Fact.</option><option value="pagado">Pagado</option></select></td>
-                    <td className="px-1 flex gap-1"><button onClick={()=>handleSaveSched(s.id)} className="w-5 h-5 rounded bg-brand-600 text-white flex items-center justify-center"><Save className="w-3 h-3"/></button><button onClick={()=>setEditSchedId(null)} className="text-surface-400"><X className="w-3 h-3"/></button></td>
+                  <tr key={s.id} className="bg-brand-50 border-y border-brand-200">
+                    <td colSpan={8} className="px-4 py-4">
+                      <div className="grid grid-cols-12 gap-3 items-end">
+                        {/* Tipo */}
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-brand-700 uppercase tracking-wide mb-1">Tipo de pago</label>
+                          <select value={editSchedData.tipo_pago} onChange={e=>setEditSchedData(d=>({...d,tipo_pago:e.target.value}))} className="input-field text-sm w-full">
+                            <option value="mensual">Mensual</option>
+                            <option value="hito">Hito / Entregable</option>
+                            <option value="unico">Pago único</option>
+                          </select>
+                        </div>
+                        {/* Mes */}
+                        <div className="col-span-1">
+                          <label className="block text-[10px] font-semibold text-brand-700 uppercase tracking-wide mb-1">Mes</label>
+                          <input type="number" value={editSchedData.mes||''} onChange={e=>setEditSchedData(d=>({...d,mes:e.target.value}))} className="input-field text-sm w-full text-center" min="1" placeholder="1"/>
+                        </div>
+                        {/* Descripción */}
+                        <div className="col-span-4">
+                          <label className="block text-[10px] font-semibold text-brand-700 uppercase tracking-wide mb-1">Descripción</label>
+                          <input value={editSchedData.descripcion||''} onChange={e=>setEditSchedData(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Pago mensual — Mes 1"/>
+                        </div>
+                        {/* Valor sin IVA */}
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-brand-700 uppercase tracking-wide mb-1">Valor sin IVA</label>
+                          <input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono"/>
+                          <p className="text-[10px] text-surface-400 mt-0.5 text-right font-mono">Con IVA: {fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}</p>
+                        </div>
+                        {/* Estado */}
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-brand-700 uppercase tracking-wide mb-1">Estado</label>
+                          <select value={editSchedData.estado} onChange={e=>setEditSchedData(d=>({...d,estado:e.target.value}))} className="input-field text-sm w-full">
+                            <option value="pendiente">Pendiente</option>
+                            <option value="facturado">Facturado</option>
+                            <option value="pagado">Pagado</option>
+                          </select>
+                        </div>
+                        {/* Acciones */}
+                        <div className="col-span-1 flex gap-1.5 justify-end">
+                          <button onClick={()=>setEditSchedId(null)} className="px-2.5 py-2 text-xs text-surface-500 hover:text-surface-700 hover:bg-white rounded-lg border border-surface-200 transition-colors">
+                            <X className="w-3.5 h-3.5"/>
+                          </button>
+                          <button onClick={()=>handleSaveSched(s.id)} className="flex items-center gap-1 px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg transition-colors">
+                            <Save className="w-3.5 h-3.5"/> Guardar
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                   </tr>
                 ) : (
                   <tr key={s.id} className={`group border-b border-surface-50 hover:bg-surface-50 cursor-pointer ${idx%2===1?'bg-surface-50/30':''}`}

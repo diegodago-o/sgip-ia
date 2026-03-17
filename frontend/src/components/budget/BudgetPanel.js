@@ -230,25 +230,25 @@ function IncomeTab({ projectId, onUpdate }) {
                             <input value={editSchedData.descripcion||''} onChange={e=>setEditSchedData(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Pago mensual — Mes 1"/>
                           </div>
                         </div>
-                        {/* Fila 2: Valores · Estado · Botones */}
-                        <div className="grid grid-cols-8 gap-3 items-end">
-                          <div className="col-span-2">
+                        {/* Fila 2: Valores · Estado */}
+                        <div className="grid grid-cols-4 gap-3">
+                          <div>
                             <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Valor sin IVA</label>
                             <input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
                           </div>
-                          <div className="col-span-2">
+                          <div>
                             <label className="block text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-1">IVA 19%</label>
                             <div className="input-field text-sm w-full text-right font-mono bg-surface-50 text-surface-500 cursor-default select-none">
                               {fm((parseFloat(editSchedData.valor_sin_iva)||0)*0.19)}
                             </div>
                           </div>
-                          <div className="col-span-2">
+                          <div>
                             <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Con IVA</label>
                             <div className="input-field text-sm w-full text-right font-mono font-semibold text-brand-700 bg-brand-50 cursor-default select-none">
                               {fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}
                             </div>
                           </div>
-                          <div className="col-span-1">
+                          <div>
                             <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Estado</label>
                             <select value={editSchedData.estado} onChange={e=>setEditSchedData(d=>({...d,estado:e.target.value}))} className="input-field text-sm w-full">
                               <option value="pendiente">Pendiente</option>
@@ -256,14 +256,15 @@ function IncomeTab({ projectId, onUpdate }) {
                               <option value="pagado">Pagado</option>
                             </select>
                           </div>
-                          <div className="col-span-1 flex gap-2 justify-end">
-                            <button onClick={()=>setEditSchedId(null)} className="px-3 py-2 text-xs font-medium text-surface-500 hover:text-surface-700 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors whitespace-nowrap">
-                              Cancelar
-                            </button>
-                            <button onClick={()=>handleSaveSched(s.id)} className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors whitespace-nowrap">
-                              <Save className="w-3.5 h-3.5"/> Guardar
-                            </button>
-                          </div>
+                        </div>
+                        {/* Fila 3: Botones alineados a la derecha */}
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button onClick={()=>setEditSchedId(null)} className="px-4 py-2 text-xs font-medium text-surface-600 hover:text-surface-800 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors">
+                            Cancelar
+                          </button>
+                          <button onClick={()=>handleSaveSched(s.id)} className="flex items-center gap-1.5 px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+                            <Save className="w-3.5 h-3.5"/> Guardar
+                          </button>
                         </div>
                       </div>
                     </td>

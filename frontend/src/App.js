@@ -39,10 +39,9 @@ export default function App() {
             <Route path="adjudicacion/nuevo" element={<ProjectFormPage />} />
             <Route path="adjudicacion/:id" element={<ProjectDetailPage />} />
             <Route path="adjudicacion/:id/editar" element={<ProjectFormPage />} />
-            <Route path="adjudicacion/:id/comite" element={<CommitteeDashboard />} />
-
             {/* Module 2: Ejecución */}
             <Route path="ejecucion" element={<ExecutionPage />} />
+            <Route path="ejecucion/:id/comite" element={<CommitteeDashboard />} />
 
             {/* Module 3: Cierre y Liquidación */}
             <Route path="cierre" element={<ClosurePage />} />

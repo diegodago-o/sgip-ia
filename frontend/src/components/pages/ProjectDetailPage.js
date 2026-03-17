@@ -11,7 +11,7 @@ import ProjectAssignmentsPanel from './ProjectAssignmentsPanel';
 import MilestonesPanel from '../milestones/MilestonesPanel';
 import {
   ArrowLeft, Edit2, FileText, ClipboardList, Package,
-  Flag, Shield, DollarSign, Users, FolderOpen, Info as InfoIcon, BarChart3,
+  Flag, Shield, DollarSign, Users, FolderOpen, Info as InfoIcon,
   ArrowRight, ChevronRight, AlertTriangle, CheckCircle2, X, Loader2,
 } from 'lucide-react';
 

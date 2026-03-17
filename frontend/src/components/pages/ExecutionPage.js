@@ -116,7 +116,7 @@ export default function ExecutionPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            <button onClick={() => selectedId && navigate(`/adjudicacion/${selectedId}/comite`)}
+            <button onClick={() => selectedId && navigate(`/ejecucion/${selectedId}/comite`)}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors">
               <BarChart3 className="w-4 h-4" /> Comité
             </button>

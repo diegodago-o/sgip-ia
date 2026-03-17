@@ -87,32 +87,44 @@ export default function CommitteeDashboard() {
   const today = new Date().toISOString().split('T')[0];
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const [dateFrom, setDateFrom] = useState(monthAgo);
-  const [dateTo, setDateTo]     = useState(today);
-  // Refs so load() always reads the latest dates without them being in its deps
-  const dateFromRef = useRef(monthAgo);
-  const dateToRef   = useRef(today);
-  useEffect(() => { dateFromRef.current = dateFrom; }, [dateFrom]);
-  useEffect(() => { dateToRef.current   = dateTo;   }, [dateTo]);
+  const [dateTo, setDateTo] = useState(today);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [commitmentUpdating, setCommitmentUpdating] = useState(null); // 'minuteId-index'
+  const [commitmentUpdating, setCommitmentUpdating] = useState(null);
   const [commitmentToast, setCommitmentToast] = useState(null);
 
-  // load accepts explicit overrides so closures / refs are never stale
-  const load = useCallback(async (overrides = {}) => {
-    const type = 'type' in overrides ? overrides.type : committeeType;
-    const df   = 'dateFrom' in overrides ? overrides.dateFrom : dateFromRef.current;
-    const dt   = 'dateTo'   in overrides ? overrides.dateTo   : dateToRef.current;
-    setLoading(true); setError(null); setAiAnalysis(null);
-    try {
-      const r = await committeeAPI.dashboard(id, type, type === 'custom' ? df : undefined, type === 'custom' ? dt : undefined);
-      setData(r.data.data);
-      setLastRefresh(new Date());
-    } catch (e) { setError(e.response?.data?.error || e.message); }
-    finally { setLoading(false); }
-  }, [id, committeeType]);
+  // loadTrigger is the ONLY thing that causes a fetch.
+  // Changing committeeType (non-custom) or clicking Aplicar/Refresh updates it.
+  const [loadTrigger, setLoadTrigger] = useState({ type: 'mensual', from: monthAgo, to: today, rev: 0 });
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    const doLoad = async () => {
+      setLoading(true); setError(null); setAiAnalysis(null);
+      try {
+        const { type, from, to } = loadTrigger;
+        const r = await committeeAPI.dashboard(
+          id, type,
+          type === 'custom' ? from : undefined,
+          type === 'custom' ? to   : undefined,
+        );
+        if (!cancelled) { setData(r.data.data); setLastRefresh(new Date()); }
+      } catch (e) {
+        if (!cancelled) setError(e.response?.data?.error || e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    doLoad();
+    return () => { cancelled = true; };
+  }, [id, loadTrigger]);
+
+  const handleTypeChange = (t) => {
+    setCommitteeType(t);
+    if (t !== 'custom') setLoadTrigger(p => ({ type: t, from: dateFrom, to: dateTo, rev: p.rev }));
+  };
+  const handleApply   = () => setLoadTrigger(p => ({ type: 'custom', from: dateFrom, to: dateTo, rev: p.rev }));
+  const handleRefresh = () => setLoadTrigger(p => ({ ...p, rev: p.rev + 1 }));
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -131,7 +143,7 @@ export default function CommitteeDashboard() {
       await committeeAPI.updateCommitment(id, minuteId, itemIndex, { status: newStatus });
       setCommitmentToast(newStatus === 'completado' ? '✓ Compromiso completado' : 'Compromiso actualizado');
       setTimeout(() => setCommitmentToast(null), 2500);
-      load();
+      handleRefresh();
     } catch (e) {
       setCommitmentToast('Error: ' + (e.response?.data?.error || e.message));
       setTimeout(() => setCommitmentToast(null), 3000);
@@ -354,7 +366,7 @@ REGLAS:
                     { id: 'extraordinario', label: 'Extraordinario' },
                     { id: 'custom',         label: <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/>Personalizado</span> },
                   ].map(({ id: t, label }) => (
-                    <button key={t} onClick={() => setCommitteeType(t)}
+                    <button key={t} onClick={() => handleTypeChange(t)}
                       className={`px-3 py-1.5 transition-colors whitespace-nowrap ${committeeType === t ? 'bg-brand-600 text-white' : 'text-surface-600 hover:bg-white'}`}>
                       {label}
                     </button>
@@ -371,14 +383,14 @@ REGLAS:
                         onChange={e => setDateTo(e.target.value)}
                         className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
                     </div>
-                    <button onClick={() => load({ type: 'custom', dateFrom, dateTo })} disabled={loading}
+                    <button onClick={handleApply} disabled={loading}
                       className="px-3 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-50">
                       Aplicar
                     </button>
                   </div>
                 )}
               </div>
-              <button onClick={load} disabled={loading} className="btn-ghost text-xs flex items-center gap-1">
+              <button onClick={handleRefresh} disabled={loading} className="btn-ghost text-xs flex items-center gap-1">
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
               <button onClick={toggleFullscreen} className="btn-ghost text-xs flex items-center gap-1">

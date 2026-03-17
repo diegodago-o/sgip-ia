@@ -98,10 +98,14 @@ export default function CommitteeDashboard() {
   const [commitmentUpdating, setCommitmentUpdating] = useState(null); // 'minuteId-index'
   const [commitmentToast, setCommitmentToast] = useState(null);
 
-  const load = useCallback(async () => {
+  // load accepts explicit overrides so closures / refs are never stale
+  const load = useCallback(async (overrides = {}) => {
+    const type = 'type' in overrides ? overrides.type : committeeType;
+    const df   = 'dateFrom' in overrides ? overrides.dateFrom : dateFromRef.current;
+    const dt   = 'dateTo'   in overrides ? overrides.dateTo   : dateToRef.current;
     setLoading(true); setError(null); setAiAnalysis(null);
     try {
-      const r = await committeeAPI.dashboard(id, committeeType, committeeType === 'custom' ? dateFromRef.current : undefined, committeeType === 'custom' ? dateToRef.current : undefined);
+      const r = await committeeAPI.dashboard(id, type, type === 'custom' ? df : undefined, type === 'custom' ? dt : undefined);
       setData(r.data.data);
       setLastRefresh(new Date());
     } catch (e) { setError(e.response?.data?.error || e.message); }
@@ -367,7 +371,7 @@ REGLAS:
                         onChange={e => setDateTo(e.target.value)}
                         className="text-xs text-brand-800 bg-transparent border-none outline-none cursor-pointer"/>
                     </div>
-                    <button onClick={load} disabled={loading}
+                    <button onClick={() => load({ type: 'custom', dateFrom, dateTo })} disabled={loading}
                       className="px-3 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-50">
                       Aplicar
                     </button>

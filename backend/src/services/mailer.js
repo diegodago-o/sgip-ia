@@ -46,16 +46,22 @@ async function getM365AccessToken(tenantId, clientId, clientSecret) {
 }
 
 // ─── Send via Microsoft Graph API ───────────────────────────────────────────
-async function sendViaGraph(accessToken, { from, fromName, to, subject, html, text }) {
-  const body = JSON.stringify({
-    message: {
-      subject,
-      body: { contentType: 'HTML', content: html || text || '' },
-      toRecipients: [{ emailAddress: { address: to } }],
-      from: { emailAddress: { address: from, name: fromName || from } },
-    },
-    saveToSentItems: true,
-  });
+async function sendViaGraph(accessToken, { from, fromName, to, subject, html, text, attachments }) {
+  const message = {
+    subject,
+    body: { contentType: 'HTML', content: html || text || '' },
+    toRecipients: [{ emailAddress: { address: to } }],
+    from: { emailAddress: { address: from, name: fromName || from } },
+  };
+  if (attachments && attachments.length) {
+    message.attachments = attachments.map(a => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.filename,
+      contentType: a.contentType || 'application/octet-stream',
+      contentBytes: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+    }));
+  }
+  const body = JSON.stringify({ message, saveToSentItems: true });
 
   return new Promise((resolve, reject) => {
     const options = {
@@ -121,7 +127,7 @@ function buildTransporter(cfg) {
 }
 
 // ─── Main sendMail function ──────────────────────────────────────────────────
-async function sendMail(cfg, { to, subject, html, text }) {
+async function sendMail(cfg, { to, subject, html, text, attachments }) {
   const type = cfg.provider_type || 'smtp';
   const fromEmail = cfg.from_email || cfg.username;
   const fromName = cfg.from_name || 'SGIP-IA';
@@ -131,7 +137,7 @@ async function sendMail(cfg, { to, subject, html, text }) {
       throw new Error('Configuración OAuth2 incompleta: se requiere tenant_id, client_id y client_secret');
     }
     const token = await getM365AccessToken(cfg.tenant_id, cfg.client_id, cfg.client_secret);
-    return sendViaGraph(token, { from: fromEmail, fromName, to, subject, html, text });
+    return sendViaGraph(token, { from: fromEmail, fromName, to, subject, html, text, attachments });
   }
 
   const transporter = buildTransporter(cfg);
@@ -141,6 +147,7 @@ async function sendMail(cfg, { to, subject, html, text }) {
     subject,
     html,
     text,
+    attachments, // nodemailer accepts: [{ filename, content (Buffer), contentType }]
   });
 }
 

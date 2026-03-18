@@ -422,13 +422,27 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       const [allSigners] = await pool.execute(
         'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
       );
-      // Notify everyone with completion email
-      const completedHtml = emailCompleted({ minute, project, allSigners, documentHash: req_.document_hash });
+      // Reload request to get completed_at
+      const [[completedReq]] = await pool.execute(
+        'SELECT * FROM signature_requests WHERE id=?', [signer.request_id]
+      );
+      // Generate PDF certificate to attach
+      let pdfAttachment = null;
+      try {
+        const pdfBuf = await buildCertificatePdf(completedReq, allSigners, minute, project);
+        const pdfName = `Certificado_Firma_Acta${minute.minute_number || minute.id}_${project.code || req_.project_id}.pdf`;
+        pdfAttachment = [{ filename: pdfName, content: pdfBuf, contentType: 'application/pdf' }];
+      } catch (pdfErr) {
+        console.error('[signatures] PDF generation for email failed:', pdfErr.message);
+      }
+      // Notify everyone with completion email + PDF attached
+      const completedHtml = emailCompleted({ minute, project, allSigners, documentHash: completedReq.document_hash });
       for (const s of allSigners) {
         await trySendMail(emailCfg, {
           to: s.signer_email,
           subject: `✅ Documento firmado: ${minute.title} — ${project.name}`,
           html: completedHtml,
+          attachments: pdfAttachment,
         });
       }
       return res.json({ success: true, message: 'Firma registrada. Todos los firmantes han completado el proceso.', allSigned: true });
@@ -493,26 +507,11 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
   } catch (e) { console.error('[firma POST /rechazar]', e); res.status(500).json({ error: e.message }); }
 });
 
-// ── GET /certificate  —  sealed PDF with full acta + audit trail ──────────────
-router.get('/certificate', async (req, res) => {
-  const { projectId, minuteId } = req.params;
-  try {
-    const PDFDocument = require('pdfkit');
+// ── buildCertificatePdf — generate PDF buffer (reusable) ─────────────────────
+async function buildCertificatePdf(req_, signers, minute, project) {
+  const PDFDocument = require('pdfkit');
 
-    const [reqs] = await pool.execute(
-      "SELECT * FROM signature_requests WHERE minute_id=? AND project_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
-      [minuteId, projectId]
-    );
-    if (!reqs.length) return res.status(404).json({ error: 'No hay un proceso de firma completado para esta acta' });
-    const req_ = reqs[0];
-
-    const [signers] = await pool.execute(
-      'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]
-    );
-    const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [minuteId]);
-    const [[project]] = await pool.execute('SELECT name,code,contract_number,client_name FROM projects WHERE id=?', [projectId]);
-
-    function safeArr(v) {
+  function safeArr(v) {
       if (Array.isArray(v)) return v;
       if (!v) return [];
       try { return JSON.parse(v); } catch { return typeof v === 'string' ? [v] : []; }
@@ -842,9 +841,28 @@ router.get('/certificate', async (req, res) => {
 
     doc.end();
     await new Promise(function(resolve) { doc.on('end', resolve); });
-    var pdfBuffer = Buffer.concat(chunks);
+    return Buffer.concat(chunks);
+}
 
-    var filename = 'Certificado_Firma_Acta' + (minute.minute_number || minute.id) + '_' + (project.code || projectId) + '.pdf';
+// ── GET /certificate  —  sealed PDF with full acta + audit trail ──────────────
+router.get('/certificate', async (req, res) => {
+  const { projectId, minuteId } = req.params;
+  try {
+    const [reqs] = await pool.execute(
+      "SELECT * FROM signature_requests WHERE minute_id=? AND project_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
+      [minuteId, projectId]
+    );
+    if (!reqs.length) return res.status(404).json({ error: 'No hay un proceso de firma completado para esta acta' });
+    const req_ = reqs[0];
+
+    const [signers] = await pool.execute(
+      'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]
+    );
+    const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [minuteId]);
+    const [[project]] = await pool.execute('SELECT name,code,contract_number,client_name FROM projects WHERE id=?', [projectId]);
+
+    const pdfBuffer = await buildCertificatePdf(req_, signers, minute, project);
+    const filename = 'Certificado_Firma_Acta' + (minute.minute_number || minute.id) + '_' + (project.code || projectId) + '.pdf';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
     res.send(pdfBuffer);

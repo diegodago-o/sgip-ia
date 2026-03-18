@@ -12,6 +12,14 @@ const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const fmt = (d) =>
   d ? new Date(d).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
 
+const MT_LABEL = {
+  comite_seguimiento: 'Comité de Seguimiento',
+  comite_obra:        'Comité de Obra',
+  reunion_tecnica:    'Reunión Técnica',
+  reunion_financiera: 'Reunión Financiera',
+  otro:               'Reunión',
+};
+
 /* ── Canvas signature pad ───────────────────────────────── */
 function SignaturePad({ onSigned, disabled }) {
   const canvasRef = useRef(null);
@@ -247,7 +255,7 @@ export default function SigningPage() {
 
   /* ── ready state — main form ── */
   // API response shape: { success, data: { signer, minute, allSigners, project, request } }
-  const { signer, minute, allSigners: signers, project } = data?.data || {};
+  const { signer, minute, allSigners: signers, project, request } = data?.data || {};
   const signedCount  = (signers || []).filter(s => s.status === 'signed').length;
   const totalSigners = (signers || []).length;
 
@@ -281,42 +289,126 @@ export default function SigningPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         {/* Document info */}
+        {/* ── Documento completo ── */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-4">
-            <div className="flex items-center gap-2 text-white">
-              <FileText size={18} />
-              <h1 className="font-semibold">{minute?.title || 'Acta de Reunión'}</h1>
-            </div>
-            <p className="text-brand-100 text-xs mt-0.5">{minute?.meeting_type}</p>
-          </div>
-          <div className="px-6 py-4 grid grid-cols-2 gap-4 text-sm">
-            <div className="flex items-start gap-2">
-              <Calendar size={14} className="text-gray-400 mt-0.5" />
+          {/* Header del acta */}
+          <div className="bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-5">
+            <div className="flex items-start gap-3 text-white">
+              <FileText size={20} className="mt-0.5 shrink-0" />
               <div>
-                <p className="text-xs text-gray-400">Fecha de reunión</p>
-                <p className="font-medium text-gray-700">{fmt(minute?.meeting_date)}</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <Users size={14} className="text-gray-400 mt-0.5" />
-              <div>
-                <p className="text-xs text-gray-400">Asistentes</p>
-                <p className="font-medium text-gray-700">
-                  {Array.isArray(minute?.attendees)
-                    ? minute.attendees.join(', ')
-                    : (minute?.attendees || '—')}
+                <p className="text-xs text-brand-200 uppercase tracking-wide font-semibold mb-0.5">
+                  {MT_LABEL[minute?.minute_type] || 'Acta de Reunión'} · Acta N° {minute?.minute_number || minute?.id}
                 </p>
+                <h1 className="font-bold text-lg leading-snug">{minute?.title || 'Acta de Reunión'}</h1>
+                <p className="text-brand-200 text-xs mt-1">{project?.name} {project?.code ? `(${project.code})` : ''}</p>
               </div>
             </div>
           </div>
-          {minute?.agreements && (
-            <div className="px-6 pb-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Acuerdos</p>
-              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3 leading-relaxed whitespace-pre-line">
-                {minute.agreements}
-              </p>
+
+          {/* Metadata */}
+          <div className="px-6 py-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm border-b border-gray-100">
+            <div>
+              <p className="text-xs text-gray-400">Fecha de reunión</p>
+              <p className="font-medium text-gray-800">{fmt(minute?.meeting_date)}</p>
             </div>
-          )}
+            <div>
+              <p className="text-xs text-gray-400">Lugar</p>
+              <p className="font-medium text-gray-800">{minute?.location || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Cliente</p>
+              <p className="font-medium text-gray-800">{project?.client_name || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Hash del documento</p>
+              <p className="font-mono text-[10px] text-gray-400 truncate">{data?.request?.document_hash?.slice(0,20)}…</p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-gray-50">
+            {/* Asistentes */}
+            {minute?.attendees?.length > 0 && (
+              <div className="px-6 py-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <Users size={12} /> Asistentes
+                </p>
+                <div className="space-y-1.5">
+                  {(Array.isArray(minute.attendees) ? minute.attendees : []).map((a, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i+1}</span>
+                      <span className="font-medium text-gray-800">{a.name || a}</span>
+                      {(a.entity || a.cargo) && <span className="text-gray-400">·</span>}
+                      {(a.entity || a.cargo) && <span className="text-gray-500 text-xs">{a.entity || a.cargo}</span>}
+                      {a.role && <span className="ml-auto text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{a.role}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Agenda */}
+            {minute?.agenda && (
+              <div className="px-6 py-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Temas tratados</p>
+                <div className="space-y-1">
+                  {minute.agenda.split('\n').filter(l => l.trim()).map((line, i) => (
+                    <p key={i} className="text-sm text-gray-700 flex gap-2">
+                      <span className="text-brand-400 shrink-0">•</span>{line.trim()}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Desarrollo */}
+            {minute?.discussions && (
+              <div className="px-6 py-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Desarrollo de la reunión</p>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{minute.discussions}</p>
+              </div>
+            )}
+
+            {/* Acuerdos */}
+            {minute?.agreements?.length > 0 && (
+              <div className="px-6 py-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Acuerdos</p>
+                <div className="space-y-1.5">
+                  {(Array.isArray(minute.agreements) ? minute.agreements : [minute.agreements]).map((a, i) => (
+                    <p key={i} className="text-sm text-gray-700 flex gap-2">
+                      <span className="text-green-500 shrink-0">✓</span>
+                      {typeof a === 'string' ? a : (a.description || JSON.stringify(a))}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Compromisos */}
+            {minute?.action_items?.length > 0 && (
+              <div className="px-6 py-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Compromisos</p>
+                <div className="space-y-2">
+                  {(Array.isArray(minute.action_items) ? minute.action_items : []).map((c, i) => (
+                    <div key={i} className="bg-amber-50 rounded-lg px-3 py-2 text-sm">
+                      <p className="font-medium text-gray-800">{c.task || c.description || c.compromiso || JSON.stringify(c)}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {c.responsible || c.responsable ? `👤 ${c.responsible || c.responsable}` : ''}
+                        {c.due_date || c.fecha ? `  📅 ${c.due_date || c.fecha}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Aviso al firmante */}
+          <div className="mx-6 mb-4 mt-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+            <p className="text-xs text-blue-700 font-medium">
+              ⚠️ Al firmar, certifica que ha leído y está de acuerdo con el contenido de este documento.
+              Su firma electrónica tiene plena validez jurídica conforme a la Ley 527 de 1999.
+            </p>
+          </div>
         </div>
 
         {/* Signer info */}

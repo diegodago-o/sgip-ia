@@ -583,6 +583,29 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
                 ))}
               </div>
 
+              {/* Certificado PDF — solo cuando proceso completado */}
+              {req?.status === 'completed' && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await signaturesAPI.certificate(projectId, minute.id);
+                      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `Certificado_Firma_Acta${minute.minute_number || minute.id}.pdf`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (e) { setErr('Error al generar el certificado PDF.'); }
+                  }}
+                  className="w-full text-xs text-green-700 border border-green-300 bg-green-50
+                    rounded-xl py-2.5 hover:bg-green-100 transition-colors font-semibold
+                    flex items-center justify-center gap-1.5"
+                >
+                  <Download size={13} className="text-green-700" />
+                  Descargar certificado PDF firmado
+                </button>
+              )}
+
               {req?.status === 'in_progress' && (
                 <button
                   onClick={handleCancel}

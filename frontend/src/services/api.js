@@ -303,6 +303,9 @@ export const signaturesAPI = {
   // Cancel active request
   cancel: (pid, mid) =>
     api.delete(`/exec/${pid}/minutes/${mid}/firma`),
+  // Download sealed PDF certificate (completed process only)
+  certificate: (pid, mid) =>
+    api.get(`/exec/${pid}/minutes/${mid}/firma/certificate`, { responseType: 'arraybuffer' }),
   // Batch-load statuses for multiple minutes
   batchStatus: async (pid, minuteIds) => {
     const results = await Promise.allSettled(

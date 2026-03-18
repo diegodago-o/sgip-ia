@@ -381,6 +381,13 @@ export default function SigningPage() {
     axios.get(`${PUBLIC_API}/firma/${token}`)
       .then(r => {
         setData(r.data);
+        const signer  = r.data?.data?.signer;
+        const request = r.data?.data?.request;
+        // Evaluate signer/request status to show the right screen
+        if (signer?.status === 'signed')   return setState('alreadySigned');
+        if (signer?.status === 'rejected') return setState('alreadySigned'); // own rejection
+        if (request?.status === 'completed') return setState('completed');
+        if (request?.status === 'rejected' || request?.status === 'cancelled') return setState('rejected');
         setState('ready');
       })
       .catch(e => {

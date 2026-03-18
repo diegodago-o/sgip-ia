@@ -13,7 +13,7 @@ const pool = mysql.createPool({
   idleTimeout: 60000,         // Close idle connections after 60s
   queueLimit: 0,
   charset: 'utf8mb4',
-  timezone: '-05:00',         // Colombia timezone
+  timezone: '+00:00',         // MySQL stores UTC; JS conversion uses toLocaleString with timeZone
   connectTimeout: 10000,      // 10s connection timeout
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,

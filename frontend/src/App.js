@@ -24,44 +24,55 @@ function LoginGuard() {
   return <LoginPage />;
 }
 
+/** All authenticated routes wrapped in AuthProvider */
+function AuthenticatedApp() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginGuard />} />
+
+        <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+          {/* Dashboard */}
+          <Route index element={<DashboardPage />} />
+
+          {/* Module 1: Adjudicación */}
+          <Route path="adjudicacion" element={<ProjectListPage />} />
+          <Route path="adjudicacion/nuevo" element={<ProjectFormPage />} />
+          <Route path="adjudicacion/:id" element={<ProjectDetailPage />} />
+          <Route path="adjudicacion/:id/editar" element={<ProjectFormPage />} />
+          {/* Module 2: Ejecución */}
+          <Route path="ejecucion" element={<ExecutionPage />} />
+          <Route path="ejecucion/:id/comite" element={<CommitteeDashboard />} />
+
+          {/* Module 3: Cierre y Liquidación */}
+          <Route path="cierre" element={<ClosurePage />} />
+
+          {/* Module AI: Motor de IA */}
+          <Route path="ia" element={<AIPage />} />
+
+          {/* Future modules */}
+          <Route path="planificacion" element={<PlaceholderPage />} />
+          <Route path="indicadores" element={<PlaceholderPage />} />
+          <Route path="configuracion" element={<ConfiguracionPage />} />
+          <Route path="admin/usuarios" element={<AdminUsersPage />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AuthProvider>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<LoginGuard />} />
-          {/* Public: signing page — no auth required */}
-          <Route path="/firma/:token" element={<SigningPage />} />
+      <Routes>
+        {/* ✅ PUBLIC — completely outside AuthProvider, no auth context, no loading state */}
+        <Route path="/firma/:token" element={<SigningPage />} />
 
-          <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-            {/* Dashboard */}
-            <Route index element={<DashboardPage />} />
-
-            {/* Module 1: Adjudicación */}
-            <Route path="adjudicacion" element={<ProjectListPage />} />
-            <Route path="adjudicacion/nuevo" element={<ProjectFormPage />} />
-            <Route path="adjudicacion/:id" element={<ProjectDetailPage />} />
-            <Route path="adjudicacion/:id/editar" element={<ProjectFormPage />} />
-            {/* Module 2: Ejecución */}
-            <Route path="ejecucion" element={<ExecutionPage />} />
-            <Route path="ejecucion/:id/comite" element={<CommitteeDashboard />} />
-
-            {/* Module 3: Cierre y Liquidación */}
-            <Route path="cierre" element={<ClosurePage />} />
-
-            {/* Module AI: Motor de IA */}
-            <Route path="ia" element={<AIPage />} />
-
-            {/* Future modules */}
-            <Route path="planificacion" element={<PlaceholderPage />} />
-            <Route path="indicadores" element={<PlaceholderPage />} />
-            <Route path="configuracion" element={<ConfiguracionPage />} />
-            <Route path="admin/usuarios" element={<AdminUsersPage />} />
-          </Route>
-
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
+        {/* Everything else goes through auth */}
+        <Route path="*" element={<AuthenticatedApp />} />
+      </Routes>
     </BrowserRouter>
   );
 }

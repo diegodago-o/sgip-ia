@@ -180,7 +180,7 @@ export default function SigningPage() {
     setSending(true); setErrMsg('');
     try {
       await axios.post(`${PUBLIC_API}/firma/${token}/firmar`, { signature_image: sigImg });
-      setDone({ type: 'signed', name: data?.signer?.signer_name });
+      setDone({ type: 'signed', name: data?.data?.signer?.name });
     } catch (e) {
       setErrMsg(e.response?.data?.error || 'Error al procesar la firma. Intente nuevamente.');
     } finally {
@@ -246,7 +246,8 @@ export default function SigningPage() {
       message={errMsg || "El enlace de firma no es válido o ha expirado. Por favor solicite un nuevo enlace al responsable del proyecto."} />;
 
   /* ── ready state — main form ── */
-  const { signer, minute, signers } = data || {};
+  // API response shape: { success, data: { signer, minute, allSigners, project, request } }
+  const { signer, minute, allSigners: signers, project } = data?.data || {};
   const signedCount  = (signers || []).filter(s => s.status === 'signed').length;
   const totalSigners = (signers || []).length;
 
@@ -270,7 +271,7 @@ export default function SigningPage() {
               {(signers || []).map((s, i) => (
                 <div key={i} className={`h-1.5 w-6 rounded-full ${
                   s.status === 'signed' ? 'bg-green-500' :
-                  s.sign_order === signer?.sign_order ? 'bg-brand-500' : 'bg-gray-200'
+                  s.order === signer?.order ? 'bg-brand-500' : 'bg-gray-200'
                 }`} />
               ))}
             </div>
@@ -326,12 +327,12 @@ export default function SigningPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
               <span className="text-brand-700 font-bold text-sm">
-                {(signer?.signer_name || '?')[0].toUpperCase()}
+                {(signer?.name || '?')[0].toUpperCase()}
               </span>
             </div>
             <div>
-              <p className="font-semibold text-gray-800">{signer?.signer_name}</p>
-              <p className="text-xs text-gray-400">{signer?.signer_role} · {signer?.signer_email}</p>
+              <p className="font-semibold text-gray-800">{signer?.name}</p>
+              <p className="text-xs text-gray-400">{signer?.role} · {signer?.email}</p>
             </div>
           </div>
         </div>
@@ -435,13 +436,13 @@ export default function SigningPage() {
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
                     ${s.status === 'signed'   ? 'bg-green-100 text-green-700' :
                       s.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                      s.sign_order === signer?.sign_order ? 'bg-brand-100 text-brand-700' :
+                      s.order === signer?.order ? 'bg-brand-100 text-brand-700' :
                       'bg-gray-100 text-gray-400'}`}>
                     {s.status === 'signed' ? '✓' : i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-700 truncate">{s.signer_name}</p>
-                    <p className="text-xs text-gray-400 truncate">{s.signer_role}</p>
+                    <p className="text-sm font-medium text-gray-700 truncate">{s.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{s.role}</p>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium
                     ${s.status === 'signed'    ? 'bg-green-100 text-green-700' :

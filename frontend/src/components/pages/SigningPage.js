@@ -544,82 +544,93 @@ export default function SigningPage() {
             </div>
           </div>
 
-          <div className="divide-y divide-gray-50">
-            {/* Asistentes */}
-            {minute?.attendees?.length > 0 && (
-              <div className="px-6 py-4">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                  <Users size={12} /> Asistentes
-                </p>
+          {/* ── Sección helper ── */}
+          {[
+            minute?.attendees?.length > 0 && {
+              key: 'asistentes',
+              label: '1. Asistentes',
+              color: 'bg-brand-700',
+              content: (
                 <div className="space-y-1.5">
-                  {(Array.isArray(minute.attendees) ? minute.attendees : []).map((a, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i+1}</span>
-                      <span className="font-medium text-gray-800">{a.name || a}</span>
-                      {(a.entity || a.cargo) && <span className="text-gray-400">·</span>}
-                      {(a.entity || a.cargo) && <span className="text-gray-500 text-xs">{a.entity || a.cargo}</span>}
-                      {a.role && <span className="ml-auto text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{a.role}</span>}
+                  {minute.attendees.map((a, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i+1}</span>
+                      <span>
+                        <span className="font-medium text-gray-800">{a.name || (typeof a === 'string' ? a : '')}</span>
+                        {(a.entity || a.cargo) && <span className="text-gray-400"> · {a.entity || a.cargo}</span>}
+                        {a.role && <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{a.role}</span>}
+                      </span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Agenda */}
-            {minute?.agenda && (
-              <div className="px-6 py-4">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Temas tratados</p>
+              ),
+            },
+            minute?.agenda && {
+              key: 'agenda',
+              label: '2. Temas Tratados',
+              color: 'bg-slate-600',
+              content: (
                 <div className="space-y-1">
                   {minute.agenda.split('\n').filter(l => l.trim()).map((line, i) => (
                     <p key={i} className="text-sm text-gray-700 flex gap-2">
-                      <span className="text-brand-400 shrink-0">•</span>{line.trim()}
+                      <span className="text-brand-400 shrink-0 mt-0.5">•</span>
+                      <span>{line.trim()}</span>
                     </p>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Desarrollo */}
-            {minute?.discussions && (
-              <div className="px-6 py-4">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Desarrollo de la reunión</p>
+              ),
+            },
+            minute?.discussions && {
+              key: 'discussions',
+              label: '3. Desarrollo de la Reunión',
+              color: 'bg-slate-600',
+              content: (
                 <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{minute.discussions}</p>
-              </div>
-            )}
-
-            {/* Acuerdos */}
-            {minute?.agreements?.length > 0 && (
-              <div className="px-6 py-4">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Acuerdos</p>
+              ),
+            },
+            minute?.agreements?.length > 0 && {
+              key: 'acuerdos',
+              label: '4. Acuerdos',
+              color: 'bg-emerald-700',
+              content: (
                 <div className="space-y-1.5">
-                  {(Array.isArray(minute.agreements) ? minute.agreements : [minute.agreements]).map((a, i) => (
-                    <p key={i} className="text-sm text-gray-700 flex gap-2">
-                      <span className="text-green-500 shrink-0">✓</span>
-                      {typeof a === 'string' ? a : (a.description || JSON.stringify(a))}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Compromisos */}
-            {minute?.action_items?.length > 0 && (
-              <div className="px-6 py-4">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Compromisos</p>
-                <div className="space-y-2">
-                  {(Array.isArray(minute.action_items) ? minute.action_items : []).map((c, i) => (
-                    <div key={i} className="bg-amber-50 rounded-lg px-3 py-2 text-sm">
-                      <p className="font-medium text-gray-800">{c.task || c.description || c.compromiso || JSON.stringify(c)}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {c.responsible || c.responsable ? `👤 ${c.responsible || c.responsable}` : ''}
-                        {c.due_date || c.fecha ? `  📅 ${c.due_date || c.fecha}` : ''}
-                      </p>
+                  {minute.agreements.map((a, i) => (
+                    <div key={i} className="flex gap-2 text-sm">
+                      <span className="text-emerald-500 shrink-0 font-bold mt-0.5">{i+1}.</span>
+                      <span className="text-gray-700">{typeof a === 'string' ? a : (a.description || a.acuerdo || JSON.stringify(a))}</span>
                     </div>
                   ))}
                 </div>
+              ),
+            },
+            minute?.action_items?.length > 0 && {
+              key: 'compromisos',
+              label: '5. Compromisos',
+              color: 'bg-amber-700',
+              content: (
+                <div className="space-y-2">
+                  {minute.action_items.map((c, i) => (
+                    <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-sm">
+                      <p className="font-medium text-gray-800">{c.task || c.description || c.compromiso || (typeof c === 'string' ? c : JSON.stringify(c))}</p>
+                      {(c.responsible || c.responsable || c.due_date || c.fecha) && (
+                        <p className="text-xs text-gray-500 mt-1 flex gap-3">
+                          {(c.responsible || c.responsable) && <span>👤 {c.responsible || c.responsable}</span>}
+                          {(c.due_date || c.fecha) && <span>📅 {c.due_date || c.fecha}</span>}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ),
+            },
+          ].filter(Boolean).map(sec => (
+            <div key={sec.key}>
+              <div className={`${sec.color} px-6 py-2`}>
+                <p className="text-xs font-bold text-white uppercase tracking-wider">{sec.label}</p>
               </div>
-            )}
-          </div>
+              <div className="px-6 py-4">{sec.content}</div>
+            </div>
+          ))}
 
           {/* Aviso al firmante */}
           <div className="mx-6 mb-4 mt-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">

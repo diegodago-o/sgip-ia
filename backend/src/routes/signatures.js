@@ -341,6 +341,11 @@ publicRouter.get('/:token', async (req, res) => {
     if (signer.status === 'notified')
       await pool.execute("UPDATE signature_signers SET status='viewed' WHERE token=?", [req.params.token]);
 
+    function safeArrStr(v) {
+      if (Array.isArray(v)) return v;
+      if (!v) return [];
+      try { return JSON.parse(v); } catch { return typeof v === 'string' ? [v] : []; }
+    }
     res.json({
       success: true,
       data: {
@@ -358,9 +363,9 @@ publicRouter.get('/:token', async (req, res) => {
           meeting_date: minute.meeting_date, location: minute.location,
           agenda: minute.agenda, discussions: minute.discussions,
           minute_number: minute.minute_number,
-          attendees: (() => { try { return JSON.parse(minute.attendees || '[]'); } catch { return []; } })(),
-          agreements: (() => { try { return JSON.parse(minute.agreements || '[]'); } catch { return []; } })(),
-          action_items: (() => { try { return JSON.parse(minute.action_items || '[]'); } catch { return []; } })(),
+          attendees:    safeArrStr(minute.attendees),
+          agreements:   safeArrStr(minute.agreements),
+          action_items: safeArrStr(minute.action_items),
         },
         project: { name: project.name, code: project.code, client_name: project.client_name },
       },

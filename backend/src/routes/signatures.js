@@ -230,7 +230,7 @@ router.post('/', authenticate, async (req, res) => {
 
     const [result] = await pool.execute(
       "INSERT INTO signature_requests (minute_id,project_id,status,created_by,document_hash) VALUES (?,?,'in_progress',?,?)",
-      [minuteId, projectId, req.user.userId, docHash]
+      [minuteId, projectId, req.user.id, docHash]
     );
     const requestId = result.insertId;
 

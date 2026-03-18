@@ -499,7 +499,6 @@ router.get('/certificate', async (req, res) => {
   try {
     const PDFDocument = require('pdfkit');
 
-    // Load request
     const [reqs] = await pool.execute(
       "SELECT * FROM signature_requests WHERE minute_id=? AND project_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
       [minuteId, projectId]
@@ -522,239 +521,332 @@ router.get('/certificate', async (req, res) => {
     const agreements  = safeArr(minute.agreements);
     const actionItems = safeArr(minute.action_items);
 
-    // ── Build PDF ──────────────────────────────────────────────────
+    const MT = {
+      comite_seguimiento: 'Comite de Seguimiento', comite_obra: 'Comite de Obra',
+      reunion_tecnica: 'Reunion Tecnica', reunion_financiera: 'Reunion Financiera', otro: 'Reunion',
+    };
+
+    // PDF setup
     const doc = new PDFDocument({
       size: 'LETTER',
-      margins: { top: 60, bottom: 60, left: 65, right: 65 },
+      margins: { top: 55, bottom: 55, left: 60, right: 60 },
       info: {
-        Title:    minute.title,
-        Author:   'SGIP-IA — Sistema de Gestión Integral de Proyectos',
-        Subject:  `Acta firmada — ${project.name}`,
-        Keywords: 'firma electronica, acta, sgip',
-        Creator:  'SGIP-IA',
+        Title: minute.title,
+        Author: 'SGIP-IA',
+        Subject: 'Acta firmada - ' + project.name,
+        Creator: 'SGIP-IA',
       },
-      // Encrypt: owner can print high-res; user cannot edit/copy
-      userPassword:  '',
+      userPassword: '',
       ownerPassword: require('crypto').randomBytes(16).toString('hex'),
       permissions: {
-        printing:         'highResolution',
-        modifying:        false,
-        copying:          false,
-        annotating:       false,
-        fillingForms:     false,
+        printing: 'highResolution',
+        modifying: false,
+        copying: false,
+        annotating: false,
+        fillingForms: false,
         contentAccessibility: true,
         documentAssembly: false,
       },
     });
 
     const chunks = [];
-    doc.on('data', c => chunks.push(c));
+    doc.on('data', function(c) { chunks.push(c); });
 
-    const BLUE   = '#1B3A5C';
-    const LIGHT  = '#E8F0F7';
-    const GRAY   = '#555555';
-    const LGRAY  = '#888888';
-    const GREEN  = '#166534';
-    const W      = doc.page.width - 130; // usable width
+    const ML   = doc.page.margins.left;
+    const PW   = doc.page.width;
+    const PH   = doc.page.height;
+    const MBot = doc.page.margins.bottom;
+    const W    = PW - ML - doc.page.margins.right;
+    const BLUE = '#1B3A5C';
+    const LGR  = '#777777';
+    const GRAY = '#444444';
+    const GRN  = '#059669';
 
-    // ── Helper: section header ─────────────────────────────────────
-    const sectionTitle = (txt) => {
-      doc.moveDown(0.6)
-         .fillColor(BLUE).fontSize(11).font('Helvetica-Bold').text(txt.toUpperCase(), { continued: false })
-         .moveDown(0.15)
-         .moveTo(doc.page.margins.left, doc.y)
-         .lineTo(doc.page.margins.left + W, doc.y)
-         .strokeColor('#BBCFE0').lineWidth(1).stroke()
-         .moveDown(0.3);
-    };
+    // Check if we need a new page
+    function checkPage(needed) {
+      if (doc.y + needed > PH - MBot) {
+        doc.addPage();
+      }
+    }
 
-    // ── Helper: field pair ─────────────────────────────────────────
-    const field = (label, value) => {
-      doc.fillColor(LGRAY).fontSize(8).font('Helvetica').text(label, { continued: true })
-         .fillColor('#222').fontSize(9).font('Helvetica').text(`  ${value || '—'}`);
-      doc.moveDown(0.2);
-    };
+    // Draw a colored section header bar, return new Y
+    function sectionHdr(label, y, color) {
+      color = color || BLUE;
+      doc.rect(ML, y, W, 20).fill(color);
+      doc.fillColor('white').fontSize(8.5).font('Helvetica-Bold')
+         .text(label, ML + 8, y + 5, { width: W - 16, lineBreak: false });
+      return y + 26;
+    }
 
-    // ══ PAGE 1: ACTA CONTENT ═══════════════════════════════════════
+    // Draw a thin separator line, return new Y
+    function separator(y) {
+      doc.moveTo(ML, y).lineTo(ML + W, y).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
+      return y + 8;
+    }
 
-    // Logo / header bar
-    doc.rect(doc.page.margins.left - 5, 45, W + 10, 48).fill(BLUE);
-    doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
-       .text('ACTA DE REUNIÓN', doc.page.margins.left + 5, 56, { width: W - 120 });
-    doc.fontSize(8).font('Helvetica')
-       .text('Firma Electrónica · Ley 527/1999 · Decreto 2364/2012', doc.page.margins.left + 5, 74, { width: W - 10 });
-    doc.fillColor(BLUE).fontSize(9).font('Helvetica-Bold')
-       .text(`Acta N° ${minute.minute_number || minute.id}`, doc.page.margins.left + W - 80, 63, { width: 90, align: 'right' });
+    // =====================================================
+    // PAGE 1 — ACTA CONTENT
+    // =====================================================
 
-    doc.y = 110;
+    // Banner
+    doc.rect(ML, 55, W, 38).fill(BLUE);
+    doc.fillColor('white').fontSize(15).font('Helvetica-Bold')
+       .text('ACTA DE REUNION', ML + 10, 63, { width: W - 100, lineBreak: false });
+    doc.fillColor('#93C5FD').fontSize(7.5).font('Helvetica')
+       .text('Firma Electronica - Ley 527/1999 - Decreto 2364/2012', ML + 10, 81, { width: W - 100, lineBreak: false });
+    // Acta number in banner
+    doc.fillColor('white').fontSize(9).font('Helvetica-Bold')
+       .text('Acta N ' + (minute.minute_number || minute.id), ML + W - 90, 69, { width: 86, align: 'right', lineBreak: false });
 
-    // Subtitle: title
-    doc.fillColor('#111').fontSize(13).font('Helvetica-Bold')
-       .text(minute.title, { align: 'center' }).moveDown(0.4);
-    doc.fillColor(GRAY).fontSize(9).font('Helvetica')
-       .text(project.name + (project.code ? ` (${project.code})` : ''), { align: 'center' }).moveDown(0.6);
+    let y = 106;
 
-    // Info grid
-    const infoItems = [
-      ['Fecha',       minute.meeting_date ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day:'2-digit', month:'long', year:'numeric' }) : '—'],
-      ['Lugar',       minute.location || '—'],
-      ['Tipo',        ({ comite_seguimiento:'Comité de Seguimiento', comite_obra:'Comité de Obra', reunion_tecnica:'Reunión Técnica', reunion_financiera:'Reunión Financiera', otro:'Reunión' })[minute.minute_type] || minute.minute_type || '—'],
-      ['Contrato',    project.contract_number || '—'],
-      ['Cliente',     project.client_name || '—'],
-    ];
-    const colW = (W - 20) / 2;
-    infoItems.forEach(([lbl, val], i) => {
-      const x = doc.page.margins.left + (i % 2 === 1 ? colW + 20 : 0);
-      if (i % 2 === 0 && i > 0) doc.moveDown(0.05);
-      const savedY = doc.y;
-      doc.fillColor(LGRAY).fontSize(7.5).font('Helvetica').text(lbl, x, savedY, { width: 55, continued: true });
-      doc.fillColor('#111').fontSize(9).font('Helvetica').text(val, { width: colW - 55 });
-      if (i % 2 === 0) doc.y = savedY; // next item on same line
-    });
-    doc.moveDown(0.5);
+    // Title
+    doc.fillColor(BLUE).fontSize(12).font('Helvetica-Bold')
+       .text(minute.title || 'Acta de Reunion', ML, y, { width: W, align: 'center' });
+    y = doc.y + 3;
+    doc.fillColor(LGR).fontSize(9).font('Helvetica')
+       .text(project.name + (project.code ? ' (' + project.code + ')' : ''), ML, y, { width: W, align: 'center' });
+    y = doc.y + 10;
 
-    // Attendees
-    if (attendees.length) {
-      sectionTitle('1. Asistentes');
-      attendees.forEach((a, i) => {
-        const name   = a.name   || a;
-        const entity = a.entity || a.cargo || '';
-        const role   = a.role   || '';
+    // Info grid: explicit 2-column layout
+    // Each row: left item at ML, right item at ML+W/2
+    const half = W / 2 - 6;
+    const lw   = 62; // label width
+    function infoRow(lbl1, val1, lbl2, val2, startY) {
+      // left column
+      doc.fillColor(LGR).fontSize(7.5).font('Helvetica')
+         .text(lbl1, ML, startY, { width: lw, lineBreak: false });
+      doc.fillColor('#111').fontSize(9).font('Helvetica')
+         .text(val1 || '-', ML + lw, startY, { width: half - lw });
+      const leftH = doc.y;
+
+      // right column - restart at same startY
+      if (lbl2) {
+        doc.fillColor(LGR).fontSize(7.5).font('Helvetica')
+           .text(lbl2, ML + half + 12, startY, { width: lw, lineBreak: false });
         doc.fillColor('#111').fontSize(9).font('Helvetica')
-           .text(`${i + 1}.  ${name}${entity ? '  ·  ' + entity : ''}${role ? '  ·  ' + role : ''}`, {
-             indent: 10
-           }).moveDown(0.1);
+           .text(val2 || '-', ML + half + 12 + lw, startY, { width: half - lw });
+      }
+      const rightH = doc.y;
+      return Math.max(leftH, rightH) + 4;
+    }
+
+    const dateStr = minute.meeting_date
+      ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '-';
+
+    y = infoRow('Fecha:', dateStr, 'Lugar:', minute.location || '-', y);
+    y = infoRow('Tipo:', MT[minute.minute_type] || minute.minute_type || '-', 'Contrato:', project.contract_number || '-', y);
+    y = infoRow('Cliente:', project.client_name || '-', '', '', y);
+    y = separator(y + 2);
+
+    // Asistentes
+    if (attendees.length) {
+      checkPage(40);
+      y = sectionHdr('1. ASISTENTES', y);
+      attendees.forEach(function(a, i) {
+        checkPage(14);
+        var name   = a.name   || (typeof a === 'string' ? a : '');
+        var entity = a.entity || a.cargo || '';
+        var role   = a.role   || '';
+        var parts  = [name];
+        if (entity) parts.push(entity);
+        if (role)   parts.push(role);
+        doc.fillColor(GRAY).fontSize(9).font('Helvetica')
+           .text((i + 1) + '.  ' + parts.join('  -  '), ML + 8, y, { width: W - 16 });
+        y = doc.y + 2;
       });
+      y += 4;
     }
 
     // Agenda
     if (minute.agenda) {
-      sectionTitle('2. Temas tratados');
-      minute.agenda.split('\n').filter(l => l.trim()).forEach(line => {
-        doc.fillColor('#111').fontSize(9).font('Helvetica')
-           .text(`•  ${line.trim()}`, { indent: 10 }).moveDown(0.1);
+      checkPage(40);
+      y = sectionHdr('2. TEMAS TRATADOS', y);
+      minute.agenda.split('\n').filter(function(l) { return l.trim(); }).forEach(function(line) {
+        checkPage(14);
+        doc.fillColor(GRAY).fontSize(9).font('Helvetica')
+           .text('  -  ' + line.trim(), ML + 8, y, { width: W - 16 });
+        y = doc.y + 2;
       });
+      y += 4;
     }
 
     // Discussion
     if (minute.discussions) {
-      sectionTitle('3. Desarrollo de la reunión');
+      checkPage(40);
+      y = sectionHdr('3. DESARROLLO DE LA REUNION', y);
       doc.fillColor(GRAY).fontSize(9).font('Helvetica')
-         .text(minute.discussions, { indent: 0, lineGap: 2 }).moveDown(0.2);
+         .text(minute.discussions, ML + 4, y, { width: W - 8, lineGap: 2 });
+      y = doc.y + 8;
     }
 
     // Agreements
     if (agreements.length) {
-      sectionTitle('4. Acuerdos');
-      agreements.forEach((a, i) => {
-        const txt = typeof a === 'string' ? a : (a.description || JSON.stringify(a));
-        doc.fillColor('#111').fontSize(9).font('Helvetica')
-           .text(`${i + 1}.  ${txt}`, { indent: 10 }).moveDown(0.15);
+      checkPage(40);
+      y = sectionHdr('4. ACUERDOS', y);
+      agreements.forEach(function(a, i) {
+        checkPage(14);
+        var txt = typeof a === 'string' ? a : (a.description || JSON.stringify(a));
+        doc.fillColor(GRAY).fontSize(9).font('Helvetica')
+           .text((i + 1) + '.  ' + txt, ML + 8, y, { width: W - 16 });
+        y = doc.y + 3;
       });
+      y += 4;
     }
 
     // Action items
     if (actionItems.length) {
-      sectionTitle('5. Compromisos');
-      actionItems.forEach((c, i) => {
-        const task = c.task || c.description || c.compromiso || JSON.stringify(c);
-        const resp = c.responsible || c.responsable || '';
-        const due  = c.due_date    || c.fecha       || '';
+      checkPage(40);
+      y = sectionHdr('5. COMPROMISOS', y);
+      actionItems.forEach(function(c, i) {
+        checkPage(30);
+        var task = c.task || c.description || c.compromiso || JSON.stringify(c);
+        var resp = c.responsible || c.responsable || '';
+        var due  = c.due_date    || c.fecha       || '';
         doc.fillColor('#111').fontSize(9).font('Helvetica-Bold')
-           .text(`${i + 1}.  ${task}`, { indent: 10, continued: false }).moveDown(0.05);
+           .text((i + 1) + '.  ' + task, ML + 8, y, { width: W - 16 });
+        y = doc.y + 1;
         if (resp || due) {
-          doc.fillColor(LGRAY).fontSize(8).font('Helvetica')
-             .text(`${resp ? 'Responsable: ' + resp : ''}${resp && due ? '   ' : ''}${due ? 'Fecha: ' + due : ''}`, { indent: 20 });
+          var meta = (resp ? 'Responsable: ' + resp : '') + (resp && due ? '   ' : '') + (due ? 'Fecha: ' + due : '');
+          doc.fillColor(LGR).fontSize(8).font('Helvetica')
+             .text(meta, ML + 20, y, { width: W - 28 });
+          y = doc.y + 1;
         }
-        doc.moveDown(0.2);
+        y += 5;
       });
     }
 
-    // ══ PAGE 2: CERTIFICATE / AUDIT TRAIL ══════════════════════════
+    // =====================================================
+    // PAGE 2 — CERTIFICATE
+    // =====================================================
     doc.addPage();
 
-    doc.rect(doc.page.margins.left - 5, 45, W + 10, 48).fill('#059669');
+    // Banner
+    doc.rect(ML, 55, W, 38).fill(GRN);
     doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
-       .text('CERTIFICADO DE FIRMAS DIGITALES', doc.page.margins.left + 5, 56, { width: W - 10 });
-    doc.fontSize(8).font('Helvetica')
-       .text('Firma Electrónica con Validez Jurídica — Ley 527 de 1999 — Decreto 2364 de 2012', doc.page.margins.left + 5, 74);
+       .text('CERTIFICADO DE FIRMAS DIGITALES', ML + 10, 62, { width: W - 20, lineBreak: false });
+    doc.fillColor('#A7F3D0').fontSize(7.5).font('Helvetica')
+       .text('Firma Electronica con Validez Juridica - Ley 527 de 1999 - Decreto 2364 de 2012', ML + 10, 80, { width: W - 20, lineBreak: false });
 
-    doc.y = 115;
+    y = 108;
 
-    // Document info
-    doc.fillColor(BLUE).fontSize(10).font('Helvetica-Bold').text('Documento firmado').moveDown(0.3);
-    field('Título:', minute.title);
-    field('Proyecto:', `${project.name} ${project.code ? '(' + project.code + ')' : ''}`);
-    field('Acta N°:', String(minute.minute_number || minute.id));
-    field('Fecha del acta:', minute.meeting_date ? new Date(minute.meeting_date).toLocaleDateString('es-CO') : '—');
-    field('Proceso completado:', req_.completed_at ? new Date(req_.completed_at).toLocaleString('es-CO') : '—');
-    field('Hash SHA-256:', req_.document_hash || '—');
-    doc.moveDown(0.5);
+    // Document info block
+    doc.fillColor(GRN).fontSize(10).font('Helvetica-Bold')
+       .text('Documento firmado', ML, y);
+    y = doc.y + 5;
 
-    // Signers
-    doc.fillColor(BLUE).fontSize(10).font('Helvetica-Bold').text('Firmantes').moveDown(0.4);
+    var docFields = [
+      ['Titulo:', minute.title || '-'],
+      ['Proyecto:', project.name + (project.code ? ' (' + project.code + ')' : '')],
+      ['Acta N:', String(minute.minute_number || minute.id)],
+      ['Fecha del acta:', minute.meeting_date ? new Date(minute.meeting_date).toLocaleDateString('es-CO') : '-'],
+      ['Proceso completado:', req_.completed_at ? new Date(req_.completed_at).toLocaleString('es-CO') : '-'],
+      ['Hash SHA-256:', req_.document_hash || '-'],
+    ];
+    var dlw = 120;
+    docFields.forEach(function(pair) {
+      doc.fillColor(LGR).fontSize(8).font('Helvetica')
+         .text(pair[0], ML, y, { width: dlw, lineBreak: false });
+      doc.fillColor('#111').fontSize(8.5).font('Helvetica')
+         .text(pair[1], ML + dlw, y, { width: W - dlw });
+      y = doc.y + 2;
+    });
 
-    for (const s of signers) {
-      // Signer block background
-      const blockY = doc.y;
-      doc.save();
+    y = separator(y + 4);
 
-      // Name + role
-      doc.fillColor('#111').fontSize(10).font('Helvetica-Bold')
-         .text(`${s.sign_order}. ${s.signer_name}`, { continued: false });
-      doc.fillColor(GRAY).fontSize(8.5).font('Helvetica')
-         .text(s.signer_role || 'Firmante').moveDown(0.1);
-      field('Correo:', s.signer_email);
-      field('Firmado el:', s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : '—');
-      field('Dirección IP:', s.ip_address || '—');
+    // Firmantes
+    doc.fillColor(GRN).fontSize(10).font('Helvetica-Bold')
+       .text('Firmantes', ML, y);
+    y = doc.y + 8;
 
-      // Signature image
+    signers.forEach(function(s) {
+      checkPage(90);
+      var topY  = y;
+      var imgW  = 155;
+      var imgH  = 60;
+      var tW    = W - imgW - 14;  // text column width
+
+      // Name
+      doc.fillColor(BLUE).fontSize(10).font('Helvetica-Bold')
+         .text(s.sign_order + '. ' + s.signer_name, ML, y, { width: tW, lineBreak: false });
+      y = doc.y + 2;
+
+      // Role
+      doc.fillColor(LGR).fontSize(8.5).font('Helvetica')
+         .text(s.signer_role || 'Firmante', ML, y, { width: tW, lineBreak: false });
+      y = doc.y + 5;
+
+      // Meta fields
+      var mlw = 52;
+      var metaFields = [
+        ['Correo:', s.signer_email || '-'],
+        ['Firmado:', s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO') : '-'],
+        ['IP:', s.ip_address || '-'],
+      ];
+      metaFields.forEach(function(mf) {
+        doc.fillColor(LGR).fontSize(7.5).font('Helvetica')
+           .text(mf[0], ML + 4, y, { width: mlw, lineBreak: false });
+        doc.fillColor(GRAY).fontSize(8).font('Helvetica')
+           .text(mf[1], ML + 4 + mlw, y, { width: tW - mlw - 4, lineBreak: false });
+        y = doc.y + 3;
+      });
+
+      var textBottom = y;
+
+      // Signature image — positioned to the right of text block
+      var imgX = ML + tW + 14;
+      doc.rect(imgX, topY, imgW, imgH).fillAndStroke('#F8FAFC', '#CCCCCC');
       if (s.signature_image) {
         try {
-          const b64 = s.signature_image.replace(/^data:image\/\w+;base64,/, '');
-          const imgBuf = Buffer.from(b64, 'base64');
-          doc.image(imgBuf, doc.page.margins.left + W - 155, blockY, { width: 150, height: 58, fit: [150, 58] });
-        } catch { /* skip bad image */ }
+          var b64    = s.signature_image.replace(/^data:image\/\w+;base64,/, '');
+          var imgBuf = Buffer.from(b64, 'base64');
+          doc.image(imgBuf, imgX + 5, topY + 5, {
+            width:  imgW - 10,
+            height: imgH - 10,
+            fit:    [imgW - 10, imgH - 10],
+          });
+        } catch(ex) { /* skip */ }
       }
+      doc.fillColor(LGR).fontSize(7).font('Helvetica')
+         .text('Firma electronica', imgX, topY + imgH + 2, { width: imgW, align: 'center', lineBreak: false });
 
-      // Separator
-      doc.moveDown(0.4)
-         .moveTo(doc.page.margins.left, doc.y)
-         .lineTo(doc.page.margins.left + W, doc.y)
-         .strokeColor('#DDDDDD').lineWidth(0.5).stroke()
-         .moveDown(0.4);
-      doc.restore();
-    }
+      // Advance Y past whichever is taller
+      y = Math.max(textBottom, topY + imgH + 14) + 6;
+      y = separator(y);
+    });
 
-    // Legal notice
-    doc.moveDown(0.8);
-    doc.rect(doc.page.margins.left, doc.y, W, 55).fill('#F0FDF4');
-    doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold')
-       .text('VALIDEZ JURÍDICA', doc.page.margins.left + 8, doc.y - 48, { width: W - 16 }).moveDown(0.2);
+    // Legal notice box
+    checkPage(75);
+    y += 4;
+    doc.rect(ML, y, W, 62).fill('#F0FDF4');
+    doc.rect(ML, y, 4, 62).fill(GRN);
+    doc.fillColor('#166534').fontSize(8.5).font('Helvetica-Bold')
+       .text('VALIDEZ JURIDICA', ML + 12, y + 8, { width: W - 20, lineBreak: false });
     doc.fillColor('#166534').fontSize(7.5).font('Helvetica')
        .text(
-         'Este documento ha sido firmado electrónicamente conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de la República de Colombia. ' +
-         'Cada firma fue obtenida mediante un enlace único enviado al correo del firmante, registrando IP, fecha/hora del servidor y hash SHA-256 del contenido. ' +
-         'Este PDF está protegido contra modificaciones. Cualquier alteración invalidará las firmas.',
-         doc.page.margins.left + 8, doc.y, { width: W - 16, lineGap: 1 }
+         'Este documento ha sido firmado electronicamente conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de la Republica de Colombia. ' +
+         'Cada firma fue obtenida mediante un enlace unico enviado al correo del firmante, registrando direccion IP, ' +
+         'fecha y hora del servidor, y hash SHA-256 del contenido. ' +
+         'Este PDF esta protegido contra modificaciones. Cualquier alteracion invalidara las firmas.',
+         ML + 12, y + 22, { width: W - 24, lineGap: 1.5 }
        );
+    y += 70;
 
-    // Footer with generation timestamp
-    doc.moveDown(2);
-    doc.fillColor(LGRAY).fontSize(7.5).font('Helvetica')
+    // Footer
+    doc.fillColor('#AAAAAA').fontSize(7.5).font('Helvetica')
        .text(
-         `Certificado generado por SGIP-IA el ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })} · sgip.tecnofactory.net.co`,
-         { align: 'center' }
+         'Certificado generado por SGIP-IA el ' + new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' }) + ' - sigp.tecnofactory.net.co',
+         ML, y, { width: W, align: 'center', lineBreak: false }
        );
 
     doc.end();
+    await new Promise(function(resolve) { doc.on('end', resolve); });
+    var pdfBuffer = Buffer.concat(chunks);
 
-    await new Promise(resolve => doc.on('end', resolve));
-    const pdfBuffer = Buffer.concat(chunks);
-
-    const filename = `Certificado_Firma_Acta${minute.minute_number || minute.id}_${project.code || projectId}.pdf`;
+    var filename = 'Certificado_Firma_Acta' + (minute.minute_number || minute.id) + '_' + (project.code || projectId) + '.pdf';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
     res.send(pdfBuffer);
   } catch (e) {
     console.error('[signatures] GET /certificate:', e);

@@ -14,7 +14,7 @@ router.get('/:projectId/minutes/:minuteId/export-word', async (req, res) => {
   try {
     const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
             HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
-            Header, Footer, PageNumber, LevelFormat } = require('docx');
+            Header, Footer, PageNumber, LevelFormat, ImageRun } = require('docx');
 
     // Load data
     const [minutes] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=? AND project_id=?', [req.params.minuteId, req.params.projectId]);
@@ -23,6 +23,22 @@ router.get('/:projectId/minutes/:minuteId/export-word', async (req, res) => {
 
     const [project] = await pool.execute('SELECT name, code, contract_number FROM projects WHERE id=?', [req.params.projectId]);
     const p = project[0] || {};
+
+    // Load completed digital signatures (if any)
+    let digitalSigners = [];
+    try {
+      const [sigReqs] = await pool.execute(
+        "SELECT id FROM signature_requests WHERE minute_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
+        [m.id]
+      );
+      if (sigReqs.length) {
+        const [sigRows] = await pool.execute(
+          "SELECT signer_name,signer_role,signer_email,signature_image,signed_at,ip_address FROM signature_signers WHERE request_id=? AND status='signed' ORDER BY sign_order",
+          [sigReqs[0].id]
+        );
+        digitalSigners = sigRows;
+      }
+    } catch { /* signatures table may not exist in older installs */ }
 
     // Safe JSON parse (mysql2 auto-parses JSON columns → may already be arrays)
     function safeJSON(v) {
@@ -190,12 +206,81 @@ router.get('/:projectId/minutes/:minuteId/export-word', async (req, res) => {
             new Paragraph({ children: [new TextRun({ text: `Fecha: ${new Date(m.next_meeting_date).toLocaleDateString('es-CO')}`, size: 22 })] }),
           ] : []),
 
-          // Signature space
-          new Paragraph({ spacing: { before: 600 } }),
-          new Paragraph({ children: [new TextRun({ text: "Elaboró:", bold: true, size: 22 })] }),
-          new Paragraph({ spacing: { before: 200 }, border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" } },
-            children: [new TextRun({ text: "                                                                              ", size: 22 })] }),
-          new Paragraph({ children: [new TextRun({ text: "Nombre / Cargo", size: 18, color: "888888" })] }),
+          // ── Signatures section ───────────────────────────────────────
+          new Paragraph({ spacing: { before: 500 } }),
+          new Paragraph({ heading: HeadingLevel.HEADING_1, children: [
+            new TextRun(digitalSigners.length
+              ? `${m.next_meeting_date ? '7' : '6'}. FIRMAS DIGITALES`
+              : `${m.next_meeting_date ? '7' : '6'}. FIRMAS`)
+          ]}),
+          ...(digitalSigners.length > 0
+            ? [
+                new Paragraph({ spacing: { after: 200 }, children: [
+                  new TextRun({ text: 'Documento firmado electrónicamente con validez legal conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de Colombia.', size: 18, italics: true, color: '444444' })
+                ]}),
+                new Table({
+                  width: { size: 10080, type: WidthType.DXA },
+                  columnWidths: Array(Math.min(digitalSigners.length, 3)).fill(Math.floor(10080 / Math.min(digitalSigners.length, 3))),
+                  rows: (() => {
+                    const rows = [];
+                    // Row 1: signature images
+                    rows.push(new TableRow({
+                      children: digitalSigners.slice(0, 3).map(s => {
+                        const imgChildren = [];
+                        if (s.signature_image) {
+                          try {
+                            const b64 = s.signature_image.replace(/^data:image\/\w+;base64,/, '');
+                            imgChildren.push(new ImageRun({ data: Buffer.from(b64, 'base64'), transformation: { width: 180, height: 70 }, type: 'png' }));
+                          } catch { imgChildren.push(new TextRun({ text: '[firma]', italics: true, color: '999999' })); }
+                        }
+                        return new TableCell({
+                          borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.SINGLE, size: 4, color: '1B3A5C' }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+                          margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                          children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 100 }, children: imgChildren.length ? imgChildren : [new TextRun({ text: ' ', size: 22 })] })]
+                        });
+                      })
+                    }));
+                    // Row 2: name, role, date, IP
+                    rows.push(new TableRow({
+                      children: digitalSigners.slice(0, 3).map(s => new TableCell({
+                        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+                        margins: { top: 60, bottom: 60, left: 120, right: 120 },
+                        children: [
+                          new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.signer_name, bold: true, size: 20 })] }),
+                          new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.signer_role || 'Firmante', size: 18, color: '555555' })] }),
+                          new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO') : '', size: 16, color: '888888' })] }),
+                          new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.ip_address ? `IP: ${s.ip_address}` : '', size: 14, color: 'aaaaaa' })] }),
+                        ]
+                      }))
+                    }));
+                    return rows;
+                  })()
+                }),
+              ]
+            : [
+                new Paragraph({ spacing: { before: 400 } }),
+                new Table({
+                  width: { size: 10080, type: WidthType.DXA },
+                  columnWidths: [3360, 3360, 3360],
+                  rows: [
+                    new TableRow({ children: ['Elaboró', 'Revisó', 'Aprobó'].map(() =>
+                      new TableCell({
+                        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.SINGLE, size: 2, color: '000000' }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+                        margins: { top: 200, bottom: 60, left: 100, right: 100 },
+                        children: [new Paragraph({ children: [new TextRun({ text: ' ', size: 22 })] })]
+                      })
+                    )}),
+                    new TableRow({ children: ['Elaboró', 'Revisó', 'Aprobó'].map(label =>
+                      new TableCell({
+                        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+                        margins: { top: 60, bottom: 60, left: 100, right: 100 },
+                        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: label, size: 18, color: '888888', bold: true })] })]
+                      })
+                    )})
+                  ]
+                }),
+              ]
+          ),
         ]
       }]
     });

@@ -437,8 +437,8 @@ export default function CorrespondenceSigningPage() {
       message={errMsg || "El enlace de firma no es válido o ha expirado. Por favor solicite un nuevo enlace al responsable del proyecto."} />;
 
   /* ── Ready state — main form ── */
-  // API response: { data: { signer, correspondence, allSigners, project, request } }
-  const { signer, correspondence: corr, allSigners: signers, project, request } = data?.data || {};
+  // API response: { data: { signer, corr, allSigners, project, request } }
+  const { signer, corr, allSigners: signers, project, request } = data?.data || {};
   const signedCount  = (signers || []).filter(s => s.status === 'signed').length;
   const totalSigners = (signers || []).length;
 

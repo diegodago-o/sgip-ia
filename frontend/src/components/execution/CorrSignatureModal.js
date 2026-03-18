@@ -55,15 +55,16 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
       onMouseDown={handleMouseDown}
       style={{
         position: 'absolute',
-        left: `${pos.x_percent * 100}%`,
-        top: `${pos.y_percent * 100}%`,
-        width: `${pos.width_percent * 100}%`,
-        height: `${pos.height_percent * 100}%`,
+        left:   `${pos.x_percent     * 100}%`,
+        top:    `${pos.y_percent     * 100}%`,
+        width:  `${pos.width_percent * 100}%`,
+        height: `${pos.height_percent* 100}%`,
         border: `2px dashed ${color}`,
         background: `${color}22`,
         cursor: 'move',
         zIndex: 20,
         userSelect: 'none',
+        pointerEvents: 'auto',   // override parent pointer-events:none
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -85,7 +86,7 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
           background: color, color: '#fff', border: 'none',
           cursor: 'pointer', fontSize: 10,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          lineHeight: 1,
+          lineHeight: 1, pointerEvents: 'auto',
         }}
       >✕</button>
     </div>
@@ -96,23 +97,27 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
 export default function CorrSignatureModal({
   projectId, corrItem, existingRequest, onClose, onChanged,
 }) {
-  // Decide initial step based on existing request state
-  const isTerminal = ['cancelled', 'rejected'].includes(existingRequest?.status);
+  // Terminal: cancelled/rejected → always show create form directly
+  const isTerminal     = ['cancelled', 'rejected'].includes(existingRequest?.status);
   const hasActiveRequest = !isTerminal && existingRequest && existingRequest.status;
+  // canStartNew: completed → allow new process alongside existing
+  const canStartNew    = existingRequest?.status === 'completed';
+
   const [step, setStep] = useState(hasActiveRequest ? 'status' : 'signers');
 
   // ── Signers step ──
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
 
   // ── Position step ──
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfUrl,     setPdfUrl]     = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   // { signerIdx: { x_percent, y_percent, width_percent, height_percent, page_num } }
   const [placedFields, setPlacedFields] = useState({});
+  // containerRef points to the LETTER-proportioned inner div
   const containerRef = useRef(null);
 
   // ── Shared ──
-  const [saving, setSaving] = useState(false);
+  const [saving,     setSaving]     = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [err, setErr] = useState('');
 
@@ -130,12 +135,10 @@ export default function CorrSignatureModal({
       setPdfUrl(URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' })));
     } catch {
       setErr('Error al cargar el PDF. Verifique que el documento esté guardado correctamente.');
-    } finally {
-      setPdfLoading(false);
-    }
+    } finally { setPdfLoading(false); }
   }, [projectId, corrItem.id]);
 
-  // ── Validate & advance to position step ──
+  // ── Validate signers & advance to position step ──
   const goToPosition = () => {
     const valid = signers.filter(s => s.signer_name.trim() && s.signer_email.trim());
     if (valid.length < 1) { setErr('Agregue al menos un firmante con nombre y correo.'); return; }
@@ -148,7 +151,7 @@ export default function CorrSignatureModal({
     if (!pdfUrl) loadPdf();
   };
 
-  // ── HTML5 Drag-and-drop handlers ──
+  // ── HTML5 DnD — handled on the CONTAINER div (overlay has pointer-events:none) ──
   const handleDragStart = (e, idx) => {
     e.dataTransfer.setData('signerIndex', String(idx));
     e.dataTransfer.effectAllowed = 'copy';
@@ -165,12 +168,13 @@ export default function CorrSignatureModal({
     if (idxStr === '') return;
     const idx = parseInt(idxStr, 10);
     if (isNaN(idx) || !containerRef.current) return;
+    // containerRef = inner proportional div; getBoundingClientRect gives correct
+    // position regardless of scroll in the outer div
     const rect = containerRef.current.getBoundingClientRect();
-    // Default box width=22% height=8% of page; clamp so it stays inside
     const W = 0.22;
     const H = 0.08;
     const x = Math.max(0, Math.min(1 - W, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1 - H, (e.clientY - rect.top) / rect.height));
+    const y = Math.max(0, Math.min(1 - H, (e.clientY - rect.top)  / rect.height));
     setPlacedFields(prev => ({
       ...prev,
       [idx]: { x_percent: x, y_percent: y, width_percent: W, height_percent: H, page_num: 1 },
@@ -185,11 +189,7 @@ export default function CorrSignatureModal({
   };
 
   const handleRemoveField = (idx) => {
-    setPlacedFields(prev => {
-      const next = { ...prev };
-      delete next[idx];
-      return next;
-    });
+    setPlacedFields(prev => { const n = { ...prev }; delete n[idx]; return n; });
   };
 
   // ── POST: create signature process ──
@@ -236,8 +236,8 @@ export default function CorrSignatureModal({
   };
 
   // ── Status view helpers ──
-  const req        = existingRequest;
-  const reqSigners = existingRequest?.signers || [];
+  const req         = existingRequest;
+  const reqSigners  = existingRequest?.signers || [];
   const signedCount = reqSigners.filter(s => s.status === 'signed').length;
   const fmtTs = (ts) => ts
     ? new Date(ts).toLocaleString('es-CO', {
@@ -246,8 +246,28 @@ export default function CorrSignatureModal({
       })
     : '';
 
-  // Valid signers (filtered) shown in position step
+  // Valid signers for position step
   const validSignersForPos = signers.filter(s => s.signer_name.trim() && s.signer_email.trim());
+
+  // ── Tab helpers ──
+  // Tabs appear only when there's a completed request (so user can start a new one)
+  const TabToggle = ({ current }) => (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium mb-1">
+      <button
+        onClick={() => setStep('status')}
+        className={`flex-1 py-2 transition-colors ${
+          current === 'status' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+        }`}
+      >Actividad</button>
+      <button
+        onClick={() => { setStep('signers'); setErr(''); }}
+        className={`flex-1 py-2 transition-colors ${
+          current === 'signers' || current === 'position'
+            ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+        }`}
+      >Nuevo proceso</button>
+    </div>
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   return (
@@ -269,7 +289,7 @@ export default function CorrSignatureModal({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Step indicator (only when creating a new process) */}
+            {/* Step breadcrumb — shown in create flow */}
             {!hasActiveRequest && step !== 'status' && (
               <div className="flex items-center gap-1.5 text-xs text-gray-400">
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
@@ -300,6 +320,9 @@ export default function CorrSignatureModal({
         {step === 'signers' && (
           <>
             <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+              {/* Tab toggle — only when returning from completed status */}
+              {canStartNew && <TabToggle current="signers" />}
+
               {/* Terminal state banner */}
               {isTerminal && (
                 <div className={`text-xs rounded-lg p-3 leading-relaxed border
@@ -311,13 +334,23 @@ export default function CorrSignatureModal({
                   </strong> Puedes iniciar un nuevo proceso de firmas.
                 </div>
               )}
+              {/* Completed — info note */}
+              {canStartNew && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200
+                  rounded-lg p-3 leading-relaxed">
+                  <strong>Nota:</strong> El documento ya tiene un proceso completado.
+                  Iniciar uno nuevo es útil si editaste el contenido. El certificado anterior sigue siendo válido.
+                </div>
+              )}
 
               {/* Info banner */}
-              <p className="text-xs text-gray-500 leading-relaxed bg-blue-50 rounded-lg p-3 border border-blue-100">
-                <strong>Firma electrónica con validez legal</strong> (Ley 527/1999). Cada firmante recibirá
-                un correo con un enlace único. En el siguiente paso posicionarás exactamente <em>dónde</em>
-                aparecerá la firma de cada uno en el documento.
-              </p>
+              {!canStartNew && (
+                <p className="text-xs text-gray-500 leading-relaxed bg-blue-50 rounded-lg p-3 border border-blue-100">
+                  <strong>Firma electrónica con validez legal</strong> (Ley 527/1999). Cada firmante recibirá
+                  un correo con un enlace único. En el siguiente paso posicionarás exactamente <em>dónde</em>
+                  aparecerá la firma de cada uno en el documento PDF.
+                </p>
+              )}
 
               {/* Signer list */}
               <div className="space-y-2">
@@ -453,10 +486,11 @@ export default function CorrSignatureModal({
                 )}
               </div>
 
-              {/* Right panel — PDF iframe + drop overlay */}
+              {/* Right panel — scrollable container + PDF iframe + overlay */}
               <div className="flex-1 flex flex-col overflow-hidden bg-gray-100">
                 <div className="px-4 py-2 bg-white border-b border-gray-100 text-xs text-gray-500 flex-shrink-0">
-                  Vista previa del documento · Arrastra los firmantes a la posición exacta de su firma
+                  Vista previa · Arrastra los firmantes a la posición exacta de su firma ·
+                  <span className="text-brand-600 font-medium ml-1">Scroll habilitado</span>
                 </div>
 
                 {pdfLoading ? (
@@ -464,44 +498,52 @@ export default function CorrSignatureModal({
                     <Loader2 size={32} className="animate-spin text-brand-400" />
                   </div>
                 ) : pdfUrl ? (
-                  <div
-                    ref={containerRef}
-                    className="flex-1 relative overflow-hidden"
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                  >
-                    {/* iframe: pointer-events:none lets drag events reach the overlay */}
-                    <iframe
-                      src={pdfUrl}
-                      title="PDF preview"
-                      className="w-full h-full border-0"
-                      style={{ pointerEvents: 'none' }}
-                    />
-
-                    {/* Transparent overlay that captures all drop/mouse events */}
+                  /* ── Scrollable outer wrapper ── */
+                  <div className="flex-1 overflow-y-auto p-2">
+                    {/*
+                      Inner div uses padding-bottom trick to maintain LETTER aspect ratio
+                      (792 / 612 = 129.41%). This makes it pixel-perfect for PDF positioning.
+                      containerRef points here — all position calculations use this element.
+                    */}
                     <div
-                      className="absolute inset-0"
-                      style={{ zIndex: 10 }}
+                      ref={containerRef}
+                      className="relative w-full"
+                      style={{ paddingBottom: '129.41%' }}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
                     >
-                      {Object.entries(placedFields).map(([idxStr, pos]) => {
-                        const i = parseInt(idxStr, 10);
-                        const signer = validSignersForPos[i];
-                        if (!signer) return null;
-                        return (
-                          <SignatureFieldBox
-                            key={i}
-                            idx={i}
-                            pos={pos}
-                            name={signer.signer_name}
-                            color={FIELD_COLORS[i % FIELD_COLORS.length]}
-                            containerRef={containerRef}
-                            onMove={handleMoveField}
-                            onRemove={handleRemoveField}
-                          />
-                        );
-                      })}
+                      {/* PDF iframe — pointer-events:none lets drag reach the container */}
+                      <iframe
+                        src={pdfUrl}
+                        title="PDF preview"
+                        className="absolute inset-0 w-full h-full border-0"
+                        style={{ pointerEvents: 'none' }}
+                      />
+
+                      {/* Overlay — transparent to events (pointer-events:none)
+                          Child SignatureFieldBoxes have explicit pointer-events:auto */}
+                      <div
+                        className="absolute inset-0"
+                        style={{ zIndex: 10, pointerEvents: 'none' }}
+                      >
+                        {Object.entries(placedFields).map(([idxStr, pos]) => {
+                          const i = parseInt(idxStr, 10);
+                          const signer = validSignersForPos[i];
+                          if (!signer) return null;
+                          return (
+                            <SignatureFieldBox
+                              key={i}
+                              idx={i}
+                              pos={pos}
+                              name={signer.signer_name}
+                              color={FIELD_COLORS[i % FIELD_COLORS.length]}
+                              containerRef={containerRef}
+                              onMove={handleMoveField}
+                              onRemove={handleRemoveField}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -555,6 +597,9 @@ export default function CorrSignatureModal({
           return (
             <>
               <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+                {/* Tab toggle — shown when process is completed */}
+                {canStartNew && <TabToggle current="status" />}
+
                 {/* Status pill + progress */}
                 <div className="flex items-center justify-between">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -612,7 +657,7 @@ export default function CorrSignatureModal({
                       flex items-center justify-center gap-1.5"
                   >
                     <Download size={13} className="text-green-700" />
-                    Descargar PDF firmado
+                    Descargar PDF firmado + auditoría
                   </button>
                 )}
                 {req?.status === 'in_progress' && (

@@ -424,7 +424,7 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   }
 
   // ─────────────────────────────────────────
-  // FOOTER
+  // FOOTER (page 1)
   // ─────────────────────────────────────────
   const footerY = PAGE_H - MB + 8;
   doc.rect(ML, footerY, W, 18).fill('#F0F4F8');
@@ -433,6 +433,138 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
      .text(`${corr.consecutive_code || ''} — SGIP-IA`, ML + 6, footerY + 5, { width: W / 2 - 12, lineBreak: false });
   doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
      .text(`Generado: ${nowStr}`, ML + W / 2, footerY + 5, { width: W / 2 - 6, align: 'right', lineBreak: false });
+
+  // ─────────────────────────────────────────
+  // PÁGINA DE AUDITORÍA (solo en PDF firmado)
+  // ─────────────────────────────────────────
+  const { request: auditReq } = options;
+  if (withSignatures && auditReq) {
+    doc.addPage();
+
+    const AL  = 54;
+    const AW  = PAGE_W - AL * 2;
+    const ROW_H = 21;
+    const COL1  = 148;
+    let ay = 0;
+
+    const fmtTs = (d) => d
+      ? new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota' })
+      : '—';
+
+    // ── Header bar ──
+    doc.rect(0, 0, PAGE_W, 58).fill('#1E3A5F');
+    doc.fillColor('white').fontSize(15).font('Helvetica-Bold')
+       .text('Informe de Auditoría Final', AL, 14, { width: AW });
+    doc.fillColor('#93C5FD').fontSize(8).font('Helvetica')
+       .text('Firma electrónica · Ley 527 de 1999 · Decreto 1074 de 2015 · SGIP-IA', AL, 38, { width: AW });
+    ay = 76;
+
+    // ── Info table ──
+    const hashStr = (auditReq.document_hash || '—');
+    const infoRows = [
+      ['Documento', corr.subject || '—'],
+      ['Código / Tipo', `${corr.consecutive_code || '—'}  ·  ${typeLabel}`],
+      ['Proyecto', `${project.name}${project.code ? ' (' + project.code + ')' : ''}`],
+      ['Fecha del documento', fmtDateEs(corr.reference_date)],
+      ['Estado', 'Firmado electrónicamente — Proceso completado'],
+      ['Fecha de completado', fmtTs(auditReq.completed_at)],
+      ['ID de transacción (SHA-256)', hashStr.slice(0, 52) + (hashStr.length > 52 ? '…' : '')],
+    ];
+
+    // Table header
+    doc.rect(AL, ay, AW, 17).fill('#1E3A5F');
+    doc.fillColor('white').fontSize(8).font('Helvetica-Bold')
+       .text('Información del Documento', AL + 6, ay + 5, { width: AW - 12, lineBreak: false });
+    ay += 17;
+
+    infoRows.forEach(([label, value], i) => {
+      const bg = i % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
+      doc.rect(AL, ay, AW, ROW_H).fill(bg);
+      doc.rect(AL, ay, AW, ROW_H).strokeColor('#E2E8F0').lineWidth(0.3).stroke();
+      doc.fillColor('#475569').fontSize(7.5).font('Helvetica-Bold')
+         .text(label, AL + 6, ay + 7, { width: COL1 - 12, lineBreak: false });
+      doc.fillColor('#111827').fontSize(7.5).font('Helvetica')
+         .text(String(value), AL + COL1 + 4, ay + 7, { width: AW - COL1 - 8, lineBreak: false });
+      ay += ROW_H;
+    });
+
+    ay += 20;
+
+    // ── Historial de firmas ──
+    doc.rect(AL, ay, AW, 17).fill('#1E3A5F');
+    doc.fillColor('white').fontSize(8).font('Helvetica-Bold')
+       .text('Historial de Firmas', AL + 6, ay + 5, { width: AW - 12, lineBreak: false });
+    ay += 22;
+
+    // Build events
+    const auditEvents = [];
+    auditEvents.push({
+      color: '#1B5FAA', icon: '●',
+      title: 'Proceso de firmas iniciado',
+      detail: fmtTs(auditReq.created_at),
+    });
+    signers.forEach((s) => {
+      auditEvents.push({
+        color: '#0891B2', icon: '◆',
+        title: `Invitación enviada a ${s.signer_name}`,
+        detail: `${s.signer_email}${s.signer_role ? ' · ' + s.signer_role : ''}`,
+      });
+      if (s.status === 'signed') {
+        auditEvents.push({
+          color: '#059669', icon: '✓',
+          title: `Firmado por ${s.signer_name}`,
+          detail: `${fmtTs(s.signed_at)}${s.ip_address ? ' · IP: ' + s.ip_address : ''}`,
+        });
+      }
+      if (s.status === 'rejected') {
+        auditEvents.push({
+          color: '#DC2626', icon: '✗',
+          title: `Rechazado por ${s.signer_name}`,
+          detail: s.rejection_reason || '—',
+        });
+      }
+    });
+    if (auditReq.completed_at) {
+      auditEvents.push({
+        color: '#059669', icon: '★',
+        title: 'Proceso completado — todos los firmantes han firmado',
+        detail: fmtTs(auditReq.completed_at),
+      });
+    }
+
+    const DOT_X = AL + 8;
+    const EV_H  = 30;
+
+    for (let i = 0; i < auditEvents.length; i++) {
+      const ev = auditEvents[i];
+      if (ay + EV_H > PAGE_H - 80) { doc.addPage(); ay = 40; }
+
+      // Dot
+      doc.circle(DOT_X, ay + 9, 5).fill(ev.color);
+      // Connector line
+      if (i < auditEvents.length - 1) {
+        doc.moveTo(DOT_X, ay + 15).lineTo(DOT_X, ay + EV_H)
+           .strokeColor('#E2E8F0').lineWidth(1).stroke();
+      }
+      // Text
+      doc.fillColor('#111827').fontSize(9).font('Helvetica-Bold')
+         .text(ev.title, AL + 20, ay + 2, { width: AW - 24, lineBreak: false });
+      doc.fillColor('#64748B').fontSize(7.5).font('Helvetica')
+         .text(ev.detail, AL + 20, ay + 15, { width: AW - 24, lineBreak: false });
+      ay += EV_H;
+    }
+
+    // ── Legal footer ──
+    ay += 20;
+    if (ay + 50 > PAGE_H - 30) { doc.addPage(); ay = 40; }
+    doc.rect(AL, ay, AW, 0.5).fill('#CBD5E1');
+    ay += 10;
+    doc.fillColor('#94A3B8').fontSize(7).font('Helvetica')
+       .text(
+         'Este informe de auditoría constituye evidencia de firma electrónica con plena validez jurídica conforme a la Ley 527 de 1999 y el Decreto 1074 de 2015 de la República de Colombia. El identificador de transacción (hash SHA-256) garantiza la integridad del documento original. Cualquier modificación posterior al proceso de firma invalida este certificado. SGIP-IA · Sistema de Gestión Integral de Proyectos con IA.',
+         AL, ay, { width: AW, align: 'justify' },
+       );
+  }
 
   // Finalize
   doc.end();
@@ -599,7 +731,7 @@ router.get('/certificate', authenticate, async (req, res) => {
     const [signers] = await pool.execute(
       'SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [reqs[0].id]
     );
-    const pdfBuf = await buildCorrespondencePdf(corr, project, signers, { withSignatures: true });
+    const pdfBuf = await buildCorrespondencePdf(corr, project, signers, { withSignatures: true, request: reqs[0] });
     const filename = `Firmado_${corr.consecutive_code || correspondenceId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -630,7 +762,7 @@ publicRouter.get('/:token', async (req, res) => {
       [req_.id]
     );
     const [[corr]] = await pool.execute(
-      'SELECT id,subject,consecutive_code,correspondence_type,reference_date,recipient_name,recipient_city FROM correspondence WHERE id=?',
+      'SELECT id,subject,consecutive_code,correspondence_type,reference_date,recipient_name,recipient_entity,recipient_city,contract_reference FROM correspondence WHERE id=?',
       [req_.correspondence_id]
     );
     const [[project]] = await pool.execute('SELECT name,code,client_name FROM projects WHERE id=?', [req_.project_id]);
@@ -642,20 +774,23 @@ publicRouter.get('/:token', async (req, res) => {
       success: true,
       data: {
         signer: {
-          id: signer.id, name: signer.signer_name, email: signer.signer_email,
-          role: signer.signer_role, order: signer.sign_order, status: signer.status,
+          id: signer.id,
+          signer_name: signer.signer_name, signer_email: signer.signer_email,
+          signer_role: signer.signer_role, sign_order: signer.sign_order,
+          status: signer.status,
           page_num: signer.page_num, x_percent: signer.x_percent, y_percent: signer.y_percent,
           width_percent: signer.width_percent, height_percent: signer.height_percent,
         },
         request: { id: req_.id, status: req_.status, document_hash: req_.document_hash },
         allSigners: allSigners.map(s => ({
-          id: s.id, name: s.signer_name, role: s.signer_role,
-          order: s.sign_order, status: s.status, signed_at: s.signed_at,
+          id: s.id, signer_name: s.signer_name, signer_role: s.signer_role,
+          sign_order: s.sign_order, status: s.status, signed_at: s.signed_at,
         })),
         corr: {
           id: corr.id, subject: corr.subject, consecutive_code: corr.consecutive_code,
           correspondence_type: corr.correspondence_type, reference_date: corr.reference_date,
-          recipient_name: corr.recipient_name, recipient_city: corr.recipient_city,
+          recipient_name: corr.recipient_name, recipient_entity: corr.recipient_entity,
+          recipient_city: corr.recipient_city, contract_reference: corr.contract_reference,
           typeLabel: TYPE_LABEL[corr.correspondence_type] || 'COMUNICACIÓN',
         },
         project: { name: project.name, code: project.code, client_name: project.client_name },
@@ -750,7 +885,7 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       // Generate signed PDF to attach
       let pdfAttachment = null;
       try {
-        const pdfBuf = await buildCorrespondencePdf(corr, project, allSigners, { withSignatures: true });
+        const pdfBuf = await buildCorrespondencePdf(corr, project, allSigners, { withSignatures: true, request: completedReq });
         const pdfName = `Firmado_${corr.consecutive_code || corr.id}.pdf`;
         pdfAttachment = [{ filename: pdfName, content: pdfBuf, contentType: 'application/pdf' }];
       } catch (pdfErr) {

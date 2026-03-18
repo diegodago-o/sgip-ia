@@ -3,7 +3,8 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import {
   CheckCircle, XCircle, AlertTriangle, PenLine, RotateCcw,
-  FileText, Users, Calendar, Shield, Loader2
+  FileText, Users, Calendar, Shield, Loader2,
+  Type, ImageIcon, Smartphone, Upload
 } from 'lucide-react';
 
 const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -129,6 +130,217 @@ function SignaturePad({ onSigned, disabled }) {
       >
         <RotateCcw size={12} /> Limpiar
       </button>
+    </div>
+  );
+}
+
+/* ── Type signature pad ─────────────────────────────────── */
+function TypeSignaturePad({ onSigned, disabled, defaultName }) {
+  const [text, setText] = useState(defaultName || '');
+  const canvasRef = useRef(null);
+
+  // Load Dancing Script font once
+  useEffect(() => {
+    if (!document.getElementById('dancing-script-font')) {
+      const link = document.createElement('link');
+      link.id   = 'dancing-script-font';
+      link.rel  = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap';
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  const render = useCallback((val) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!val.trim()) { onSigned(null); return; }
+    // Blue baseline
+    ctx.strokeStyle = '#CBD5E1';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(20, 140); ctx.lineTo(canvas.width - 20, 140);
+    ctx.stroke();
+    // Signature text
+    ctx.fillStyle = '#1e3a5f';
+    ctx.font = '700 62px "Dancing Script", cursive';
+    ctx.textBaseline = 'alphabetic';
+    const measured = ctx.measureText(val);
+    const x = Math.max(20, (canvas.width - measured.width) / 2);
+    ctx.fillText(val, x, 130);
+    onSigned(canvas.toDataURL('image/png'));
+  }, [onSigned]);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setText(val);
+    // Defer render until font likely loaded
+    document.fonts.ready.then(() => render(val));
+  };
+
+  // Render once on mount if defaultName
+  useEffect(() => {
+    if (defaultName) document.fonts.ready.then(() => render(defaultName));
+  }, []); // eslint-disable-line
+
+  const clear = () => { setText(''); onSigned(null); const c = canvasRef.current; c.getContext('2d').clearRect(0,0,c.width,c.height); };
+
+  return (
+    <div className="space-y-3">
+      <input
+        type="text"
+        value={text}
+        onChange={handleChange}
+        disabled={disabled}
+        placeholder="Escriba su nombre completo…"
+        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm
+          focus:outline-none focus:border-brand-400 disabled:opacity-50"
+      />
+      <div className={`relative border-2 rounded-xl overflow-hidden bg-white
+        ${disabled ? 'opacity-50' : 'border-brand-300 shadow-inner'}`}
+        style={{ height: 170 }}>
+        <canvas ref={canvasRef} width={700} height={170} className="w-full h-full" />
+        {!text && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-gray-300 text-sm select-none">La firma aparecerá aquí</span>
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={clear} disabled={disabled || !text}
+        className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500
+          disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+        <RotateCcw size={12} /> Limpiar
+      </button>
+    </div>
+  );
+}
+
+/* ── Image upload signature pad ─────────────────────────── */
+function ImageSignaturePad({ onSigned, disabled }) {
+  const [preview, setPreview] = useState(null);
+  const inputRef = useRef(null);
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPreview(ev.target.result);
+      onSigned(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clear = () => { setPreview(null); onSigned(null); if (inputRef.current) inputRef.current.value = ''; };
+
+  return (
+    <div className="space-y-3">
+      {!preview ? (
+        <label className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed
+          rounded-xl bg-gray-50 cursor-pointer hover:bg-blue-50 hover:border-brand-300 transition-colors
+          ${disabled ? 'opacity-50 pointer-events-none' : 'border-gray-200'}`}
+          style={{ height: 170 }}>
+          <Upload size={28} className="text-gray-300" />
+          <span className="text-sm text-gray-400">Haga clic o arrastre una imagen de su firma</span>
+          <span className="text-xs text-gray-300">PNG, JPG · fondo blanco o transparente</span>
+          <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+        </label>
+      ) : (
+        <div className="relative border-2 border-brand-300 rounded-xl overflow-hidden bg-white shadow-inner"
+          style={{ height: 170 }}>
+          <img src={preview} alt="firma" className="w-full h-full object-contain p-3" />
+          <button type="button" onClick={clear} disabled={disabled}
+            className="absolute top-2 right-2 w-6 h-6 bg-red-100 rounded-full flex items-center
+              justify-center text-red-500 hover:bg-red-200 text-xs font-bold">✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Mobile QR pad ───────────────────────────────────────── */
+function MobileSignaturePad({ token, onMobileSigned }) {
+  const url = window.location.href;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1B3A5C&bgcolor=FFFFFF&data=${encodeURIComponent(url)}`;
+  const [checking, setChecking] = useState(false);
+
+  // Poll every 4 seconds to detect when mobile has signed
+  useEffect(() => {
+    const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+    let active = true;
+    const check = async () => {
+      try {
+        const r = await axios.get(`${PUBLIC_API}/firma/${token}`);
+        const status = r.data?.data?.signer?.status;
+        if (active && status === 'signed') onMobileSigned(r.data?.data?.signer?.name || '');
+      } catch { /* token consumed or error — try once more */ }
+    };
+    setChecking(true);
+    const iv = setInterval(check, 4000);
+    return () => { active = false; clearInterval(iv); setChecking(false); };
+  }, [token, onMobileSigned]);
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-4">
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <img src={qrSrc} alt="QR firma" width={180} height={180} className="rounded-lg" />
+      </div>
+      <div className="text-center space-y-1">
+        <p className="text-sm font-semibold text-gray-700">Escanea desde tu celular</p>
+        <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+          Abre la cámara y apunta al código QR. Se abrirá esta misma página en tu teléfono con pantalla táctil para dibujar tu firma.
+        </p>
+        {checking && (
+          <p className="text-xs text-brand-500 flex items-center justify-center gap-1 mt-2">
+            <Loader2 size={11} className="animate-spin" /> Esperando firma desde celular…
+          </p>
+        )}
+      </div>
+      <p className="text-[10px] text-gray-300 break-all text-center max-w-xs">{url}</p>
+    </div>
+  );
+}
+
+/* ── Multi-mode signature selector ──────────────────────── */
+const SIG_MODES = [
+  { id: 'draw',   label: 'Dibujar',  Icon: PenLine    },
+  { id: 'type',   label: 'Escribir', Icon: Type       },
+  { id: 'image',  label: 'Imagen',   Icon: ImageIcon  },
+  { id: 'mobile', label: 'Celular',  Icon: Smartphone },
+];
+
+function MultiSignaturePad({ onSigned, disabled, token, signerName, onMobileSigned }) {
+  const [mode, setMode] = useState('draw');
+
+  const handleModeChange = (m) => { setMode(m); onSigned(null); };
+
+  return (
+    <div className="space-y-3">
+      {/* Mode tabs */}
+      <div className="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 p-1 gap-0.5">
+        {SIG_MODES.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => handleModeChange(id)}
+            className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium transition-all
+              ${mode === id
+                ? 'bg-white text-brand-700 shadow-sm border border-gray-100'
+                : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <Icon size={15} />
+            <span className="hidden sm:block">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Pad content */}
+      {mode === 'draw'   && <SignaturePad   onSigned={onSigned} disabled={disabled} />}
+      {mode === 'type'   && <TypeSignaturePad onSigned={onSigned} disabled={disabled} defaultName={signerName} />}
+      {mode === 'image'  && <ImageSignaturePad onSigned={onSigned} disabled={disabled} />}
+      {mode === 'mobile' && <MobileSignaturePad token={token} onMobileSigned={onMobileSigned} />}
     </div>
   );
 }
@@ -435,7 +647,13 @@ export default function SigningPage() {
             <PenLine size={16} className="text-brand-600" />
             <h2 className="font-semibold text-gray-800">Su firma</h2>
           </div>
-          <SignaturePad onSigned={setSigImg} disabled={sending} />
+          <MultiSignaturePad
+            onSigned={setSigImg}
+            disabled={sending}
+            token={token}
+            signerName={signer?.name || ''}
+            onMobileSigned={(name) => setDone({ type: 'signed', name })}
+          />
 
           {errMsg && (
             <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50

@@ -433,9 +433,10 @@ function CommitmentEditModal({ commitment, teamMembers, onSave, onClose }) {
 const EMPTY_SIGNER = { signer_name: '', signer_email: '', signer_role: '' };
 
 function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged }) {
-  // Show 'status' only when there's a real active/completed request
   const hasActiveRequest = existingRequest && existingRequest.status;
-  const [mode,    setMode]    = useState(hasActiveRequest ? 'status' : 'create');
+  // For cancelled/rejected: open directly on 'create' since user wants a new process
+  const isTerminal = ['cancelled', 'rejected'].includes(existingRequest?.status);
+  const [mode,    setMode]    = useState(!hasActiveRequest || isTerminal ? 'create' : 'status');
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
   const [saving,  setSaving]  = useState(false);
   const [cancelling, setCancelling] = useState(false);

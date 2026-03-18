@@ -221,7 +221,7 @@ export default function SigningPage() {
   if (done?.type === 'signed')
     return <StatusScreen icon={CheckCircle} color="bg-green-500"
       title="¡Firma registrada exitosamente!"
-      message={`Gracias ${done.name}. Su firma electrónica ha sido registrada con validez legal conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de Colombia. Puede cerrar esta ventana.`} />;
+      message={`Gracias ${done.name}. Su firma electrónica ha sido registrada con validez legal conforme a la Ley 527 de 1999 y el Decreto 1074 de 2015 de Colombia. Puede cerrar esta ventana.`} />;
 
   if (done?.type === 'rejected')
     return <StatusScreen icon={XCircle} color="bg-red-500"
@@ -448,7 +448,7 @@ export default function SigningPage() {
           {/* Consent notice */}
           <p className="text-xs text-gray-400 mt-4 leading-relaxed">
             Al hacer clic en <strong>Firmar</strong>, acepta que esta firma electrónica
-            tiene validez legal conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012
+            tiene validez legal conforme a la Ley 527 de 1999 y el Decreto 1074 de 2015
             de Colombia. Se registrará su dirección IP, fecha y hora como parte del
             registro de auditoría del documento.
           </p>

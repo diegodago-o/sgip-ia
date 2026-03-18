@@ -117,7 +117,7 @@ function emailInvite({ signer, minute, project, allSigners, position }) {
       <p style="font-size:11px;color:#94a3b8;margin:0;line-height:1.6;">
         Este correo fue enviado por SGIP-IA. El enlace es personal e intransferible.
         Su IP quedará registrada al momento de la firma.<br>
-        Firma electrónica con validez jurídica — Ley 527 de 1999, Decreto 2364 de 2012.
+        Firma electrónica con validez jurídica — Ley 527 de 1999, Decreto 1074 de 2015.
       </p>
     </div>
   </div>
@@ -157,7 +157,7 @@ function emailCompleted({ minute, project, allSigners }) {
       </table>
       <p style="font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:16px;margin-top:8px;">
         Este registro constituye evidencia de firma electrónica con validez jurídica
-        según Ley 527 de 1999 y Decreto 2364 de 2012 (Colombia).
+        según Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).
         Hash del documento: <code style="font-size:11px;">${allSigners[0]?.document_hash || '—'}</code>
       </p>
     </div>
@@ -593,7 +593,7 @@ router.get('/certificate', async (req, res) => {
     doc.fillColor('white').fontSize(15).font('Helvetica-Bold')
        .text('ACTA DE REUNION', ML + 10, 63, { width: W - 100, lineBreak: false });
     doc.fillColor('#93C5FD').fontSize(7.5).font('Helvetica')
-       .text('Firma Electronica - Ley 527/1999 - Decreto 2364/2012', ML + 10, 81, { width: W - 100, lineBreak: false });
+       .text('Firma Electronica - Ley 527/1999 - Decreto 1074/2015', ML + 10, 81, { width: W - 100, lineBreak: false });
     // Acta number in banner
     doc.fillColor('white').fontSize(9).font('Helvetica-Bold')
        .text('Acta N ' + (minute.minute_number || minute.id), ML + W - 90, 69, { width: 86, align: 'right', lineBreak: false });
@@ -727,7 +727,7 @@ router.get('/certificate', async (req, res) => {
     doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
        .text('CERTIFICADO DE FIRMAS DIGITALES', ML + 10, 62, { width: W - 20, lineBreak: false });
     doc.fillColor('#A7F3D0').fontSize(7.5).font('Helvetica')
-       .text('Firma Electronica con Validez Juridica - Ley 527 de 1999 - Decreto 2364 de 2012', ML + 10, 80, { width: W - 20, lineBreak: false });
+       .text('Firma Electronica con Validez Juridica - Ley 527 de 1999 - Decreto 1074 de 2015', ML + 10, 80, { width: W - 20, lineBreak: false });
 
     y = 108;
 
@@ -825,7 +825,7 @@ router.get('/certificate', async (req, res) => {
        .text('VALIDEZ JURIDICA', ML + 12, y + 8, { width: W - 20, lineBreak: false });
     doc.fillColor('#166534').fontSize(7.5).font('Helvetica')
        .text(
-         'Este documento ha sido firmado electronicamente conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de la Republica de Colombia. ' +
+         'Este documento ha sido firmado electronicamente conforme a la Ley 527 de 1999 y el Decreto 1074 de 2015 (Secc. 2, Cap. 1, Tit. V, Parte 5) de la Republica de Colombia. ' +
          'Cada firma fue obtenida mediante un enlace unico enviado al correo del firmante, registrando direccion IP, ' +
          'fecha y hora del servidor, y hash SHA-256 del contenido. ' +
          'Este PDF esta protegido contra modificaciones. Cualquier alteracion invalidara las firmas.',

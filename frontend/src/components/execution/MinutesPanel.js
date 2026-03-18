@@ -525,8 +525,8 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
               <button
                 onClick={() => setMode('status')}
                 className={`flex-1 py-2 transition-colors ${mode === 'status' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-              >Estado actual</button>
-              {req?.status === 'in_progress' && (
+              >Actividad</button>
+              {(req?.status === 'in_progress' || req?.status === 'completed') && (
                 <button
                   onClick={() => setMode('create')}
                   className={`flex-1 py-2 transition-colors ${mode === 'create' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
@@ -535,97 +535,111 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
             </div>
           )}
 
-          {/* STATUS view */}
-          {mode === 'status' && hasActiveRequest && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>Estado: <strong className={
-                  req?.status === 'completed' ? 'text-green-600' :
-                  req?.status === 'rejected'  ? 'text-red-600'  :
-                  req?.status === 'cancelled' ? 'text-gray-400' : 'text-brand-600'
-                }>{
-                  { in_progress: 'En progreso', completed: 'Completado', rejected: 'Rechazado', cancelled: 'Cancelado' }[req?.status] || req?.status
-                }</strong></span>
-                <span>{signedCount} / {reqSigners.length} firmados</span>
-              </div>
+          {/* ACTIVITY TIMELINE view */}
+          {mode === 'status' && hasActiveRequest && (() => {
+            // Build timeline from available data
+            const events = [];
+            const fmtTs = (ts) => ts ? new Date(ts).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+            if (req?.created_at)
+              events.push({ icon: '🚀', color: 'bg-brand-100 text-brand-700', text: 'Proceso de firmas iniciado', sub: '', ts: req.created_at });
+            reqSigners.forEach(s => {
+              // notified = email sent (we use created_at for first, signed_at of prev for subsequent)
+              if (s.status !== 'pending')
+                events.push({ icon: '📧', color: 'bg-blue-100 text-blue-700', text: `Correo enviado a ${s.signer_name}`, sub: s.signer_email, ts: req.created_at });
+              if (s.status === 'viewed' || s.status === 'signed' || s.status === 'rejected')
+                events.push({ icon: '👁', color: 'bg-yellow-100 text-yellow-700', text: `Enlace abierto por ${s.signer_name}`, sub: s.signer_email, ts: null });
+              if (s.status === 'signed')
+                events.push({ icon: '✍️', color: 'bg-green-100 text-green-700', text: `Documento firmado por ${s.signer_name}`, sub: `${s.signer_email}${s.ip_address ? ' · IP: ' + s.ip_address : ''}`, ts: s.signed_at });
+              if (s.status === 'rejected')
+                events.push({ icon: '✗', color: 'bg-red-100 text-red-700', text: `Rechazado por ${s.signer_name}`, sub: s.rejection_reason || s.signer_email, ts: s.signed_at });
+            });
+            if (req?.status === 'completed' && req?.completed_at)
+              events.push({ icon: '✅', color: 'bg-emerald-100 text-emerald-700', text: 'Proceso completado — todos los firmantes han firmado', sub: '', ts: req.completed_at });
+            if (req?.status === 'cancelled')
+              events.push({ icon: '⊘', color: 'bg-gray-100 text-gray-500', text: 'Proceso cancelado', sub: '', ts: null });
 
-              {/* Progress bar */}
-              <div className="w-full bg-gray-100 rounded-full h-1.5">
-                <div
-                  className="bg-brand-500 h-1.5 rounded-full transition-all"
-                  style={{ width: `${reqSigners.length ? (signedCount / reqSigners.length) * 100 : 0}%` }}
-                />
-              </div>
+            return (
+              <div className="space-y-3">
+                {/* Status pill + progress */}
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                    req?.status === 'completed' ? 'bg-green-100 text-green-700' :
+                    req?.status === 'rejected'  ? 'bg-red-100 text-red-600'  :
+                    req?.status === 'cancelled' ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-700'
+                  }`}>{{ in_progress: 'En progreso', completed: 'Completado', rejected: 'Rechazado', cancelled: 'Cancelado' }[req?.status] || req?.status}</span>
+                  <span className="text-xs text-gray-400">{signedCount} / {reqSigners.length} firmados</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-1">
+                  <div className={`h-1 rounded-full transition-all ${req?.status === 'completed' ? 'bg-green-500' : 'bg-brand-500'}`}
+                    style={{ width: `${reqSigners.length ? (signedCount / reqSigners.length) * 100 : 0}%` }} />
+                </div>
 
-              {/* Signers list */}
-              <div className="space-y-2">
-                {reqSigners.map((s, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700">
-                      {s.status === 'signed' ? '✓' : i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{s.signer_name}</p>
-                      <p className="text-xs text-gray-400 truncate">{s.signer_role} · {s.signer_email}</p>
-                      {s.signed_at && (
-                        <p className="text-[10px] text-green-600 mt-0.5">
-                          Firmado: {new Date(s.signed_at).toLocaleString('es-CO')}
-                        </p>
+                {/* Timeline */}
+                <div className="relative mt-2">
+                  {events.map((ev, i) => (
+                    <div key={i} className="flex gap-3 pb-4 relative">
+                      {/* Vertical line */}
+                      {i < events.length - 1 && (
+                        <div className="absolute left-3.5 top-7 bottom-0 w-px bg-gray-200" />
                       )}
-                      {s.rejection_reason && (
-                        <p className="text-[10px] text-red-500 mt-0.5">Rechazó: {s.rejection_reason}</p>
-                      )}
+                      {/* Icon dot */}
+                      <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-sm z-10 ${ev.color}`}>
+                        {ev.icon}
+                      </div>
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-xs font-medium text-gray-800 leading-snug">{ev.text}</p>
+                        {ev.sub && <p className="text-[10px] text-gray-400 truncate mt-0.5">{ev.sub}</p>}
+                        {ev.ts && <p className="text-[10px] text-gray-400 mt-0.5">{fmtTs(ev.ts)}</p>}
+                      </div>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor(s.status)}`}>
-                      {statusLabel(s.status)}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                {/* Actions */}
+                {req?.status === 'completed' && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await signaturesAPI.certificate(projectId, minute.id);
+                        const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+                        const a = document.createElement('a'); a.href = url;
+                        a.download = `Certificado_Firma_Acta${minute.minute_number || minute.id}.pdf`;
+                        a.click(); URL.revokeObjectURL(url);
+                      } catch (e) { setErr('Error al generar el certificado PDF.'); }
+                    }}
+                    className="w-full text-xs text-green-700 border border-green-300 bg-green-50
+                      rounded-xl py-2.5 hover:bg-green-100 transition-colors font-semibold
+                      flex items-center justify-center gap-1.5"
+                  >
+                    <Download size={13} className="text-green-700" />
+                    Descargar certificado PDF firmado
+                  </button>
+                )}
+                {req?.status === 'in_progress' && (
+                  <button onClick={handleCancel} disabled={cancelling}
+                    className="w-full text-xs text-red-500 border border-red-200 rounded-xl py-2
+                      hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                  >
+                    {cancelling ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Cancelar proceso de firmas
+                  </button>
+                )}
               </div>
-
-              {/* Certificado PDF — solo cuando proceso completado */}
-              {req?.status === 'completed' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      const r = await signaturesAPI.certificate(projectId, minute.id);
-                      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `Certificado_Firma_Acta${minute.minute_number || minute.id}.pdf`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    } catch (e) { setErr('Error al generar el certificado PDF.'); }
-                  }}
-                  className="w-full text-xs text-green-700 border border-green-300 bg-green-50
-                    rounded-xl py-2.5 hover:bg-green-100 transition-colors font-semibold
-                    flex items-center justify-center gap-1.5"
-                >
-                  <Download size={13} className="text-green-700" />
-                  Descargar certificado PDF firmado
-                </button>
-              )}
-
-              {req?.status === 'in_progress' && (
-                <button
-                  onClick={handleCancel}
-                  disabled={cancelling}
-                  className="w-full text-xs text-red-500 border border-red-200 rounded-xl py-2
-                    hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
-                >
-                  {cancelling ? <Loader2 size={12} className="animate-spin" /> : null}
-                  Cancelar proceso de firmas
-                </button>
-              )}
-            </div>
-          )}
+            );
+          })()}
 
           {/* CREATE view */}
           {mode === 'create' && (
             <div className="space-y-4">
+              {req?.status === 'completed' && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
+                  <strong>Nota:</strong> El acta ya tiene un proceso completado. Al iniciar uno nuevo se generará un proceso independiente (útil si editaste el contenido del acta). El certificado anterior sigue siendo válido.
+                </div>
+              )}
               <p className="text-xs text-gray-500 leading-relaxed bg-blue-50 rounded-lg p-3 border border-blue-100">
                 <strong>Firma electrónica con validez legal</strong> conforme a la Ley 527 de 1999 y
-                Decreto 2364 de 2012. Cada firmante recibirá un correo con un enlace único para firmar
+                Decreto 1074 de 2015. Cada firmante recibirá un correo con un enlace único para firmar
                 el documento de forma secuencial.
               </p>
 

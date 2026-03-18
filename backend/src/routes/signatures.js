@@ -166,6 +166,43 @@ function emailCompleted({ minute, project, allSigners, documentHash }) {
 </body></html>`;
 }
 
+function emailCancelled({ cancelledBy, reason, minute, project, type, recipient }) {
+  const isRejection = type === 'rejected';
+  const headerColor = isRejection ? '#DC2626' : '#64748b';
+  const headerLight = isRejection ? '#FCA5A5' : '#CBD5E1';
+  const icon        = isRejection ? '❌' : '🚫';
+  const title       = isRejection ? 'Proceso cancelado — firma rechazada' : 'Proceso de firmas cancelado';
+  const body = isRejection
+    ? `<strong>${cancelledBy}</strong> rechazó la firma del documento <strong>${minute.title}</strong>
+       del proyecto <strong>${project.name}</strong>, por lo que el proceso de firmas ha sido cancelado.`
+    : `El proceso de firmas del documento <strong>${minute.title}</strong>
+       del proyecto <strong>${project.name}</strong> ha sido cancelado por el administrador.`;
+  const reasonBlock = reason
+    ? `<div style="background:#FEF2F2;border-left:4px solid ${headerColor};border-radius:8px;padding:16px 20px;margin:20px 0;">
+         <p style="margin:0 0 4px;font-size:11px;color:#991B1B;font-weight:bold;text-transform:uppercase;">Motivo:</p>
+         <p style="margin:0;font-size:14px;color:#374151;">${reason}</p>
+       </div>`
+    : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:${headerColor};padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;">${icon} ${title}</h1>
+      <p style="color:${headerLight};margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:14px;line-height:1.6;">${body}</p>
+      ${reasonBlock}
+      <p style="font-size:13px;color:#64748b;">
+        No se requiere ninguna acción de su parte. Si tiene preguntas, comuníquese con el responsable del proyecto.
+      </p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+}
+
 function emailRejected({ rejector, reason, minute, project }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
@@ -299,10 +336,35 @@ router.get('/', authenticate, async (req, res) => {
 router.delete('/', authenticate, async (req, res) => {
   const { minuteId, projectId } = req.params;
   try {
+    // Fetch before cancelling so we can notify
+    const [reqs] = await pool.execute(
+      "SELECT * FROM signature_requests WHERE minute_id=? AND project_id=? AND status='in_progress'",
+      [minuteId, projectId]
+    );
+
     await pool.execute(
       "UPDATE signature_requests SET status='cancelled' WHERE minute_id=? AND project_id=? AND status='in_progress'",
       [minuteId, projectId]
     );
+
+    if (reqs.length) {
+      const req_ = reqs[0];
+      const [[minute]]  = await pool.execute('SELECT id,title FROM meeting_minutes WHERE id=?', [req_.minute_id]);
+      const [[project]] = await pool.execute('SELECT name,code FROM projects WHERE id=?', [req_.project_id]);
+      const [signers]   = await pool.execute(
+        'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]
+      );
+      const emailCfg = await loadEmailConfig();
+      const cancelHtml = emailCancelled({ minute, project, type: 'cancelled' });
+      for (const s of signers) {
+        await trySendMail(emailCfg, {
+          to: s.signer_email,
+          subject: `🚫 Proceso cancelado: ${minute.title} — ${project.name}`,
+          html: cancelHtml,
+        });
+      }
+    }
+
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -497,9 +559,13 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
     const [[minute]] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [reqs[0].minute_id]);
     const [[project]] = await pool.execute('SELECT * FROM projects WHERE id=?', [reqs[0].project_id]);
 
-    // Notify creator
-    const [creator] = await pool.execute('SELECT email FROM users WHERE id=?', [reqs[0].created_by]);
+    const [allSigners] = await pool.execute(
+      'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
+    );
     const emailCfg = await loadEmailConfig();
+
+    // Notify creator
+    const [creator] = await pool.execute('SELECT email,name FROM users WHERE id=?', [reqs[0].created_by]);
     if (creator.length) {
       await trySendMail(emailCfg, {
         to: creator[0].email,
@@ -508,7 +574,20 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
       });
     }
 
-    res.json({ success: true, message: 'Has rechazado la firma. El creador del documento ha sido notificado.' });
+    // Notify all other signers (who haven't already rejected)
+    const cancelledHtml = emailCancelled({
+      cancelledBy: signer.signer_name, reason, minute, project, type: 'rejected',
+    });
+    for (const s of allSigners) {
+      if (s.id === signer.id) continue; // skip the rejector
+      await trySendMail(emailCfg, {
+        to: s.signer_email,
+        subject: `🚫 Proceso cancelado: ${minute.title} — ${project.name}`,
+        html: cancelledHtml,
+      });
+    }
+
+    res.json({ success: true, message: 'Has rechazado la firma. El creador del documento y los demás firmantes han sido notificados.' });
   } catch (e) { console.error('[firma POST /rechazar]', e); res.status(500).json({ error: e.message }); }
 });
 

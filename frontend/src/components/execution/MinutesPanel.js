@@ -433,10 +433,10 @@ function CommitmentEditModal({ commitment, teamMembers, onSave, onClose }) {
 const EMPTY_SIGNER = { signer_name: '', signer_email: '', signer_role: '' };
 
 function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged }) {
-  const hasActiveRequest = existingRequest && existingRequest.status;
-  // For cancelled/rejected: open directly on 'create' since user wants a new process
+  // isTerminal: process ended (cancelled/rejected) — always go straight to create form
   const isTerminal = ['cancelled', 'rejected'].includes(existingRequest?.status);
-  const [mode,    setMode]    = useState(!hasActiveRequest || isTerminal ? 'create' : 'status');
+  const hasActiveRequest = !isTerminal && existingRequest && existingRequest.status;
+  const [mode,    setMode]    = useState(hasActiveRequest ? 'status' : 'create');
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
   const [saving,  setSaving]  = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -631,7 +631,12 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
           {/* CREATE view */}
           {mode === 'create' && (
             <div className="space-y-4">
-              {req?.status === 'completed' && (
+              {isTerminal && (
+                <div className={`text-xs rounded-lg p-3 leading-relaxed border ${existingRequest?.status === 'rejected' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                  <strong>{existingRequest?.status === 'rejected' ? '✕ Proceso rechazado.' : '⊘ Proceso cancelado.'}</strong> Puedes iniciar un nuevo proceso de firmas para esta acta.
+                </div>
+              )}
+              {!isTerminal && existingRequest?.status === 'completed' && (
                 <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
                   <strong>Nota:</strong> El acta ya tiene un proceso completado. Al iniciar uno nuevo se generará un proceso independiente (útil si editaste el contenido del acta). El certificado anterior sigue siendo válido.
                 </div>

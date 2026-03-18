@@ -366,61 +366,78 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   ];
 
   if (showPlaceholders || withSignatures) {
+    // Save doc.y before ALL absolute-coordinate drawing.
+    // PDFKit auto-adds pages when doc.text(str, x, y) is called and y ≥ page.maxY().
+    // We restore doc.y after every draw call to prevent spurious blank pages.
+    const savedDocY = doc.y;
+
     for (let i = 0; i < signers.length; i++) {
       const s = signers[i];
       if (!s.x_percent && s.x_percent !== 0) continue; // skip if no position set
 
-      const pageNum  = (s.page_num || 1);
-      const absX     = parseFloat(s.x_percent)     * PAGE_W;
-      const absY     = parseFloat(s.y_percent)     * PAGE_H;
-      const absW     = parseFloat(s.width_percent)  * PAGE_W;
-      const absH     = parseFloat(s.height_percent) * PAGE_H;
-      const color    = SIGNER_COLORS[i % SIGNER_COLORS.length];
-
-      // Switch to correct page if needed (simple approach: assume single page for now)
-      // For multi-page documents, signers with page_num > 1 are already on that page
-      // since PDFKit builds pages sequentially. We just use the stored absY.
+      const absX  = parseFloat(s.x_percent)      * PAGE_W;
+      const absY  = parseFloat(s.y_percent)      * PAGE_H;
+      const absW  = parseFloat(s.width_percent)  * PAGE_W;
+      const absH  = parseFloat(s.height_percent) * PAGE_H;
+      const color = SIGNER_COLORS[i % SIGNER_COLORS.length];
+      // Safe zone: labels below signature box must fit before bottom margin
+      const labelSafe = absY + absH + 28 < PAGE_H - MB;
 
       if (withSignatures && s.signature_image) {
-        // Embed the actual signature image
         try {
           const b64 = s.signature_image.replace(/^data:image\/\w+;base64,/, '');
           const imgBuf = Buffer.from(b64, 'base64');
           doc.image(imgBuf, absX, absY, { width: absW, height: absH, fit: [absW, absH] });
-          // Signer name + role below image
-          doc.fillColor('#374151').fontSize(7.5).font('Helvetica')
-             .text(s.signer_name || '', absX, absY + absH + 2, { width: absW, align: 'center', lineBreak: false });
-          if (s.signer_role) {
-            doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
-               .text(s.signer_role, absX, absY + absH + 12, { width: absW, align: 'center', lineBreak: false });
-          }
-          // Timestamp
-          if (s.signed_at) {
-            const ts = new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-            doc.fillColor('#94a3b8').fontSize(6.5).font('Helvetica')
-               .text(ts, absX, absY + absH + 22, { width: absW, align: 'center', lineBreak: false });
-          }
-          // Thin underline
+          doc.y = savedDocY; // restore immediately after image (it advances doc.y)
+
+          // Thin underline below image
           doc.moveTo(absX + 4, absY + absH + 1).lineTo(absX + absW - 4, absY + absH + 1)
              .strokeColor(color).lineWidth(0.5).stroke();
+
+          // Labels — only draw if they fit inside the page (avoid auto-page-add)
+          if (labelSafe) {
+            doc.fillColor('#374151').fontSize(7.5).font('Helvetica')
+               .text(s.signer_name || '', absX, absY + absH + 2, { width: absW, align: 'center', lineBreak: false });
+            doc.y = savedDocY;
+
+            if (s.signer_role) {
+              doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
+                 .text(s.signer_role, absX, absY + absH + 12, { width: absW, align: 'center', lineBreak: false });
+              doc.y = savedDocY;
+            }
+            if (s.signed_at) {
+              const ts = new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+              doc.fillColor('#94a3b8').fontSize(6.5).font('Helvetica')
+                 .text(ts, absX, absY + absH + 22, { width: absW, align: 'center', lineBreak: false });
+              doc.y = savedDocY;
+            }
+          }
         } catch (imgErr) {
           console.error('[corrSignatures] embed signature image error:', imgErr.message);
-          // Fallback: draw placeholder
           doc.rect(absX, absY, absW, absH).dash(4, { space: 3 }).strokeColor(color).lineWidth(1).stroke();
-          doc.fillColor(color).fontSize(7.5).font('Helvetica')
-             .text(s.signer_name || `Firmante ${i + 1}`, absX + 4, absY + 4, { width: absW - 8, lineBreak: false });
+          if (absY + 8 < PAGE_H - MB) {
+            doc.fillColor(color).fontSize(7.5).font('Helvetica')
+               .text(s.signer_name || `Firmante ${i + 1}`, absX + 4, absY + 4, { width: absW - 8, lineBreak: false });
+            doc.y = savedDocY;
+          }
         }
       } else if (showPlaceholders) {
-        // Draw dashed placeholder box
         doc.rect(absX, absY, absW, absH).undash().fillAndStroke(`${color}18`, color);
-        doc.fillColor(color).fontSize(8).font('Helvetica-Bold')
-           .text(`${i + 1}. ${s.signer_name || 'Firmante'}`, absX + 4, absY + 6, { width: absW - 8, lineBreak: false });
-        if (s.signer_role) {
+        if (absY + 8 < PAGE_H - MB) {
+          doc.fillColor(color).fontSize(8).font('Helvetica-Bold')
+             .text(`${i + 1}. ${s.signer_name || 'Firmante'}`, absX + 4, absY + 6, { width: absW - 8, lineBreak: false });
+          doc.y = savedDocY;
+        }
+        if (s.signer_role && absY + 20 < PAGE_H - MB) {
           doc.fillColor(color).fontSize(7).font('Helvetica')
              .text(s.signer_role, absX + 4, absY + 18, { width: absW - 8, lineBreak: false });
+          doc.y = savedDocY;
         }
       }
     }
+
+    // Final restore: ensure doc.y is back to the pre-signatures position
+    doc.y = savedDocY;
   }
 
   // ─────────────────────────────────────────

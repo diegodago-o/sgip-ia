@@ -114,7 +114,9 @@ export default function CorrSignatureModal({
   // { signerIdx: { x_percent, y_percent, width_percent, height_percent, page_num } }
   const [placedFields, setPlacedFields] = useState({});
   // containerRef points to the LETTER-proportioned inner div
-  const containerRef = useRef(null);
+  const containerRef    = useRef(null);
+  // scrollWrapperRef: the overflow-y:auto div that contains the containerRef
+  const scrollWrapperRef = useRef(null);
 
   // ── Shared ──
   const [saving,     setSaving]     = useState(false);
@@ -124,7 +126,10 @@ export default function CorrSignatureModal({
   // Clean up blob URL when component unmounts
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
 
-  // Load PDF (authenticated) for the position step
+  // Load PDF (authenticated) for the position step.
+  // Appending #toolbar=0&navpanes=0&scrollbar=0 hides Chrome's PDF viewer chrome (toolbar,
+  // nav-pane, scrollbar), so the PDF content fills the iframe exactly without offset,
+  // giving accurate coordinate mapping between the drop position and the PDF page.
   const loadPdf = useCallback(async () => {
     setPdfLoading(true);
     try {
@@ -132,11 +137,21 @@ export default function CorrSignatureModal({
         `/exec/${projectId}/correspondence/${corrItem.id}/firma/pdf`,
         { responseType: 'arraybuffer' },
       );
-      setPdfUrl(URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' })));
+      const blobUrl = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      setPdfUrl(blobUrl + '#toolbar=0&navpanes=0&scrollbar=0');
     } catch {
       setErr('Error al cargar el PDF. Verifique que el documento esté guardado correctamente.');
     } finally { setPdfLoading(false); }
   }, [projectId, corrItem.id]);
+
+  // Manual wheel handler: since the iframe has pointer-events:none (so DnD events
+  // reach the container), mouse-wheel events that reach the container must be
+  // forwarded explicitly to the scrollable outer wrapper.
+  const handleWheelOnContainer = useCallback((e) => {
+    if (scrollWrapperRef.current) {
+      scrollWrapperRef.current.scrollTop += e.deltaY;
+    }
+  }, []);
 
   // ── Validate signers & advance to position step ──
   const goToPosition = () => {
@@ -498,12 +513,19 @@ export default function CorrSignatureModal({
                     <Loader2 size={32} className="animate-spin text-brand-400" />
                   </div>
                 ) : pdfUrl ? (
-                  /* ── Scrollable outer wrapper ── */
-                  <div className="flex-1 overflow-y-auto p-2">
+                  /*
+                    Scrollable outer wrapper.
+                    ref={scrollWrapperRef} so handleWheelOnContainer can forward
+                    mouse-wheel events from the (pointer-events:none) iframe area.
+                  */
+                  <div ref={scrollWrapperRef} className="flex-1 overflow-y-auto p-2">
                     {/*
-                      Inner div uses padding-bottom trick to maintain LETTER aspect ratio
-                      (792 / 612 = 129.41%). This makes it pixel-perfect for PDF positioning.
-                      containerRef points here — all position calculations use this element.
+                      Inner div maintains LETTER aspect ratio via padding-bottom trick
+                      (792 / 612 × 100 = 129.41%). containerRef points here.
+                      All position calculations use getBoundingClientRect() on this element.
+
+                      onWheel: forwards scroll events that fall through the iframe
+                               (pointer-events:none) to the outer scrollable wrapper.
                     */}
                     <div
                       ref={containerRef}
@@ -511,8 +533,15 @@ export default function CorrSignatureModal({
                       style={{ paddingBottom: '129.41%' }}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
+                      onWheel={handleWheelOnContainer}
                     >
-                      {/* PDF iframe — pointer-events:none lets drag reach the container */}
+                      {/*
+                        PDF iframe — pointer-events:none so:
+                        1. Drag events from the left-panel chips reach the container div.
+                        2. Mouse-wheel events reach the container's onWheel handler (above).
+                        #toolbar=0&navpanes=0&scrollbar=0 removes Chrome's PDF viewer
+                        toolbar (≈44 px offset) so coordinates map 1:1 to PDF page points.
+                      */}
                       <iframe
                         src={pdfUrl}
                         title="PDF preview"
@@ -520,8 +549,7 @@ export default function CorrSignatureModal({
                         style={{ pointerEvents: 'none' }}
                       />
 
-                      {/* Overlay — transparent to events (pointer-events:none)
-                          Child SignatureFieldBoxes have explicit pointer-events:auto */}
+                      {/* Overlay — transparent to events so wheel/drag reach container */}
                       <div
                         className="absolute inset-0"
                         style={{ zIndex: 10, pointerEvents: 'none' }}

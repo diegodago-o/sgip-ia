@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import api from '../../services/api';
+import api, { corrSignaturesAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
-  CheckCircle, Send, Archive, RotateCcw, AlertCircle,
+  CheckCircle, Send, Archive, RotateCcw, AlertCircle, PenLine,
 } from 'lucide-react';
+import CorrSignatureModal from './CorrSignatureModal';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const TYPES = [
@@ -526,14 +527,25 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const [editItem, setEditItem]       = useState(null);
   const [previewItem, setPreviewItem] = useState(null);
   const [deleting, setDeleting]       = useState(null);
+  const [sigModal, setSigModal]       = useState(null); // correspondence item | null
+  const [corrSigStatuses, setCorrSigStatuses] = useState({}); // { corrId: requestObj }
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
-    api.get(`/exec/${projectId}/correspondence`)
-      .then(r => setItems(r.data.data || []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
+    try {
+      const r = await api.get(`/exec/${projectId}/correspondence`);
+      const data = r.data.data || [];
+      setItems(data);
+      if (data.length > 0) {
+        const statuses = await corrSignaturesAPI.batchStatus(projectId, data.map(c => c.id));
+        setCorrSigStatuses(statuses);
+      }
+    } catch {
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
@@ -684,6 +696,25 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
                     {/* Acciones */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      {/* Firmar button — always visible on hover */}
+                      {perms?.canEdit && (() => {
+                        const sigStatus = corrSigStatuses[item.id]?.status;
+                        const label = sigStatus === 'completed' ? 'Firmado'
+                          : sigStatus === 'in_progress' ? 'En proceso' : 'Firmar';
+                        const cls = sigStatus === 'completed'
+                          ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                          : sigStatus === 'in_progress'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                          : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100';
+                        return (
+                          <button
+                            onClick={() => setSigModal(item)}
+                            title="Firmas digitales"
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-medium transition-colors ${cls}`}>
+                            <PenLine className="w-3 h-3" />{label}
+                          </button>
+                        );
+                      })()}
                       <button onClick={() => setPreviewItem(item)} title="Vista previa"
                         className="p-1.5 hover:bg-brand-50 rounded-lg transition-colors text-surface-400 hover:text-brand-600">
                         <Eye className="w-4 h-4" />
@@ -723,6 +754,15 @@ export default function CorrespondencePanel({ projectId, perms }) {
           projectId={projectId}
           record={previewItem}
           onClose={() => setPreviewItem(null)}
+        />
+      )}
+      {sigModal && (
+        <CorrSignatureModal
+          projectId={projectId}
+          corrItem={sigModal}
+          existingRequest={corrSigStatuses[sigModal.id] || null}
+          onClose={() => setSigModal(null)}
+          onChanged={() => { setSigModal(null); load(); }}
         />
       )}
     </div>

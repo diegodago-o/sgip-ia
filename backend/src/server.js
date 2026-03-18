@@ -39,6 +39,7 @@ const settingsRoutes       = require('./routes/settings');
 const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
 const { signaturesRouter, firmaRouter } = require('./routes/signatures');
+const { corrSigRouter, corrSigPublicRouter } = require('./routes/corrSignatures');
 const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
@@ -157,6 +158,8 @@ app.use('/api/settings/api-keys', apiKeysRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/exec/:projectId/minutes/:minuteId/firma', signaturesRouter);
 app.use('/api/firma', firmaRouter);
+app.use('/api/exec/:projectId/correspondence/:correspondenceId/firma', corrSigRouter);
+app.use('/api/firma/corr', corrSigPublicRouter);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK

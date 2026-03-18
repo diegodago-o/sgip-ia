@@ -325,4 +325,37 @@ export const signaturesAPI = {
   },
 };
 
+// ═══ CORRESPONDENCE DIGITAL SIGNATURES ═══
+export const corrSignaturesAPI = {
+  // Get active signature request + signers for a correspondence
+  getStatus: (pid, cid) =>
+    api.get(`/exec/${pid}/correspondence/${cid}/firma`),
+  // Create a new signature request with positioned signers
+  create: (pid, cid, data) =>
+    api.post(`/exec/${pid}/correspondence/${cid}/firma`, data),
+  // Cancel active request
+  cancel: (pid, cid) =>
+    api.delete(`/exec/${pid}/correspondence/${cid}/firma`),
+  // Download sealed PDF certificate (completed process only)
+  certificate: (pid, cid) =>
+    api.get(`/exec/${pid}/correspondence/${cid}/firma/certificate`, { responseType: 'arraybuffer' }),
+  // Batch-load statuses for multiple correspondence items
+  batchStatus: async (pid, corrIds) => {
+    const results = await Promise.allSettled(
+      corrIds.map(cid =>
+        api.get(`/exec/${pid}/correspondence/${cid}/firma`)
+          .then(r => ({ cid, data: r.data.data }))
+          .catch(() => ({ cid, data: null }))
+      )
+    );
+    const map = {};
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value.data !== null && r.value.data !== undefined) {
+        map[r.value.cid] = r.value.data;
+      }
+    });
+    return map;
+  },
+};
+
 export default api;

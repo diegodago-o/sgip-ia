@@ -125,12 +125,12 @@ function emailInvite({ signer, minute, project, allSigners, position }) {
 </body></html>`;
 }
 
-function emailCompleted({ minute, project, allSigners }) {
+function emailCompleted({ minute, project, allSigners, documentHash }) {
   const rows = allSigners.map(s => `
     <tr>
       <td style="padding:9px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">${s.signer_name}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#64748b;">${s.signer_role || '—'}</td>
-      <td style="padding:9px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">${new Date(s.signed_at).toLocaleString('es-CO')}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">${s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : '—'}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#94a3b8;">${s.ip_address || '—'}</td>
     </tr>`).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
@@ -158,7 +158,7 @@ function emailCompleted({ minute, project, allSigners }) {
       <p style="font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:16px;margin-top:8px;">
         Este registro constituye evidencia de firma electrónica con validez jurídica
         según Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).
-        Hash del documento: <code style="font-size:11px;">${allSigners[0]?.document_hash || '—'}</code>
+        Hash del documento: <code style="font-size:11px;">${documentHash || '—'}</code>
       </p>
     </div>
   </div>
@@ -423,7 +423,7 @@ publicRouter.post('/:token/firmar', async (req, res) => {
         'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
       );
       // Notify everyone with completion email
-      const completedHtml = emailCompleted({ minute, project, allSigners });
+      const completedHtml = emailCompleted({ minute, project, allSigners, documentHash: req_.document_hash });
       for (const s of allSigners) {
         await trySendMail(emailCfg, {
           to: s.signer_email,

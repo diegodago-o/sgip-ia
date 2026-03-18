@@ -45,7 +45,7 @@ async function ensureTable() {
 ensureTable().catch(e => console.error('[signatures] ensureTable:', e.message));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const FRONTEND_URL = () => process.env.FRONTEND_URL || 'https://sgip.tecnofactory.net.co';
+const FRONTEND_URL = () => process.env.FRONTEND_URL || 'https://sigp.tecnofactory.net.co';
 
 async function loadEmailConfig() {
   try {
@@ -243,7 +243,16 @@ router.post('/', authenticate, async (req, res) => {
         'INSERT INTO signature_signers (request_id,signer_name,signer_email,signer_role,sign_order,token) VALUES (?,?,?,?,?,?)',
         [requestId, s.name.trim(), s.email.trim().toLowerCase(), s.role || '', order, token]
       );
-      signerRecords.push({ ...s, token, sign_order: order, status: 'pending' });
+      // Normalize field names to match DB column names used by emailInvite
+      signerRecords.push({
+        ...s,
+        signer_name:  s.name.trim(),
+        signer_email: s.email.trim().toLowerCase(),
+        signer_role:  s.role || '',
+        token,
+        sign_order: order,
+        status: 'pending',
+      });
     }
 
     // Sort by order and notify first

@@ -526,7 +526,7 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
                 onClick={() => setMode('status')}
                 className={`flex-1 py-2 transition-colors ${mode === 'status' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
               >Actividad</button>
-              {(req?.status === 'in_progress' || req?.status === 'completed') && (
+              {(req?.status === 'in_progress' || req?.status === 'completed' || req?.status === 'cancelled' || req?.status === 'rejected') && (
                 <button
                   onClick={() => setMode('create')}
                   className={`flex-1 py-2 transition-colors ${mode === 'create' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}

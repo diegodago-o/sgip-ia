@@ -11,7 +11,7 @@ const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
 /* ── helpers ─────────────────────────────────────────────── */
 const fmt = (d) =>
-  d ? new Date(d).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
+  d ? new Date(d).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Bogota' }) : '—';
 
 const MT_LABEL = {
   comite_seguimiento: 'Comité de Seguimiento',

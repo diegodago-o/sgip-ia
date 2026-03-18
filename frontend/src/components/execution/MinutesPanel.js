@@ -539,7 +539,7 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
           {mode === 'status' && hasActiveRequest && (() => {
             // Build timeline from available data
             const events = [];
-            const fmtTs = (ts) => ts ? new Date(ts).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+            const fmtTs = (ts) => ts ? new Date(ts).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'America/Bogota' }) : '';
             if (req?.created_at)
               events.push({ icon: '🚀', color: 'bg-brand-100 text-brand-700', text: 'Proceso de firmas iniciado', sub: '', ts: req.created_at });
             reqSigners.forEach(s => {

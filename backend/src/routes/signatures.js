@@ -78,10 +78,10 @@ function emailInvite({ signer, minute, project, allSigners, position }) {
   const url = `${FRONTEND_URL()}/firma/${signer.token}`;
   const prevList = allSigners
     .filter(s => s.sign_order < signer.sign_order && s.status === 'signed')
-    .map(s => `<li style="margin-bottom:4px">${s.signer_name} <span style="color:#64748b">(${s.signer_role || 'Firmante'})</span> — ${new Date(s.signed_at).toLocaleString('es-CO')}</li>`)
+    .map(s => `<li style="margin-bottom:4px">${s.signer_name} <span style="color:#64748b">(${s.signer_role || 'Firmante'})</span> — ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}</li>`)
     .join('');
   const mtDate = minute.meeting_date
-    ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
+    ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
@@ -632,7 +632,7 @@ router.get('/certificate', async (req, res) => {
     }
 
     const dateStr = minute.meeting_date
-      ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
+      ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
       : '-';
 
     y = infoRow('Fecha:', dateStr, 'Lugar:', minute.location || '-', y);
@@ -740,8 +740,8 @@ router.get('/certificate', async (req, res) => {
       ['Titulo:', minute.title || '-'],
       ['Proyecto:', project.name + (project.code ? ' (' + project.code + ')' : '')],
       ['Acta N:', String(minute.minute_number || minute.id)],
-      ['Fecha del acta:', minute.meeting_date ? new Date(minute.meeting_date).toLocaleDateString('es-CO') : '-'],
-      ['Proceso completado:', req_.completed_at ? new Date(req_.completed_at).toLocaleString('es-CO') : '-'],
+      ['Fecha del acta:', minute.meeting_date ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { timeZone: 'America/Bogota' }) : '-'],
+      ['Proceso completado:', req_.completed_at ? new Date(req_.completed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : '-'],
       ['Hash SHA-256:', req_.document_hash || '-'],
     ];
     var dlw = 120;
@@ -781,7 +781,7 @@ router.get('/certificate', async (req, res) => {
       var mlw = 52;
       var metaFields = [
         ['Correo:', s.signer_email || '-'],
-        ['Firmado:', s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO') : '-'],
+        ['Firmado:', s.signed_at ? new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : '-'],
         ['IP:', s.ip_address || '-'],
       ];
       metaFields.forEach(function(mf) {

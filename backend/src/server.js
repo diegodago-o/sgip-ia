@@ -1,3 +1,4 @@
+process.env.TZ = 'America/Bogota'; // Must be set before ANY date operation
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');

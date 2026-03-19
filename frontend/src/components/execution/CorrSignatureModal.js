@@ -117,6 +117,11 @@ export default function CorrSignatureModal({
   const containerRef    = useRef(null);
   // scrollWrapperRef: the overflow-y:auto div that contains the containerRef
   const scrollWrapperRef = useRef(null);
+  // interceptorRef: transparent div placed above the iframe in the stacking order.
+  // Chrome's PDF viewer captures wheel events at the compositor level (before JS),
+  // so pointer-events:none on the iframe alone is not enough. A real DOM element
+  // with pointer-events:auto sitting on top intercepts wheel events first.
+  const interceptorRef = useRef(null);
 
   // ── Shared ──
   const [saving,     setSaving]     = useState(false);
@@ -144,14 +149,25 @@ export default function CorrSignatureModal({
     } finally { setPdfLoading(false); }
   }, [projectId, corrItem.id]);
 
-  // Manual wheel handler: since the iframe has pointer-events:none (so DnD events
-  // reach the container), mouse-wheel events that reach the container must be
-  // forwarded explicitly to the scrollable outer wrapper.
-  const handleWheelOnContainer = useCallback((e) => {
-    if (scrollWrapperRef.current) {
-      scrollWrapperRef.current.scrollTop += e.deltaY;
-    }
-  }, []);
+  // Native (non-passive) wheel listener on the interceptor div.
+  // Must be native — React synthetic onWheel cannot call preventDefault() reliably
+  // in modern browsers (passive by default). { passive: false } lets us block the
+  // PDF viewer from consuming the event and manually drive scrollTop instead.
+  useEffect(() => {
+    const el = interceptorRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (scrollWrapperRef.current) {
+        scrollWrapperRef.current.scrollTop += e.deltaY;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  // Re-attach every time pdfUrl changes (interceptor only renders when pdfUrl is set)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfUrl]);
 
   // ── Validate signers & advance to position step ──
   const goToPosition = () => {
@@ -513,65 +529,64 @@ export default function CorrSignatureModal({
                     <Loader2 size={32} className="animate-spin text-brand-400" />
                   </div>
                 ) : pdfUrl ? (
-                  /*
-                    Scrollable outer wrapper.
-                    ref={scrollWrapperRef} so handleWheelOnContainer can forward
-                    mouse-wheel events from the (pointer-events:none) iframe area.
-                  */
+                  /* Scrollable outer wrapper — scrollTop driven by the interceptor's wheel listener */
                   <div ref={scrollWrapperRef} className="flex-1 overflow-y-auto p-2">
                     {/*
                       Inner div maintains LETTER aspect ratio via padding-bottom trick
                       (792 / 612 × 100 = 129.41%). containerRef points here.
                       All position calculations use getBoundingClientRect() on this element.
-
-                      onWheel: forwards scroll events that fall through the iframe
-                               (pointer-events:none) to the outer scrollable wrapper.
                     */}
                     <div
                       ref={containerRef}
                       className="relative w-full"
                       style={{ paddingBottom: '129.41%' }}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDrop}
-                      onWheel={handleWheelOnContainer}
                     >
-                      {/*
-                        PDF iframe — pointer-events:none so:
-                        1. Drag events from the left-panel chips reach the container div.
-                        2. Mouse-wheel events reach the container's onWheel handler (above).
-                        #toolbar=0&navpanes=0&scrollbar=0 removes Chrome's PDF viewer
-                        toolbar (≈44 px offset) so coordinates map 1:1 to PDF page points.
-                      */}
+                      {/* Layer 1 — PDF iframe (z-index 1) */}
                       <iframe
                         src={pdfUrl}
                         title="PDF preview"
                         className="absolute inset-0 w-full h-full border-0"
-                        style={{ pointerEvents: 'none' }}
+                        style={{ zIndex: 1, pointerEvents: 'none' }}
                       />
 
-                      {/* Overlay — transparent to events so wheel/drag reach container */}
+                      {/*
+                        Layer 2 — transparent interceptor (z-index 11).
+                        Sits physically above the iframe so the browser's hit-test lands
+                        here first. A native non-passive wheel listener (see useEffect above)
+                        drives scrollWrapperRef.scrollTop directly and calls preventDefault()
+                        so the PDF viewer never sees the event.
+                        Also owns onDragOver / onDrop so dropped signer chips register here.
+                      */}
                       <div
+                        ref={interceptorRef}
                         className="absolute inset-0"
-                        style={{ zIndex: 10, pointerEvents: 'none' }}
-                      >
-                        {Object.entries(placedFields).map(([idxStr, pos]) => {
-                          const i = parseInt(idxStr, 10);
-                          const signer = validSignersForPos[i];
-                          if (!signer) return null;
-                          return (
-                            <SignatureFieldBox
-                              key={i}
-                              idx={i}
-                              pos={pos}
-                              name={signer.signer_name}
-                              color={FIELD_COLORS[i % FIELD_COLORS.length]}
-                              containerRef={containerRef}
-                              onMove={handleMoveField}
-                              onRemove={handleRemoveField}
-                            />
-                          );
-                        })}
-                      </div>
+                        style={{ zIndex: 11 }}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                      />
+
+                      {/*
+                        Layer 3 — signature field boxes (z-index 20 in their own style).
+                        Sit above the interceptor so mouse events on the boxes
+                        (drag-to-reposition, remove button) reach them directly.
+                      */}
+                      {Object.entries(placedFields).map(([idxStr, pos]) => {
+                        const i = parseInt(idxStr, 10);
+                        const signer = validSignersForPos[i];
+                        if (!signer) return null;
+                        return (
+                          <SignatureFieldBox
+                            key={i}
+                            idx={i}
+                            pos={pos}
+                            name={signer.signer_name}
+                            color={FIELD_COLORS[i % FIELD_COLORS.length]}
+                            containerRef={containerRef}
+                            onMove={handleMoveField}
+                            onRemove={handleRemoveField}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

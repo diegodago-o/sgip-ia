@@ -115,13 +115,11 @@ export default function CorrSignatureModal({
   const [placedFields, setPlacedFields] = useState({});
   // containerRef points to the LETTER-proportioned inner div
   const containerRef    = useRef(null);
-  // scrollWrapperRef: the overflow-y:auto div that contains the containerRef
-  const scrollWrapperRef = useRef(null);
-  // interceptorEl: callback-ref pattern (useState, not useRef) for the interceptor div.
-  // Using useState means React re-runs the wheel-listener useEffect whenever the DOM node
-  // mounts or unmounts — critical because useRef changes don't trigger effects.
-  // (With useRef + [pdfUrl] dependency, the effect could run before the div is in the DOM
-  // if React 17 doesn't batch the pdfUrl/pdfLoading state updates.)
+  // scrollWrapperEl: callback ref (useState) for the overflow-y:auto scroll wrapper.
+  // Using useState instead of useRef so that the wheel-capture useEffect re-runs
+  // the instant this div mounts into the DOM.
+  const [scrollWrapperEl, setScrollWrapperEl] = useState(null);
+  // interceptorEl: callback ref for the transparent DnD-interceptor div.
   const [interceptorEl, setInterceptorEl] = useState(null);
 
   // ── Shared ──
@@ -150,22 +148,38 @@ export default function CorrSignatureModal({
     } finally { setPdfLoading(false); }
   }, [projectId, corrItem.id]);
 
-  // Native non-passive wheel listener — attached/detached whenever interceptorEl changes.
-  // interceptorEl is state (callback ref), so this effect re-runs the instant the div mounts.
-  // { passive: false } is required to call e.preventDefault() and stop Chrome's PDF viewer
-  // from consuming the event at the compositor level.
+  // Window-level CAPTURE wheel listener.
+  //
+  // Why window + capture phase?
+  // Chrome's PDF viewer runs in a separate compositor/renderer process. Wheel events
+  // are routed at the OS/GPU compositor level — before the DOM stacking context or
+  // pointer-events CSS can intervene. Even an overlay div with z-index:999 cannot
+  // intercept them via bubble-phase listeners.
+  //
+  // The ONLY point where JS can reliably intercept before Chrome's PDF renderer is
+  // window.addEventListener(..., { capture: true }) — which fires first in the event
+  // pipeline, ahead of any element (including cross-process iframes).
+  //
+  // Strategy:
+  //   1. Capture every wheel event on the window.
+  //   2. Check if the cursor is inside the scroll wrapper bounds.
+  //   3. If yes → preventDefault() (blocks PDF viewer) + manually set scrollTop.
+  //   4. If no  → do nothing (let the event proceed normally elsewhere on the page).
   useEffect(() => {
-    if (!interceptorEl) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (scrollWrapperRef.current) {
-        scrollWrapperRef.current.scrollTop += e.deltaY;
+    if (!scrollWrapperEl) return;
+    const onWheelCapture = (e) => {
+      const rect = scrollWrapperEl.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left && e.clientX <= rect.right &&
+        e.clientY >= rect.top  && e.clientY <= rect.bottom
+      ) {
+        e.preventDefault();
+        scrollWrapperEl.scrollTop += e.deltaY;
       }
     };
-    interceptorEl.addEventListener('wheel', onWheel, { passive: false });
-    return () => interceptorEl.removeEventListener('wheel', onWheel);
-  }, [interceptorEl]);
+    window.addEventListener('wheel', onWheelCapture, { capture: true, passive: false });
+    return () => window.removeEventListener('wheel', onWheelCapture, { capture: true });
+  }, [scrollWrapperEl]);
 
   // ── Validate signers & advance to position step ──
   const goToPosition = () => {
@@ -527,8 +541,8 @@ export default function CorrSignatureModal({
                     <Loader2 size={32} className="animate-spin text-brand-400" />
                   </div>
                 ) : pdfUrl ? (
-                  /* Scrollable outer wrapper — scrollTop driven by the interceptor's wheel listener */
-                  <div ref={scrollWrapperRef} className="flex-1 overflow-y-auto p-2">
+                  /* Scrollable outer wrapper — scrollTop driven by window-capture wheel listener */
+                  <div ref={setScrollWrapperEl} className="flex-1 overflow-y-auto p-2">
                     {/*
                       Inner div maintains LETTER aspect ratio via padding-bottom trick
                       (792 / 612 × 100 = 129.41%). containerRef points here.
@@ -551,7 +565,7 @@ export default function CorrSignatureModal({
                         Layer 2 — transparent interceptor (z-index 11).
                         Sits physically above the iframe so the browser's hit-test lands
                         here first. A native non-passive wheel listener (see useEffect above)
-                        drives scrollWrapperRef.scrollTop directly and calls preventDefault()
+                        Also owns onDragOver / onDrop so dropped signer chips register here.
                         so the PDF viewer never sees the event.
                         Also owns onDragOver / onDrop so dropped signer chips register here.
                       */}

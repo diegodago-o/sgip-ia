@@ -358,6 +358,44 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   doc.y = doc.y + 14;
 
   // ─────────────────────────────────────────
+  // BLOQUE REMITENTE
+  // Línea de firma + sender_name + sender_title + project_entity
+  // Va en flujo normal ANTES de las zonas de firma digitales (que usan
+  // coordenadas absolutas y se superponen sobre el área de firma).
+  // ─────────────────────────────────────────
+  if (corr.sender_name || corr.sender_title) {
+    checkPage(100); // espacio firma + nombre + cargo + entidad
+    doc.y += 52;    // espacio en blanco para la imagen de firma digital
+
+    // Línea de firma (similar a w-40 del preview HTML → ~150 pt)
+    doc.moveTo(ML, doc.y)
+       .lineTo(ML + 150, doc.y)
+       .strokeColor('#9CA3AF')
+       .lineWidth(0.8)
+       .stroke();
+    doc.y += 6;
+
+    if (corr.sender_name) {
+      doc.fillColor('#1E3A5F').fontSize(10.5).font('Helvetica-Bold')
+         .text(corr.sender_name, ML, doc.y, { width: W });
+      doc.y += 2;
+    }
+    if (corr.sender_title) {
+      doc.fillColor('#4B5563').fontSize(9).font('Helvetica')
+         .text(corr.sender_title, ML, doc.y, { width: W });
+      doc.y += 2;
+    }
+    if (corr.project_entity) {
+      doc.fillColor('#6B7280').fontSize(9).font('Helvetica')
+         .text(corr.project_entity, ML, doc.y, { width: W });
+    }
+    doc.y += 14;
+  } else {
+    // Sin datos de remitente: dejar espacio mínimo para la firma digital
+    doc.y += 70;
+  }
+
+  // ─────────────────────────────────────────
   // ZONA DE FIRMAS
   // Dibujar DESPUÉS del texto en coordenadas absolutas
   // ─────────────────────────────────────────

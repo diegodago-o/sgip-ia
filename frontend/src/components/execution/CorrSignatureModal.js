@@ -117,11 +117,12 @@ export default function CorrSignatureModal({
   const containerRef    = useRef(null);
   // scrollWrapperRef: the overflow-y:auto div that contains the containerRef
   const scrollWrapperRef = useRef(null);
-  // interceptorRef: transparent div placed above the iframe in the stacking order.
-  // Chrome's PDF viewer captures wheel events at the compositor level (before JS),
-  // so pointer-events:none on the iframe alone is not enough. A real DOM element
-  // with pointer-events:auto sitting on top intercepts wheel events first.
-  const interceptorRef = useRef(null);
+  // interceptorEl: callback-ref pattern (useState, not useRef) for the interceptor div.
+  // Using useState means React re-runs the wheel-listener useEffect whenever the DOM node
+  // mounts or unmounts — critical because useRef changes don't trigger effects.
+  // (With useRef + [pdfUrl] dependency, the effect could run before the div is in the DOM
+  // if React 17 doesn't batch the pdfUrl/pdfLoading state updates.)
+  const [interceptorEl, setInterceptorEl] = useState(null);
 
   // ── Shared ──
   const [saving,     setSaving]     = useState(false);
@@ -149,13 +150,12 @@ export default function CorrSignatureModal({
     } finally { setPdfLoading(false); }
   }, [projectId, corrItem.id]);
 
-  // Native (non-passive) wheel listener on the interceptor div.
-  // Must be native — React synthetic onWheel cannot call preventDefault() reliably
-  // in modern browsers (passive by default). { passive: false } lets us block the
-  // PDF viewer from consuming the event and manually drive scrollTop instead.
+  // Native non-passive wheel listener — attached/detached whenever interceptorEl changes.
+  // interceptorEl is state (callback ref), so this effect re-runs the instant the div mounts.
+  // { passive: false } is required to call e.preventDefault() and stop Chrome's PDF viewer
+  // from consuming the event at the compositor level.
   useEffect(() => {
-    const el = interceptorRef.current;
-    if (!el) return;
+    if (!interceptorEl) return;
     const onWheel = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -163,11 +163,9 @@ export default function CorrSignatureModal({
         scrollWrapperRef.current.scrollTop += e.deltaY;
       }
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  // Re-attach every time pdfUrl changes (interceptor only renders when pdfUrl is set)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfUrl]);
+    interceptorEl.addEventListener('wheel', onWheel, { passive: false });
+    return () => interceptorEl.removeEventListener('wheel', onWheel);
+  }, [interceptorEl]);
 
   // ── Validate signers & advance to position step ──
   const goToPosition = () => {
@@ -558,7 +556,7 @@ export default function CorrSignatureModal({
                         Also owns onDragOver / onDrop so dropped signer chips register here.
                       */}
                       <div
-                        ref={interceptorRef}
+                        ref={setInterceptorEl}
                         className="absolute inset-0"
                         style={{ zIndex: 11 }}
                         onDragOver={handleDragOver}

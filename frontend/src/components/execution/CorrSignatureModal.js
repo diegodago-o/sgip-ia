@@ -113,14 +113,13 @@ export default function CorrSignatureModal({
   const [pdfLoading, setPdfLoading] = useState(false);
   // { signerIdx: { x_percent, y_percent, width_percent, height_percent, page_num } }
   const [placedFields, setPlacedFields] = useState({});
-  // containerRef points to the LETTER-proportioned inner div
+  // containerRef points to the page-1 overlay div (top 50% of 2-page outer container = 1 LETTER page).
   const containerRef    = useRef(null);
   // scrollWrapperEl: callback ref (useState) for the overflow-y:auto scroll wrapper.
   // Using useState instead of useRef so that the wheel-capture useEffect re-runs
   // the instant this div mounts into the DOM.
   const [scrollWrapperEl, setScrollWrapperEl] = useState(null);
-  // interceptorEl: callback ref for the transparent DnD-interceptor div.
-  const [interceptorEl, setInterceptorEl] = useState(null);
+  // (interceptorEl removed — DnD is now handled directly on the page-1 overlay div)
 
   // ── Shared ──
   const [saving,     setSaving]     = useState(false);
@@ -541,19 +540,23 @@ export default function CorrSignatureModal({
                     <Loader2 size={32} className="animate-spin text-brand-400" />
                   </div>
                 ) : pdfUrl ? (
-                  /* Scrollable outer wrapper — scrollTop driven by window-capture wheel listener */
+                  /*
+                    Scrollable outer wrapper — scrollTop driven by window-capture wheel listener.
+                    The outer div is 2 LETTER pages tall (258.82% = 792/612 × 200) so that:
+                      1. The iframe fills 2 full pages and shows all PDF content (Bug 1 fix).
+                      2. The scroll wrapper has real overflow to scroll (Bug 2 fix).
+                    containerRef points to the page-1 overlay (top 50% = exactly 1 page).
+                    All DnD coordinate calculations use getBoundingClientRect() on containerRef,
+                    which covers only page 1 — keeping signature placement accurate.
+                  */
                   <div ref={setScrollWrapperEl} className="flex-1 overflow-y-auto p-2">
-                    {/*
-                      Inner div maintains LETTER aspect ratio via padding-bottom trick
-                      (792 / 612 × 100 = 129.41%). containerRef points here.
-                      All position calculations use getBoundingClientRect() on this element.
-                    */}
+                    {/* Outer 2-page wrapper — accept dragover so chip stays "alive" over page 2 */}
                     <div
-                      ref={containerRef}
                       className="relative w-full"
-                      style={{ paddingBottom: '129.41%' }}
+                      style={{ paddingBottom: '258.82%' }}
+                      onDragOver={handleDragOver}
                     >
-                      {/* Layer 1 — PDF iframe (z-index 1) */}
+                      {/* Layer 1 — PDF iframe, fills entire 2-page area (z-index 1) */}
                       <iframe
                         src={pdfUrl}
                         title="PDF preview"
@@ -562,43 +565,41 @@ export default function CorrSignatureModal({
                       />
 
                       {/*
-                        Layer 2 — transparent interceptor (z-index 11).
-                        Sits physically above the iframe so the browser's hit-test lands
-                        here first. A native non-passive wheel listener (see useEffect above)
-                        Also owns onDragOver / onDrop so dropped signer chips register here.
-                        so the PDF viewer never sees the event.
-                        Also owns onDragOver / onDrop so dropped signer chips register here.
+                        Layer 2 — Page-1 coordinate overlay (top 50% of the 2-page container
+                        = exactly 1 LETTER page: 50% × 258.82% × width = 129.41% × width).
+                        containerRef points here. DnD drops and field drags all use
+                        this element's getBoundingClientRect() → page-relative coords [0,1].
                       */}
                       <div
-                        ref={setInterceptorEl}
-                        className="absolute inset-0"
-                        style={{ zIndex: 11 }}
+                        ref={containerRef}
+                        className="absolute left-0 right-0"
+                        style={{ top: 0, height: '50%', zIndex: 11 }}
                         onDragOver={handleDragOver}
                         onDrop={handleDrop}
-                      />
-
-                      {/*
-                        Layer 3 — signature field boxes (z-index 20 in their own style).
-                        Sit above the interceptor so mouse events on the boxes
-                        (drag-to-reposition, remove button) reach them directly.
-                      */}
-                      {Object.entries(placedFields).map(([idxStr, pos]) => {
-                        const i = parseInt(idxStr, 10);
-                        const signer = validSignersForPos[i];
-                        if (!signer) return null;
-                        return (
-                          <SignatureFieldBox
-                            key={i}
-                            idx={i}
-                            pos={pos}
-                            name={signer.signer_name}
-                            color={FIELD_COLORS[i % FIELD_COLORS.length]}
-                            containerRef={containerRef}
-                            onMove={handleMoveField}
-                            onRemove={handleRemoveField}
-                          />
-                        );
-                      })}
+                      >
+                        {/*
+                          Layer 3 — signature field boxes (z-index 20 in their own style).
+                          Positioned relative to containerRef (= page 1).
+                          Mouse events on boxes (drag-to-reposition, remove) reach them directly.
+                        */}
+                        {Object.entries(placedFields).map(([idxStr, pos]) => {
+                          const i = parseInt(idxStr, 10);
+                          const signer = validSignersForPos[i];
+                          if (!signer) return null;
+                          return (
+                            <SignatureFieldBox
+                              key={i}
+                              idx={i}
+                              pos={pos}
+                              name={signer.signer_name}
+                              color={FIELD_COLORS[i % FIELD_COLORS.length]}
+                              containerRef={containerRef}
+                              onMove={handleMoveField}
+                              onRemove={handleRemoveField}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 ) : (

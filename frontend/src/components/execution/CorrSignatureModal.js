@@ -212,16 +212,19 @@ export default function CorrSignatureModal({
     if (idxStr === '') return;
     const idx = parseInt(idxStr, 10);
     if (isNaN(idx) || !containerRef.current) return;
-    // containerRef = inner proportional div; getBoundingClientRect gives correct
-    // position regardless of scroll in the outer div
+    // containerRef = full 2-page container; coords are fractions of 2-page area.
+    // x_percent / width_percent are fractions of page width (0-1, unchanged).
+    // y_percent / height_percent are fractions of the FULL 2-page container height.
+    //   y=0.0 → top of page 1 | y=0.5 → top of page 2 | y=1.0 → bottom of page 2
+    //   height_percent=0.04 = 4% of 2-page height = 8% of 1 page (same visual size)
     const rect = containerRef.current.getBoundingClientRect();
     const W = 0.22;
-    const H = 0.08;
+    const H = 0.04; // 4% of 2-page container ≡ 8% of 1 page
     const x = Math.max(0, Math.min(1 - W, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1 - H, (e.clientY - rect.top)  / rect.height));
     setPlacedFields(prev => ({
       ...prev,
-      [idx]: { x_percent: x, y_percent: y, width_percent: W, height_percent: H, page_num: 1 },
+      [idx]: { x_percent: x, y_percent: y, width_percent: W, height_percent: H },
     }));
   };
 
@@ -247,17 +250,25 @@ export default function CorrSignatureModal({
     setSaving(true); setErr('');
     try {
       await corrSignaturesAPI.create(projectId, corrItem.id, {
-        signers: validSigners.map((s, i) => ({
-          name:           s.signer_name.trim(),
-          email:          s.signer_email.trim(),
-          role:           s.signer_role?.trim() || '',
-          order:          i + 1,
-          page_num:       placedFields[i].page_num,
-          x_percent:      placedFields[i].x_percent,
-          y_percent:      placedFields[i].y_percent,
-          width_percent:  placedFields[i].width_percent,
-          height_percent: placedFields[i].height_percent,
-        })),
+        signers: validSigners.map((s, i) => {
+          const f = placedFields[i];
+          // Convert from 2-page UI fractions → single-page backend fractions.
+          // y_percent in UI is 0-1 over 2 pages: [0,0.5) = page 1, [0.5,1) = page 2.
+          const page_num = f.y_percent < 0.5 ? 1 : 2;
+          const y_page   = page_num === 1 ? f.y_percent * 2 : (f.y_percent - 0.5) * 2;
+          const h_page   = f.height_percent * 2; // 0.04*2 = 0.08 per-page fraction
+          return {
+            name:           s.signer_name.trim(),
+            email:          s.signer_email.trim(),
+            role:           s.signer_role?.trim() || '',
+            order:          i + 1,
+            page_num,
+            x_percent:      f.x_percent,
+            y_percent:      y_page,
+            width_percent:  f.width_percent,
+            height_percent: h_page,
+          };
+        }),
       });
       onChanged();
     } catch (e) {
@@ -552,13 +563,22 @@ export default function CorrSignatureModal({
                     which covers only page 1 — keeping signature placement accurate.
                   */
                   <div ref={setScrollWrapperEl} className="flex-1 overflow-y-auto p-2">
-                    {/* Outer 2-page wrapper — accept dragover so chip stays "alive" over page 2 */}
+                    {/*
+                      2-page proportional container — containerRef points here.
+                      paddingBottom 258.82% = 792/612 × 200% = 2 LETTER pages.
+                      Coordinates (x_percent, y_percent) are fractions of THIS element:
+                        x: 0-1 across the page width
+                        y: 0-0.5 = page 1  |  0.5-1.0 = page 2
+                      Converted to per-page fractions only when POSTing to backend.
+                    */}
                     <div
+                      ref={containerRef}
                       className="relative w-full"
                       style={{ paddingBottom: '258.82%' }}
                       onDragOver={handleDragOver}
+                      onDrop={handleDrop}
                     >
-                      {/* Layer 1 — PDF iframe, fills entire 2-page area (z-index 1) */}
+                      {/* Layer 1 — PDF iframe, fills entire 2-page area (pointer-events off) */}
                       <iframe
                         src={pdfUrl}
                         title="PDF preview"
@@ -566,42 +586,25 @@ export default function CorrSignatureModal({
                         style={{ zIndex: 1, pointerEvents: 'none' }}
                       />
 
-                      {/*
-                        Layer 2 — Page-1 coordinate overlay (top 50% of the 2-page container
-                        = exactly 1 LETTER page: 50% × 258.82% × width = 129.41% × width).
-                        containerRef points here. DnD drops and field drags all use
-                        this element's getBoundingClientRect() → page-relative coords [0,1].
-                      */}
-                      <div
-                        ref={containerRef}
-                        className="absolute left-0 right-0"
-                        style={{ top: 0, height: '50%', zIndex: 11 }}
-                        onDragOver={handleDragOver}
-                        onDrop={handleDrop}
-                      >
-                        {/*
-                          Layer 3 — signature field boxes (z-index 20 in their own style).
-                          Positioned relative to containerRef (= page 1).
-                          Mouse events on boxes (drag-to-reposition, remove) reach them directly.
-                        */}
-                        {Object.entries(placedFields).map(([idxStr, pos]) => {
-                          const i = parseInt(idxStr, 10);
-                          const signer = validSignersForPos[i];
-                          if (!signer) return null;
-                          return (
-                            <SignatureFieldBox
-                              key={i}
-                              idx={i}
-                              pos={pos}
-                              name={signer.signer_name}
-                              color={FIELD_COLORS[i % FIELD_COLORS.length]}
-                              containerRef={containerRef}
-                              onMove={handleMoveField}
-                              onRemove={handleRemoveField}
-                            />
-                          );
-                        })}
-                      </div>
+                      {/* Layer 2 — signature field boxes, positioned relative to the full
+                          2-page container so they can be placed on either page. */}
+                      {Object.entries(placedFields).map(([idxStr, pos]) => {
+                        const i = parseInt(idxStr, 10);
+                        const signer = validSignersForPos[i];
+                        if (!signer) return null;
+                        return (
+                          <SignatureFieldBox
+                            key={i}
+                            idx={i}
+                            pos={pos}
+                            name={signer.signer_name}
+                            color={FIELD_COLORS[i % FIELD_COLORS.length]}
+                            containerRef={containerRef}
+                            onMove={handleMoveField}
+                            onRemove={handleRemoveField}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

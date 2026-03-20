@@ -256,28 +256,42 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   // ─────────────────────────────────────────
   // ENCABEZADO CORPORATIVO
   // ─────────────────────────────────────────
-  // Columna izquierda (65%): entidad, proyecto, código
-  doc.rect(ML, MT, W * 0.65, 64).fill('#1E3A5F');
-  doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
-     .text(corr.project_entity || project.name || 'SGIP', ML + 10, MT + 10, { width: W * 0.65 - 20, lineBreak: false });
-  doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
-     .text(`Proyecto: ${project.name || ''}`, ML + 10, MT + 28, { width: W * 0.65 - 20, lineBreak: false });
-  doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
-     .text(`Código: ${project.code || ''}`, ML + 10, MT + 40, { width: W * 0.65 - 20, lineBreak: false });
-
-  // Columna derecha (35%): tipo, código consecutivo, fecha
+  // El nombre de la entidad puede ser largo (ej: "Departamento Administrativo de la
+  // Presidencia de la República"). lineBreak:false en PDFKit no recorta el texto
+  // sino que lo desborda horizontalmente, solapando la columna derecha.
+  // Solución: HEADER_H = 76pt para acomodar hasta 2 líneas del nombre de entidad
+  // (font 11 × 2 líneas × 1.2 interlineado ≈ 26pt), con Proyecto/Código a partir
+  // de y+40 y y+52, fuera de la zona de 2 líneas.
+  const HEADER_H  = 76;
+  const ENTITY_W  = W * 0.65 - 20;  // ancho util columna izquierda
   const rcX = ML + W * 0.65;
   const rcW = W * 0.35;
-  doc.rect(rcX, MT, rcW, 64).fill('#2E86AB');
-  doc.fillColor('white').fontSize(13).font('Helvetica-Bold')
-     .text(typeLabel, rcX, MT + 10, { width: rcW, align: 'center', lineBreak: false });
+
+  // Columna izquierda (65%): rectángulo azul oscuro
+  doc.rect(ML, MT, W * 0.65, HEADER_H).fill('#1E3A5F');
+  // Nombre de entidad: font 11 con wrapping, clipeado a máx. 2 líneas (height:26)
+  doc.fillColor('white').fontSize(11).font('Helvetica-Bold')
+     .text(corr.project_entity || project.name || 'SGIP',
+           ML + 10, MT + 8, { width: ENTITY_W, height: 26 });
+  // Proyecto y código en filas fijas por debajo de las 2 líneas de nombre
   doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
-     .text(corr.consecutive_code || '', rcX, MT + 28, { width: rcW, align: 'center', lineBreak: false });
+     .text(`Proyecto: ${project.name || ''}`,
+           ML + 10, MT + 40, { width: ENTITY_W, lineBreak: false });
   doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
-     .text(fmtDateEs(corr.reference_date), rcX, MT + 40, { width: rcW, align: 'center', lineBreak: false });
+     .text(`Código: ${project.code || ''}`,
+           ML + 10, MT + 52, { width: ENTITY_W, lineBreak: false });
+
+  // Columna derecha (35%): rectángulo azul medio, alineado con nueva altura
+  doc.rect(rcX, MT, rcW, HEADER_H).fill('#2E86AB');
+  doc.fillColor('white').fontSize(12).font('Helvetica-Bold')
+     .text(typeLabel, rcX, MT + 14, { width: rcW, align: 'center', lineBreak: false });
+  doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
+     .text(corr.consecutive_code || '', rcX, MT + 40, { width: rcW, align: 'center', lineBreak: false });
+  doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
+     .text(fmtDateEs(corr.reference_date), rcX, MT + 52, { width: rcW, align: 'center', lineBreak: false });
 
   // Línea separadora azul
-  const headerBottom = MT + 64;
+  const headerBottom = MT + HEADER_H;
   doc.rect(ML, headerBottom, W, 3).fill('#2E86AB');
   doc.y = headerBottom + 14;
 

@@ -479,9 +479,14 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   }
 
   // ─────────────────────────────────────────
-  // FOOTER (page 1)
+  // FOOTER (última página)
+  // IMPORTANTE: footerY DEBE ser < PAGE_H - MB (= 737 = maxY de PDFKit).
+  // Si footerY + 5 >= maxY, doc.text() con coordenada explícita detecta overflow
+  // y agrega una página nueva en blanco antes de renderizar el texto.
+  // Usamos PAGE_H - MB - 22 = 715 → el footer queda dentro del área de contenido
+  // (715–733) sin solaparse con el cuerpo y sin generar página extra.
   // ─────────────────────────────────────────
-  const footerY = PAGE_H - MB + 8;
+  const footerY = PAGE_H - MB - 22;          // 715 — dentro de maxY (737)
   doc.rect(ML, footerY, W, 18).fill('#F0F4F8');
   const nowStr = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
   doc.fillColor('#64748b').fontSize(7).font('Helvetica')

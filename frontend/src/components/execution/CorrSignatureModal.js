@@ -109,8 +109,11 @@ export default function CorrSignatureModal({
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }, { ...EMPTY_SIGNER }]);
 
   // ── Position step ──
-  const [pdfUrl,     setPdfUrl]     = useState(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfUrl,       setPdfUrl]       = useState(null);
+  const [pdfLoading,   setPdfLoading]   = useState(false);
+  // Real page count returned by backend in X-PDF-Pages header.
+  // Drives container height (N × 129.41%) and coordinate conversion.
+  const [pdfPageCount, setPdfPageCount] = useState(1);
   // { signerIdx: { x_percent, y_percent, width_percent, height_percent, page_num } }
   const [placedFields, setPlacedFields] = useState({});
   // containerRef points to the page-1 overlay div (top 50% of 2-page outer container = 1 LETTER page).
@@ -140,6 +143,9 @@ export default function CorrSignatureModal({
         `/exec/${projectId}/correspondence/${corrItem.id}/firma/pdf`,
         { responseType: 'arraybuffer' },
       );
+      // Read real page count from backend header → adjust container height dynamically.
+      const pc = parseInt(r.headers['x-pdf-pages'] || '1', 10);
+      setPdfPageCount(!isNaN(pc) && pc >= 1 ? pc : 1);
       const blobUrl = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
       // &view=FitH fuerza zoom "fit-to-width" en el visor de Chrome, evitando que
       // el auto-zoom reduzca el documento a "fit-all-pages" un segundo después de cargar.
@@ -219,7 +225,9 @@ export default function CorrSignatureModal({
     //   height_percent=0.04 = 4% of 2-page height = 8% of 1 page (same visual size)
     const rect = containerRef.current.getBoundingClientRect();
     const W = 0.22;
-    const H = 0.04; // 4% of 2-page container ≡ 8% of 1 page
+    // H = 8% of one page expressed as a fraction of the N-page container.
+    // e.g. 1 page → 0.08 | 2 pages → 0.04 | 5 pages → 0.016
+    const H = 0.08 / pdfPageCount;
     const x = Math.max(0, Math.min(1 - W, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1 - H, (e.clientY - rect.top)  / rect.height));
     setPlacedFields(prev => ({
@@ -252,11 +260,16 @@ export default function CorrSignatureModal({
       await corrSignaturesAPI.create(projectId, corrItem.id, {
         signers: validSigners.map((s, i) => {
           const f = placedFields[i];
-          // Convert from 2-page UI fractions → single-page backend fractions.
-          // y_percent in UI is 0-1 over 2 pages: [0,0.5) = page 1, [0.5,1) = page 2.
-          const page_num = f.y_percent < 0.5 ? 1 : 2;
-          const y_page   = page_num === 1 ? f.y_percent * 2 : (f.y_percent - 0.5) * 2;
-          const h_page   = f.height_percent * 2; // 0.04*2 = 0.08 per-page fraction
+          // Convert from N-page UI fractions → single-page backend fractions.
+          // y_percent in UI is 0-1 over the full N-page container:
+          //   page_idx = floor(y * N)  →  clamped to [0, N-1]
+          //   y_page   = (y * N) - page_idx  →  0-1 within that page
+          //   h_page   = height_percent * N  →  per-page fraction (always ~0.08)
+          const N        = pdfPageCount;
+          const page_idx = Math.min(Math.floor(f.y_percent * N), N - 1);
+          const page_num = page_idx + 1;
+          const y_page   = (f.y_percent * N) - page_idx;
+          const h_page   = f.height_percent * N;
           return {
             name:           s.signer_name.trim(),
             email:          s.signer_email.trim(),
@@ -564,17 +577,17 @@ export default function CorrSignatureModal({
                   */
                   <div ref={setScrollWrapperEl} className="flex-1 overflow-y-auto p-2">
                     {/*
-                      2-page proportional container — containerRef points here.
-                      paddingBottom 258.82% = 792/612 × 200% = 2 LETTER pages.
+                      N-page proportional container — containerRef points here.
+                      paddingBottom = N × 129.41% (= N × 792/612 × 100%).
+                      For a 1-page doc → 129.41% | 2-page → 258.82% | 5-page → 647.05%
                       Coordinates (x_percent, y_percent) are fractions of THIS element:
-                        x: 0-1 across the page width
-                        y: 0-0.5 = page 1  |  0.5-1.0 = page 2
+                        y: 0.0 → top of page 1  |  1/N → top of page 2  |  ...  |  1.0 → bottom of page N
                       Converted to per-page fractions only when POSTing to backend.
                     */}
                     <div
                       ref={containerRef}
                       className="relative w-full"
-                      style={{ paddingBottom: '258.82%' }}
+                      style={{ paddingBottom: `${pdfPageCount * 129.41}%` }}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
                     >

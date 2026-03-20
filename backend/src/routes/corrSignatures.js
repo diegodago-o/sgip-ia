@@ -225,9 +225,12 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   const MB = 55;       // bottom margin
   const W  = PAGE_W - ML - MR;
 
+  // bufferPages:true — needed for doc.switchToPage() so we can embed signatures
+  // on any page of a multi-page document without losing content already written.
   const doc = new PDFDocument({
     size: 'LETTER',
     margins: { top: MT, bottom: MB, left: ML, right: MR },
+    bufferPages: true,
     info: {
       Title: corr.subject || 'Correspondencia',
       Author: 'SGIP-IA',
@@ -235,6 +238,10 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
       Creator: 'SGIP-IA',
     },
   });
+
+  // Track the real page count as PDFKit adds pages during content generation.
+  let pageCount = 1;
+  doc.on('pageAdded', () => pageCount++);
 
   const chunks = [];
   doc.on('data', c => chunks.push(c));
@@ -404,14 +411,18 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   ];
 
   if (showPlaceholders || withSignatures) {
-    // Save doc.y before ALL absolute-coordinate drawing.
-    // PDFKit auto-adds pages when doc.text(str, x, y) is called and y ≥ page.maxY().
-    // We restore doc.y after every draw call to prevent spurious blank pages.
+    // Save position on the last content page before any page switching.
     const savedDocY = doc.y;
+    const lastContentPage = pageCount - 1; // 0-indexed
 
     for (let i = 0; i < signers.length; i++) {
       const s = signers[i];
       if (!s.x_percent && s.x_percent !== 0) continue; // skip if no position set
+
+      // Switch to the signer's target page (clamped to actual page range).
+      // page_num is 1-indexed; clamp to [1, pageCount].
+      const targetPage = Math.max(0, Math.min((s.page_num || 1) - 1, lastContentPage));
+      doc.switchToPage(targetPage);
 
       const absX  = parseFloat(s.x_percent)      * PAGE_W;
       const absY  = parseFloat(s.y_percent)      * PAGE_H;
@@ -426,7 +437,6 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
           const b64 = s.signature_image.replace(/^data:image\/\w+;base64,/, '');
           const imgBuf = Buffer.from(b64, 'base64');
           doc.image(imgBuf, absX, absY, { width: absW, height: absH, fit: [absW, absH] });
-          doc.y = savedDocY; // restore immediately after image (it advances doc.y)
 
           // Thin underline below image
           doc.moveTo(absX + 4, absY + absH + 1).lineTo(absX + absW - 4, absY + absH + 1)
@@ -436,18 +446,14 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
           if (labelSafe) {
             doc.fillColor('#374151').fontSize(7.5).font('Helvetica')
                .text(s.signer_name || '', absX, absY + absH + 2, { width: absW, align: 'center', lineBreak: false });
-            doc.y = savedDocY;
-
             if (s.signer_role) {
               doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
                  .text(s.signer_role, absX, absY + absH + 12, { width: absW, align: 'center', lineBreak: false });
-              doc.y = savedDocY;
             }
             if (s.signed_at) {
               const ts = new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
               doc.fillColor('#94a3b8').fontSize(6.5).font('Helvetica')
                  .text(ts, absX, absY + absH + 22, { width: absW, align: 'center', lineBreak: false });
-              doc.y = savedDocY;
             }
           }
         } catch (imgErr) {
@@ -456,7 +462,6 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
           if (absY + 8 < PAGE_H - MB) {
             doc.fillColor(color).fontSize(7.5).font('Helvetica')
                .text(s.signer_name || `Firmante ${i + 1}`, absX + 4, absY + 4, { width: absW - 8, lineBreak: false });
-            doc.y = savedDocY;
           }
         }
       } else if (showPlaceholders) {
@@ -464,17 +469,16 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
         if (absY + 8 < PAGE_H - MB) {
           doc.fillColor(color).fontSize(8).font('Helvetica-Bold')
              .text(`${i + 1}. ${s.signer_name || 'Firmante'}`, absX + 4, absY + 6, { width: absW - 8, lineBreak: false });
-          doc.y = savedDocY;
         }
         if (s.signer_role && absY + 20 < PAGE_H - MB) {
           doc.fillColor(color).fontSize(7).font('Helvetica')
              .text(s.signer_role, absX + 4, absY + 18, { width: absW - 8, lineBreak: false });
-          doc.y = savedDocY;
         }
       }
     }
 
-    // Final restore: ensure doc.y is back to the pre-signatures position
+    // Restore to the last content page and original Y so the footer draws correctly.
+    doc.switchToPage(lastContentPage);
     doc.y = savedDocY;
   }
 
@@ -493,6 +497,11 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
      .text(`${corr.consecutive_code || ''} — SGIP-IA`, ML + 6, footerY + 5, { width: W / 2 - 12, lineBreak: false });
   doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
      .text(`Generado: ${nowStr}`, ML + W / 2, footerY + 5, { width: W / 2 - 6, align: 'right', lineBreak: false });
+
+  // Capture content page count BEFORE the optional audit page is added.
+  // The audit page (added below for withSignatures) is NOT part of the document
+  // proper; it's an appendix. X-PDF-Pages reflects only content pages.
+  const contentPageCount = pageCount;
 
   // ─────────────────────────────────────────
   // PÁGINA DE AUDITORÍA (solo en PDF firmado)
@@ -521,9 +530,10 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
 
     // ── Info table ──
     const hashStr = (auditReq.document_hash || '—');
+    const typeLabel2 = TYPE_LABEL[corr.correspondence_type] || 'COMUNICACIÓN';
     const infoRows = [
       ['Documento', corr.subject || '—'],
-      ['Código / Tipo', `${corr.consecutive_code || '—'}  ·  ${typeLabel}`],
+      ['Código / Tipo', `${corr.consecutive_code || '—'}  ·  ${typeLabel2}`],
       ['Proyecto', `${project.name}${project.code ? ' (' + project.code + ')' : ''}`],
       ['Fecha del documento', fmtDateEs(corr.reference_date)],
       ['Estado', 'Firmado electrónicamente — Proceso completado'],
@@ -626,10 +636,11 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
        );
   }
 
-  // Finalize
+  // Finalize — flushPages() writes all bufferPages content to the stream before end().
+  doc.flushPages();
   doc.end();
   return new Promise((resolve, reject) => {
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('end', () => resolve({ buffer: Buffer.concat(chunks), pageCount: contentPageCount }));
     doc.on('error', reject);
   });
 }
@@ -766,11 +777,15 @@ router.get('/pdf', authenticate, async (req, res) => {
     if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
     const [[project]] = await pool.execute('SELECT id,name,code,client_name FROM projects WHERE id=?', [projectId]);
 
-    const pdfBuf = await buildCorrespondencePdf(corr, project, [], {});
+    const result = await buildCorrespondencePdf(corr, project, [], {});
+    // X-PDF-Pages lets the frontend set the container height dynamically
+    // so signature placement works for 1-page, 2-page, 5-page, 15-page docs.
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${corr.consecutive_code || 'preview'}.pdf"`);
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(pdfBuf);
+    res.setHeader('X-PDF-Pages', result.pageCount);
+    res.setHeader('Access-Control-Expose-Headers', 'X-PDF-Pages');
+    res.send(result.buffer);
   } catch (e) { console.error('[corrSig GET /pdf]', e); res.status(500).json({ error: e.message }); }
 });
 
@@ -791,11 +806,11 @@ router.get('/certificate', authenticate, async (req, res) => {
     const [signers] = await pool.execute(
       'SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [reqs[0].id]
     );
-    const pdfBuf = await buildCorrespondencePdf(corr, project, signers, { withSignatures: true, request: reqs[0] });
+    const result = await buildCorrespondencePdf(corr, project, signers, { withSignatures: true, request: reqs[0] });
     const filename = `Firmado_${corr.consecutive_code || correspondenceId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(pdfBuf);
+    res.send(result.buffer);
   } catch (e) { console.error('[corrSig GET /certificate]', e); res.status(500).json({ error: e.message }); }
 });
 
@@ -876,11 +891,11 @@ publicRouter.get('/:token/pdf', async (req, res) => {
       'SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]
     );
 
-    const pdfBuf = await buildCorrespondencePdf(corr, project, allSigners, { showPlaceholders: true });
+    const result = await buildCorrespondencePdf(corr, project, allSigners, { showPlaceholders: true });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="documento.pdf"');
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(pdfBuf);
+    res.send(result.buffer);
   } catch (e) { console.error('[corrSig public GET /pdf]', e); res.status(500).json({ error: e.message }); }
 });
 
@@ -945,9 +960,9 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       // Generate signed PDF to attach
       let pdfAttachment = null;
       try {
-        const pdfBuf = await buildCorrespondencePdf(corr, project, allSigners, { withSignatures: true, request: completedReq });
+        const result = await buildCorrespondencePdf(corr, project, allSigners, { withSignatures: true, request: completedReq });
         const pdfName = `Firmado_${corr.consecutive_code || corr.id}.pdf`;
-        pdfAttachment = [{ filename: pdfName, content: pdfBuf, contentType: 'application/pdf' }];
+        pdfAttachment = [{ filename: pdfName, content: result.buffer, contentType: 'application/pdf' }];
       } catch (pdfErr) {
         console.error('[corrSignatures] PDF generation for email failed:', pdfErr.message);
       }

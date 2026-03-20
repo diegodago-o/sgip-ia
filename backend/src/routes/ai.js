@@ -132,15 +132,21 @@ async function extractTextFromPDF(buffer) {
 
 async function extractTextFromExcel(buffer) {
   try {
-    const XLSX = require('xlsx');
-    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer);
     const lines = [];
-    wb.SheetNames.forEach(name => {
-      lines.push(`\n=== HOJA: ${name} ===`);
-      lines.push(XLSX.utils.sheet_to_csv(wb.Sheets[name], { FS: ' | ', RS: '\n' }));
+    let sheetCount = 0;
+    wb.eachSheet(sheet => {
+      sheetCount++;
+      lines.push(`\n=== HOJA: ${sheet.name} ===`);
+      sheet.eachRow(row => {
+        const cells = row.values.slice(1).map(v => (v === null || v === undefined) ? '' : String(typeof v === 'object' && v.result !== undefined ? v.result : v));
+        lines.push(cells.join(' | '));
+      });
     });
     const text = lines.join('\n').trim();
-    console.log(`[XLSX] OK: ${text.length} chars, ${wb.SheetNames.length} sheets`);
+    console.log(`[XLSX] OK: ${text.length} chars, ${sheetCount} sheets`);
     return { text, method: 'xlsx' };
   } catch (e) { console.log(`[XLSX] Failed: ${e.message}`); return { text: '', method: 'failed' }; }
 }

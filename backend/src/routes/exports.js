@@ -423,7 +423,12 @@ router.get('/:projectId/budget/export-excel', async (req, res) => {
     const currencyFmt = '"$"#,##0';
     const pctFmt = '0.0%';
 
-    const totalIncome = income.reduce((s, i) => s + parseFloat(i.value || 0), 0);
+    // Income total — source of truth: budget_income_schedule (pagos reales)
+    let scheduleRows = [];
+    try { const [sr] = await pool.execute('SELECT valor_con_iva FROM budget_income_schedule WHERE project_id=? ORDER BY sort_order', [pid]); scheduleRows = sr; } catch {}
+    const totalIncome = scheduleRows.length > 0
+      ? scheduleRows.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0)
+      : income.reduce((s, i) => s + parseFloat(i.value || 0), 0); // fallback if no schedule
     const totalPayroll = payroll.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
     const totalContractors = contractors.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
     const totalExpenses = expenses.reduce((s, i) => s + parseFloat(i.valor_total || 0), 0);

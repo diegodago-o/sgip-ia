@@ -726,23 +726,15 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
   try {
     const pid = req.params.projectId;
 
-    // Income
+    // Income — source of truth: budget_income_schedule (pagos reales)
     const [incomeRows] = await pool.execute('SELECT * FROM budget_income WHERE project_id=? ORDER BY sort_order', [pid]);
-    let ingresosSinIva = 0, ivaTotal = 0;
-    for (const r of incomeRows) {
-      const val = parseFloat(r.value || 0);
-      if (r.es_iva) ivaTotal += val;
-      else if (r.es_total_con_iva) { /* skip, calculated */ }
-      else if (r.tipo === 'ingreso') ingresosSinIva += val;
-    }
-    const totalConIva = ingresosSinIva + ivaTotal;
-
-    // Income schedule
     let incomeSchedule = [];
     try { const [s] = await pool.execute('SELECT * FROM budget_income_schedule WHERE project_id=? ORDER BY sort_order, mes', [pid]); incomeSchedule = s; } catch {}
-    const schedSinIva = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_sin_iva||0),0);
-    const schedIva = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_iva||0),0);
-    const schedConIva = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0);
+    const ingresosSinIva = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_sin_iva||0),0);
+    const ivaTotal       = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_iva||0),0);
+    const totalConIva    = incomeSchedule.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0);
+    // aliases kept for response backwards-compat
+    const schedSinIva = ingresosSinIva, schedIva = ivaTotal, schedConIva = totalConIva;
 
     // PUC (gastos contables directos)
     const [pucRows] = await pool.execute('SELECT * FROM budget_puc_accounts WHERE project_id=? ORDER BY sort_order,cuenta', [pid]);

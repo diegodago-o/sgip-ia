@@ -84,12 +84,12 @@ router.get('/bi', async (req, res) => {
     const financialByProject = [];
     for (const p of projects) {
       try {
-        const [inc] = await pool.execute(`SELECT COALESCE(SUM(CASE WHEN tipo='ingreso' AND NOT es_iva AND NOT es_total_con_iva THEN value ELSE 0 END),0) as income,
-          COALESCE(SUM(CASE WHEN es_iva THEN value ELSE 0 END),0) as iva FROM budget_income WHERE project_id=?`, [p.id]);
+        // Income — source of truth: budget_income_schedule (pagos reales)
+        const [inc] = await pool.execute('SELECT COALESCE(SUM(valor_con_iva),0) as income FROM budget_income_schedule WHERE project_id=?', [p.id]);
         const [pay] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=?', [p.id]);
         const [con] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_contractors WHERE project_id=?', [p.id]);
         const [exp] = await pool.execute('SELECT COALESCE(SUM(valor_total),0) as t FROM budget_expenses WHERE project_id=?', [p.id]);
-        const income = parseFloat(inc[0].income) + parseFloat(inc[0].iva);
+        const income = parseFloat(inc[0].income);
         const expenses = parseFloat(pay[0].t) + parseFloat(con[0].t) + parseFloat(exp[0].t);
         financialByProject.push({
           project_id: p.id, project_name: p.name, project_code: p.code,

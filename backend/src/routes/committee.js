@@ -66,14 +66,11 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
       ORDER BY end_date ASC LIMIT 5`, [pid]);
 
     // ── 3. FINANCIAL / PRESUPUESTO ──
-    const [incomeRows] = await pool.execute('SELECT * FROM budget_income WHERE project_id=?', [pid]);
-    let totalIncome = 0, ivaTotal = 0;
-    for (const r of incomeRows) {
-      const val = parseFloat(r.value || 0);
-      if (r.es_iva) ivaTotal += val;
-      else if (!r.es_total_con_iva && r.tipo === 'ingreso') totalIncome += val;
-    }
-    const totalConIva = totalIncome + ivaTotal;
+    // Income — source of truth: budget_income_schedule (pagos reales)
+    const [schedRows] = await pool.execute('SELECT valor_sin_iva, valor_iva, valor_con_iva FROM budget_income_schedule WHERE project_id=?', [pid]);
+    const totalIncome = schedRows.reduce((s,r)=>s+parseFloat(r.valor_sin_iva||0),0);
+    const ivaTotal    = schedRows.reduce((s,r)=>s+parseFloat(r.valor_iva||0),0);
+    const totalConIva = schedRows.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0);
 
     const [payroll] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=?', [pid]);
     const [contractors] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_contractors WHERE project_id=?', [pid]);

@@ -205,6 +205,24 @@ export default function CorrSignatureModal({
   const handleDragStart = (e, idx) => {
     e.dataTransfer.setData('signerIndex', String(idx));
     e.dataTransfer.effectAllowed = 'copy';
+    // Replace the default ghost (the full card) with a small compact chip so it
+    // doesn't obscure the PDF header/content while the user is positioning.
+    const name  = validSignersForPos[idx]?.signer_name || `Firmante ${idx + 1}`;
+    const color = FIELD_COLORS[idx % FIELD_COLORS.length];
+    const ghost = document.createElement('div');
+    ghost.style.cssText = [
+      'position:fixed', 'top:-200px', 'left:0',
+      `background:${color}`, 'color:#fff',
+      'padding:4px 10px', 'border-radius:20px',
+      'font-size:11px', 'font-weight:700',
+      'white-space:nowrap', 'pointer-events:none',
+      'box-shadow:0 2px 8px rgba(0,0,0,.25)',
+    ].join(';');
+    ghost.textContent = `✍ ${name}`;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    // Remove immediately — browser has already captured the ghost image.
+    requestAnimationFrame(() => document.body.removeChild(ghost));
   };
 
   const handleDragOver = (e) => {

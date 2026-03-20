@@ -442,18 +442,22 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
           doc.moveTo(absX + 4, absY + absH + 1).lineTo(absX + absW - 4, absY + absH + 1)
              .strokeColor(color).lineWidth(0.5).stroke();
 
-          // Labels — only draw if they fit inside the page (avoid auto-page-add)
+          // Labels — row 1: name  |  row 2: cargo · fecha (single line, saves space)
           if (labelSafe) {
-            doc.fillColor('#374151').fontSize(7.5).font('Helvetica')
-               .text(s.signer_name || '', absX, absY + absH + 2, { width: absW, align: 'center', lineBreak: false });
-            if (s.signer_role) {
-              doc.fillColor('#94a3b8').fontSize(7).font('Helvetica')
-                 .text(s.signer_role, absX, absY + absH + 12, { width: absW, align: 'center', lineBreak: false });
-            }
+            doc.fillColor('#374151').fontSize(7.5).font('Helvetica-Bold')
+               .text(s.signer_name || '', absX, absY + absH + 3, { width: absW, align: 'center', lineBreak: false });
+            // Combine role + date on one line separated by  ·
+            const roleParts = [];
+            if (s.signer_role) roleParts.push(s.signer_role);
             if (s.signed_at) {
-              const ts = new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+              roleParts.push(new Date(s.signed_at).toLocaleString('es-CO', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota',
+              }));
+            }
+            if (roleParts.length > 0) {
               doc.fillColor('#94a3b8').fontSize(6.5).font('Helvetica')
-                 .text(ts, absX, absY + absH + 22, { width: absW, align: 'center', lineBreak: false });
+                 .text(roleParts.join(' · '), absX, absY + absH + 14, { width: absW, align: 'center', lineBreak: false });
             }
           }
         } catch (imgErr) {

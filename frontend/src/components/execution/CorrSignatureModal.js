@@ -141,7 +141,9 @@ export default function CorrSignatureModal({
         { responseType: 'arraybuffer' },
       );
       const blobUrl = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      setPdfUrl(blobUrl + '#toolbar=0&navpanes=0&scrollbar=0');
+      // &view=FitH fuerza zoom "fit-to-width" en el visor de Chrome, evitando que
+      // el auto-zoom reduzca el documento a "fit-all-pages" un segundo después de cargar.
+      setPdfUrl(blobUrl + '#toolbar=0&navpanes=0&scrollbar=0&view=FitH');
     } catch {
       setErr('Error al cargar el PDF. Verifique que el documento esté guardado correctamente.');
     } finally { setPdfLoading(false); }

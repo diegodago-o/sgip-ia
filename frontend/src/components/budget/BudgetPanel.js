@@ -48,8 +48,9 @@ function IncomeTab({ projectId, onUpdate }) {
   const [showGenerate, setShowGenerate] = useState(false);
   const [genType, setGenType] = useState('mensual');
   const [genVal, setGenVal] = useState('');
+  const [genAplicaIva, setGenAplicaIva] = useState(true);
   const [addingSched, setAddingSched] = useState(false);
-  const [newSched, setNewSched] = useState({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'' });
+  const [newSched, setNewSched] = useState({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'', aplica_iva: true });
   const [editSchedId, setEditSchedId] = useState(null);
   const [editSchedData, setEditSchedData] = useState({});
 
@@ -64,9 +65,9 @@ function IncomeTab({ projectId, onUpdate }) {
   const handleAdd = async () => { if (!newItem.label) return; await budgetAPI.incomeAdd(projectId, { label: newItem.label, value: parseFloat(newItem.value)||0 }); setNewItem({label:'',value:''}); setAdding(false); load(); onUpdate(); };
   const handleSave = async (id) => { await budgetAPI.incomeUpdate(projectId, id, { ...editData, value: parseFloat(editData.value)||0 }); setEditId(null); load(); onUpdate(); };
   const handleDelete = async (id) => { await budgetAPI.incomeDelete(projectId, id); load(); onUpdate(); };
-  const handleGenerate = async () => { if (!genVal) return; try { await budgetAPI.incomeScheduleGenerate(projectId, { tipo_pago: genType, valor_mensual_sin_iva: parseFloat(genVal)||0 }); setShowGenerate(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
+  const handleGenerate = async () => { if (!genVal) return; try { await budgetAPI.incomeScheduleGenerate(projectId, { tipo_pago: genType, valor_mensual_sin_iva: parseFloat(genVal)||0, aplica_iva: genAplicaIva }); setShowGenerate(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
   const handleAddSched = async () => { if (!newSched.valor_sin_iva) return; try { await budgetAPI.incomeScheduleAdd(projectId, newSched); setNewSched({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'' }); setAddingSched(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
-  const handleSaveSched = async (id) => { try { await budgetAPI.incomeScheduleUpdate(projectId, id, editSchedData); setEditSchedId(null); load(); } catch {} };
+  const handleSaveSched = async (id) => { try { await budgetAPI.incomeScheduleUpdate(projectId, id, { ...editSchedData, valor_sin_iva: parseFloat(editSchedData.valor_sin_iva)||0, aplica_iva: editSchedData.aplica_iva !== false }); setEditSchedId(null); load(); } catch {} };
   const handleDeleteSched = async (id) => { await budgetAPI.incomeScheduleDelete(projectId, id); load(); };
 
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-brand-500" /></div>;
@@ -112,7 +113,7 @@ function IncomeTab({ projectId, onUpdate }) {
         <div className="flex items-center justify-between mb-2">
           <div>
             <h4 className="text-sm font-bold text-brand-900">Flujo de Ingresos (Forma de Pago)</h4>
-            <p className="text-xs text-surface-400">Defina cómo se recibirán los pagos durante la ejecución. Valor sin IVA — el IVA (19%) se calcula automáticamente.</p>
+            <p className="text-xs text-surface-400">Defina cómo se recibirán los pagos durante la ejecución. El IVA (19%) es opcional por pago.</p>
           </div>
           <div className="flex gap-2">
             <button onClick={()=>setShowGenerate(!showGenerate)} className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 flex items-center gap-1"><Settings className="w-3 h-3"/> Generar flujo</button>
@@ -122,7 +123,7 @@ function IncomeTab({ projectId, onUpdate }) {
 
         {/* Generate form */}
         {showGenerate && (
-          <div className="bg-blue-50 rounded-lg p-3 mb-3 flex items-end gap-3">
+          <div className="bg-blue-50 rounded-lg p-3 mb-3 flex items-end gap-3 flex-wrap">
             <div>
               <label className="text-[10px] text-blue-700 font-semibold block mb-1">Tipo de pago</label>
               <select value={genType} onChange={e=>setGenType(e.target.value)} className="input-field text-xs">
@@ -134,6 +135,21 @@ function IncomeTab({ projectId, onUpdate }) {
               <label className="text-[10px] text-blue-700 font-semibold block mb-1">{genType==='mensual' ? 'Valor mensual sin IVA' : 'Valor total sin IVA'}</label>
               <input type="number" value={genVal} onChange={e=>setGenVal(e.target.value)} className="input-field text-xs w-40 text-right" placeholder="0"/>
             </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-blue-700 font-semibold">Aplica IVA (19%)</label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={genAplicaIva} onChange={e=>setGenAplicaIva(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded"/>
+                <span className="text-xs text-blue-800">{genAplicaIva ? 'Sí' : 'No'}</span>
+              </label>
+            </div>
+            {parseFloat(genVal) > 0 && (
+              <div className="text-[10px] text-blue-700 font-mono bg-blue-100 rounded px-2 py-1 self-end mb-0.5">
+                {genAplicaIva
+                  ? <>Sin IVA: <b>{(parseFloat(genVal)||0).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b> → Con IVA: <b>{((parseFloat(genVal)||0)*1.19).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b></>
+                  : <>Total: <b>{(parseFloat(genVal)||0).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b> (sin IVA)</>
+                }
+              </div>
+            )}
             <button onClick={handleGenerate} className="btn-primary text-xs">Generar</button>
             <button onClick={()=>setShowGenerate(false)} className="text-xs text-surface-400 hover:text-surface-600">Cancelar</button>
           </div>
@@ -174,12 +190,24 @@ function IncomeTab({ projectId, onUpdate }) {
                   <input value={newSched.descripcion} onChange={e=>setNewSched(d=>({...d,descripcion:e.target.value}))} className="input-field text-sm w-full" placeholder="Ej: Entrega fase 1 — Hito de inicio"/>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-brand-800 mb-1.5">Valor sin IVA</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-brand-800">Valor sin IVA</label>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input type="checkbox" checked={newSched.aplica_iva} onChange={e=>setNewSched(d=>({...d,aplica_iva:e.target.checked}))} className="w-3.5 h-3.5 accent-emerald-600 rounded"/>
+                      <span className="text-[11px] text-surface-500 font-medium">Aplica IVA 19%</span>
+                    </label>
+                  </div>
                   <input type="number" value={newSched.valor_sin_iva} onChange={e=>setNewSched(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
                   {parseFloat(newSched.valor_sin_iva) > 0 && (
                     <div className="mt-2 flex gap-3 text-xs text-surface-500 justify-end font-mono">
-                      <span>IVA 19%: <b className="text-surface-700">{fm((parseFloat(newSched.valor_sin_iva)||0)*0.19)}</b></span>
-                      <span className="text-brand-600 font-semibold">Con IVA: {fm((parseFloat(newSched.valor_sin_iva)||0)*1.19)}</span>
+                      {newSched.aplica_iva ? (
+                        <>
+                          <span>IVA 19%: <b className="text-surface-700">{fm((parseFloat(newSched.valor_sin_iva)||0)*0.19)}</b></span>
+                          <span className="text-brand-600 font-semibold">Con IVA: {fm((parseFloat(newSched.valor_sin_iva)||0)*1.19)}</span>
+                        </>
+                      ) : (
+                        <span className="text-amber-600 font-medium">Sin IVA — Total: {fm(parseFloat(newSched.valor_sin_iva)||0)}</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -203,7 +231,7 @@ function IncomeTab({ projectId, onUpdate }) {
             <table className="w-full text-sm">
               <thead><tr className="bg-surface-50 text-[10px] font-semibold text-surface-400 uppercase">
                 <th className="px-3 py-2 text-left">Tipo</th><th className="px-3 py-2 text-center w-16">Mes</th><th className="px-3 py-2 text-left">Descripción</th>
-                <th className="px-3 py-2 text-right">Sin IVA</th><th className="px-3 py-2 text-right">IVA (19%)</th><th className="px-3 py-2 text-right">Con IVA</th>
+                <th className="px-3 py-2 text-right">Sin IVA</th><th className="px-3 py-2 text-right">IVA</th><th className="px-3 py-2 text-right">Con IVA</th>
                 <th className="px-3 py-2 text-center w-20">Estado</th><th className="w-12"></th>
               </tr></thead>
               <tbody>
@@ -237,15 +265,21 @@ function IncomeTab({ projectId, onUpdate }) {
                             <input type="number" value={editSchedData.valor_sin_iva} onChange={e=>setEditSchedData(d=>({...d,valor_sin_iva:e.target.value}))} className="input-field text-sm w-full text-right font-mono" step="1" placeholder="0"/>
                           </div>
                           <div>
-                            <label className="block text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-1">IVA 19%</label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[10px] font-semibold text-surface-400 uppercase tracking-wide">IVA</label>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" checked={editSchedData.aplica_iva !== false} onChange={e=>setEditSchedData(d=>({...d,aplica_iva:e.target.checked}))} className="w-3 h-3 accent-brand-600"/>
+                                <span className="text-[10px] text-surface-500">19%</span>
+                              </label>
+                            </div>
                             <div className="input-field text-sm w-full text-right font-mono bg-surface-50 text-surface-500 cursor-default select-none">
-                              {fm((parseFloat(editSchedData.valor_sin_iva)||0)*0.19)}
+                              {editSchedData.aplica_iva !== false ? fm((parseFloat(editSchedData.valor_sin_iva)||0)*0.19) : fm(0)}
                             </div>
                           </div>
                           <div>
                             <label className="block text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Con IVA</label>
                             <div className="input-field text-sm w-full text-right font-mono font-semibold text-brand-700 bg-brand-50 cursor-default select-none">
-                              {fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19)}
+                              {editSchedData.aplica_iva !== false ? fm((parseFloat(editSchedData.valor_sin_iva)||0)*1.19) : fm(parseFloat(editSchedData.valor_sin_iva)||0)}
                             </div>
                           </div>
                           <div>
@@ -271,7 +305,7 @@ function IncomeTab({ projectId, onUpdate }) {
                   </tr>
                 ) : (
                   <tr key={s.id} className={`group border-b border-surface-50 hover:bg-surface-50 cursor-pointer ${idx%2===1?'bg-surface-50/30':''}`}
-                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion,valor_sin_iva:Math.round(s.valor_sin_iva),estado:s.estado});}}>
+                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion,valor_sin_iva:Math.round(s.valor_sin_iva),estado:s.estado,aplica_iva:parseFloat(s.valor_iva||0)>0 || parseFloat(s.valor_sin_iva||0)===0});}}>
                     <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${s.tipo_pago==='mensual'?'bg-blue-100 text-blue-700':s.tipo_pago==='hito'?'bg-amber-100 text-amber-700':'bg-purple-100 text-purple-700'}`}>{s.tipo_pago==='mensual'?'Mensual':s.tipo_pago==='hito'?'Hito':'Único'}</span></td>
                     <td className="px-3 py-2 text-center font-mono text-xs text-surface-600">{s.mes||'—'}</td>
                     <td className="px-3 py-2 text-surface-700 text-xs">{s.descripcion||`Pago mes ${s.mes}`}</td>

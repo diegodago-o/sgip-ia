@@ -98,7 +98,7 @@ router.get('/:projectId/summary', [param('projectId').isInt()], async (req, res)
     const pid = req.params.projectId;
     const pm = await getProjectMonths(pid);
 
-    const [income] = await pool.execute('SELECT COALESCE(SUM(value),0) as total FROM budget_income WHERE project_id = ?', [pid]);
+    const [income] = await pool.execute('SELECT COALESCE(SUM(valor_con_iva),0) as total FROM budget_income_schedule WHERE project_id = ?', [pid]);
     const [payroll] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as total, COUNT(*) as count FROM budget_payroll WHERE project_id = ?', [pid]);
     const [contractors] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as total, COUNT(*) as count FROM budget_contractors WHERE project_id = ?', [pid]);
     const [expenses] = await pool.execute(`
@@ -487,7 +487,8 @@ router.post('/:projectId/income-schedule', async (req, res) => {
     const pid = req.params.projectId;
     const b = req.body;
     const sinIva = parseFloat(b.valor_sin_iva) || 0;
-    const iva = Math.round(sinIva * 0.19 * 100) / 100;
+    const aplicaIva = b.aplica_iva !== false && b.aplica_iva !== 'false' && b.aplica_iva !== 0;
+    const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
     const conIva = sinIva + iva;
     const [ms] = await pool.execute('SELECT COALESCE(MAX(sort_order),0)+1 as s FROM budget_income_schedule WHERE project_id=?', [pid]);
     const [r] = await pool.execute(
@@ -507,9 +508,10 @@ router.put('/:projectId/income-schedule/:id', async (req, res) => {
     if (b.tipo_pago) { f.push('tipo_pago=?'); v.push(b.tipo_pago); }
     if (b.mes !== undefined) { f.push('mes=?'); v.push(b.mes); }
     if (b.descripcion !== undefined) { f.push('descripcion=?'); v.push(b.descripcion); }
-    if (b.valor_sin_iva !== undefined) {
-      const sinIva = parseFloat(b.valor_sin_iva) || 0;
-      const iva = Math.round(sinIva * 0.19 * 100) / 100;
+    if (b.valor_sin_iva !== undefined || b.aplica_iva !== undefined) {
+      const sinIva = parseFloat(b.valor_sin_iva !== undefined ? b.valor_sin_iva : 0) || 0;
+      const aplicaIva = b.aplica_iva !== false && b.aplica_iva !== 'false' && b.aplica_iva !== 0;
+      const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
       f.push('valor_sin_iva=?','valor_iva=?','valor_con_iva=?');
       v.push(sinIva, iva, sinIva + iva);
     }
@@ -535,11 +537,12 @@ router.post('/:projectId/income-schedule/generate', async (req, res) => {
   try {
     const pid = req.params.projectId;
     const pm = await getProjectMonths(parseInt(pid));
-    const { valor_mensual_sin_iva, tipo_pago } = req.body;
+    const { valor_mensual_sin_iva, tipo_pago, aplica_iva } = req.body;
+    const aplicaIva = aplica_iva !== false && aplica_iva !== 'false' && aplica_iva !== 0;
 
     if (tipo_pago === 'mensual') {
       const sinIva = parseFloat(valor_mensual_sin_iva) || 0;
-      const iva = Math.round(sinIva * 0.19 * 100) / 100;
+      const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
       // Clear existing schedule
       await pool.execute('DELETE FROM budget_income_schedule WHERE project_id=?', [pid]);
       for (let m = 1; m <= pm; m++) {
@@ -550,7 +553,7 @@ router.post('/:projectId/income-schedule/generate', async (req, res) => {
       }
     } else if (tipo_pago === 'unico') {
       const sinIva = parseFloat(valor_mensual_sin_iva) || 0;
-      const iva = Math.round(sinIva * 0.19 * 100) / 100;
+      const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
       await pool.execute('DELETE FROM budget_income_schedule WHERE project_id=?', [pid]);
       await pool.execute(
         `INSERT INTO budget_income_schedule (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva, sort_order) VALUES (?,?,?,?,?,?,?,?)`,

@@ -13,41 +13,61 @@ const FIELD_COLORS = [
   '#7B2D8B', '#1B4332', '#C9184A', '#023E8A',
 ];
 
-// ─── Draggable field box drawn on the PDF overlay ──────────────────────────
-function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemove }) {
-  const startDrag = useRef(null);
+// ─── Draggable + resizable field box drawn on the PDF overlay ───────────────
+function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemove, onResize }) {
+  const startDrag   = useRef(null);
+  const startResize = useRef(null);
 
+  // ── Move: drag the whole box ──
   const handleMouseDown = (e) => {
     e.preventDefault();
     e.stopPropagation();
     const rect = containerRef.current.getBoundingClientRect();
     startDrag.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: pos.x_percent,
-      origY: pos.y_percent,
-      containerW: rect.width,
-      containerH: rect.height,
+      startX: e.clientX, startY: e.clientY,
+      origX: pos.x_percent, origY: pos.y_percent,
+      containerW: rect.width, containerH: rect.height,
     };
-
-    const handleMouseMove = (ev) => {
+    const onMove_ = (ev) => {
       if (!startDrag.current) return;
       const { startX, startY, origX, origY, containerW, containerH } = startDrag.current;
-      const dx = (ev.clientX - startX) / containerW;
-      const dy = (ev.clientY - startY) / containerH;
-      const newX = Math.max(0, Math.min(1 - pos.width_percent, origX + dx));
-      const newY = Math.max(0, Math.min(1 - pos.height_percent, origY + dy));
+      const newX = Math.max(0, Math.min(1 - pos.width_percent,  origX + (ev.clientX - startX) / containerW));
+      const newY = Math.max(0, Math.min(1 - pos.height_percent, origY + (ev.clientY - startY) / containerH));
       onMove(idx, newX, newY);
     };
-
-    const handleMouseUp = () => {
+    const onUp = () => {
       startDrag.current = null;
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', onMove_);
+      document.removeEventListener('mouseup', onUp);
     };
+    document.addEventListener('mousemove', onMove_);
+    document.addEventListener('mouseup', onUp);
+  };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+  // ── Resize: drag the bottom-right handle ──
+  const handleResizeMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // must not trigger the move handler above
+    const rect = containerRef.current.getBoundingClientRect();
+    startResize.current = {
+      startX: e.clientX, startY: e.clientY,
+      origW: pos.width_percent, origH: pos.height_percent,
+      containerW: rect.width, containerH: rect.height,
+    };
+    const onResize_ = (ev) => {
+      if (!startResize.current) return;
+      const { startX, startY, origW, origH, containerW, containerH } = startResize.current;
+      const newW = Math.max(0.08, Math.min(1 - pos.x_percent, origW + (ev.clientX - startX) / containerW));
+      const newH = Math.max(0.01, Math.min(1 - pos.y_percent, origH + (ev.clientY - startY) / containerH));
+      onResize(idx, newW, newH);
+    };
+    const onUp = () => {
+      startResize.current = null;
+      document.removeEventListener('mousemove', onResize_);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onResize_);
+    document.addEventListener('mouseup', onUp);
   };
 
   return (
@@ -55,16 +75,16 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
       onMouseDown={handleMouseDown}
       style={{
         position: 'absolute',
-        left:   `${pos.x_percent     * 100}%`,
-        top:    `${pos.y_percent     * 100}%`,
-        width:  `${pos.width_percent * 100}%`,
-        height: `${pos.height_percent* 100}%`,
+        left:   `${pos.x_percent      * 100}%`,
+        top:    `${pos.y_percent      * 100}%`,
+        width:  `${pos.width_percent  * 100}%`,
+        height: `${pos.height_percent * 100}%`,
         border: `2px dashed ${color}`,
         background: `${color}22`,
         cursor: 'move',
         zIndex: 20,
         userSelect: 'none',
-        pointerEvents: 'auto',   // override parent pointer-events:none
+        pointerEvents: 'auto',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -76,7 +96,8 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
           ✍ {name}
         </div>
       </div>
-      {/* Remove button */}
+
+      {/* Remove button — top-right */}
       <button
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onRemove(idx); }}
@@ -89,6 +110,19 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
           lineHeight: 1, pointerEvents: 'auto',
         }}
       >✕</button>
+
+      {/* Resize handle — bottom-right corner */}
+      <div
+        onMouseDown={handleResizeMouseDown}
+        title="Arrastrar para redimensionar"
+        style={{
+          position: 'absolute', bottom: -5, right: -5,
+          width: 12, height: 12, borderRadius: '50%',
+          background: '#fff', border: `2px solid ${color}`,
+          cursor: 'nwse-resize', zIndex: 30, pointerEvents: 'auto',
+          boxShadow: '0 1px 3px rgba(0,0,0,.3)',
+        }}
+      />
     </div>
   );
 }
@@ -258,6 +292,13 @@ export default function CorrSignatureModal({
     setPlacedFields(prev => ({
       ...prev,
       [idx]: { ...prev[idx], x_percent: newX, y_percent: newY },
+    }));
+  };
+
+  const handleResizeField = (idx, newW, newH) => {
+    setPlacedFields(prev => ({
+      ...prev,
+      [idx]: { ...prev[idx], width_percent: newW, height_percent: newH },
     }));
   };
 
@@ -633,6 +674,7 @@ export default function CorrSignatureModal({
                             containerRef={containerRef}
                             onMove={handleMoveField}
                             onRemove={handleRemoveField}
+                            onResize={handleResizeField}
                           />
                         );
                       })}

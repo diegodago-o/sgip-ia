@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Eye, EyeOff, Lock, Mail, Cpu, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Cpu, ShieldCheck, ArrowRight, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
-// Google "G" logo SVG
 function GoogleLogo() {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
@@ -18,14 +17,13 @@ function GoogleLogo() {
   );
 }
 
-// Microsoft logo SVG
-function MicrosoftLogo() {
+function MicrosoftLogo({ white = false }) {
   return (
     <svg viewBox="0 0 23 23" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
-      <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
-      <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
-      <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+      <rect x="1" y="1" width="10" height="10" fill={white ? '#fff' : '#F25022'}/>
+      <rect x="12" y="1" width="10" height="10" fill={white ? '#ffffffbb' : '#7FBA00'}/>
+      <rect x="1" y="12" width="10" height="10" fill={white ? '#ffffffbb' : '#00A4EF'}/>
+      <rect x="12" y="12" width="10" height="10" fill={white ? '#ffffff88' : '#FFB900'}/>
     </svg>
   );
 }
@@ -43,7 +41,7 @@ export default function LoginPage() {
   useEffect(() => {
     axios.get(`${API_BASE}/auth/sso-providers`)
       .then(r => setSsoProviders(r.data))
-      .catch(() => {}); // fail silently — just hide SSO buttons
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e) => {
@@ -54,28 +52,26 @@ export default function LoginPage() {
       await login(email, password);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Error de conexión con el servidor');
+      setError(err.response?.data?.error || 'Credenciales incorrectas. Verifica tu correo y contraseña.');
     } finally {
       setLoading(false);
     }
   };
 
   const hasSso = ssoProviders.google || ssoProviders.microsoft;
+  const bothSso = ssoProviders.google && ssoProviders.microsoft;
 
   return (
     <div className="min-h-screen flex">
 
       {/* ── Left panel — Branding ─────────────────────────────────────────── */}
       <div className="hidden lg:flex lg:w-[55%] relative bg-brand-900 overflow-hidden">
-        {/* Dot grid */}
         <div className="absolute inset-0 opacity-[0.06]"
           style={{ backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`, backgroundSize: '32px 32px' }} />
-        {/* Glow orbs */}
         <div className="absolute top-[-8%] right-[-4%] w-[520px] h-[520px] rounded-full bg-brand-400 opacity-20 blur-[130px] pointer-events-none" />
         <div className="absolute bottom-[-12%] left-[-6%] w-[420px] h-[420px] rounded-full bg-accent-400 opacity-10 blur-[110px] pointer-events-none" />
 
         <div className="relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full">
-          {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 flex items-center justify-center">
               <Cpu className="w-5 h-5 text-white" />
@@ -83,7 +79,6 @@ export default function LoginPage() {
             <span className="text-white font-display font-bold text-xl tracking-tight">SGIP-IA</span>
           </div>
 
-          {/* Hero copy */}
           <div className="space-y-6 max-w-lg">
             <h1 className="text-4xl xl:text-5xl font-display font-extrabold text-white leading-tight">
               Gestión de Proyectos<br />
@@ -93,7 +88,6 @@ export default function LoginPage() {
               Automatiza el seguimiento de tus proyectos desde la adjudicación hasta el cierre.
               Extracción inteligente de obligaciones, alertas proactivas y KPIs en tiempo real.
             </p>
-            {/* Feature pills */}
             <div className="flex flex-wrap gap-2 pt-1">
               {['Multiproyecto', 'Público & Privado', 'IA Integrada', 'SharePoint'].map((tag) => (
                 <span key={tag}
@@ -104,7 +98,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex items-center gap-1.5 text-brand-400 text-xs">
             <ShieldCheck className="w-3.5 h-3.5" />
             Acceso protegido
@@ -114,7 +107,7 @@ export default function LoginPage() {
 
       {/* ── Right panel — Login form ──────────────────────────────────────── */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-white">
-        <div className="w-full max-w-[380px] animate-fade-in">
+        <div className="w-full max-w-[400px] animate-fade-in">
 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
@@ -125,53 +118,57 @@ export default function LoginPage() {
           </div>
 
           {/* Heading */}
-          <div className="mb-8">
+          <div className="mb-7">
             <h2 className="text-2xl font-display font-bold text-brand-900">Iniciar sesión</h2>
-            <p className="mt-1.5 text-surface-400 text-sm">Ingresa tus credenciales para acceder al sistema</p>
+            <p className="mt-1.5 text-surface-400 text-sm">Accede con tu cuenta corporativa o tus credenciales</p>
           </div>
 
           {/* Error */}
           {error && (
-            <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-100 flex items-start gap-2.5 animate-slide-up">
-              <div className="w-4 h-4 rounded-full bg-red-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <span className="text-red-600 text-[10px] font-bold">!</span>
-              </div>
-              <p className="text-red-700 text-sm">{error}</p>
+            <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3 animate-slide-up">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-red-700 text-sm font-medium">{error}</p>
             </div>
           )}
 
-          {/* SSO Buttons */}
+          {/* ── SSO Buttons ───────────────────────────────────────────── */}
           {hasSso && (
-            <div className="mb-6 space-y-2.5">
-              {ssoProviders.google && (
-                <a
-                  href={`${API_BASE}/auth/google`}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-brand-800 hover:bg-surface-50 hover:border-surface-300 transition-all duration-150"
-                >
-                  <GoogleLogo />
-                  Continuar con Google
-                </a>
-              )}
+            <div className={`mb-6 ${bothSso ? 'grid grid-cols-2 gap-3' : ''}`}>
               {ssoProviders.microsoft && (
                 <a
                   href={`${API_BASE}/auth/microsoft`}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-brand-800 hover:bg-surface-50 hover:border-surface-300 transition-all duration-150"
+                  className="flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-150 shadow-sm"
+                  style={{ background: '#0078D4' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#006BBF'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#0078D4'}
                 >
-                  <MicrosoftLogo />
-                  Continuar con Microsoft
+                  <MicrosoftLogo white />
+                  <span>{bothSso ? 'Microsoft' : 'Continuar con Microsoft 365'}</span>
                 </a>
               )}
-              <div className="flex items-center gap-3 pt-1">
-                <div className="flex-1 h-px bg-surface-100" />
-                <span className="text-xs text-surface-300">o usa tu correo</span>
-                <div className="flex-1 h-px bg-surface-100" />
-              </div>
+              {ssoProviders.google && (
+                <a
+                  href={`${API_BASE}/auth/google`}
+                  className="flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl border border-surface-200 text-sm font-semibold text-brand-800 bg-white hover:bg-surface-50 hover:border-surface-300 transition-all duration-150 shadow-sm"
+                >
+                  <GoogleLogo />
+                  <span>{bothSso ? 'Google' : 'Continuar con Google'}</span>
+                </a>
+              )}
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
+          {/* Divider */}
+          {hasSso && (
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex-1 h-px bg-surface-100" />
+              <span className="text-xs text-surface-400 font-medium">o ingresa con correo y contraseña</span>
+              <div className="flex-1 h-px bg-surface-100" />
+            </div>
+          )}
+
+          {/* ── Local Login Form ──────────────────────────────────────── */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-brand-800 mb-1.5">
                 Correo electrónico
@@ -181,17 +178,16 @@ export default function LoginPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); setError(''); }}
                   placeholder="correo@empresa.com"
                   className="input-field pl-10 w-full"
                   required
-                  autoFocus
+                  autoFocus={!hasSso}
                   autoComplete="email"
                 />
               </div>
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-brand-800 mb-1.5">
                 Contraseña
@@ -201,7 +197,7 @@ export default function LoginPage() {
                 <input
                   type={showPass ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); setError(''); }}
                   placeholder="••••••••"
                   className="input-field pl-10 pr-10 w-full"
                   required
@@ -214,11 +210,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold rounded-xl shadow-sm transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full mt-1 flex items-center justify-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold rounded-xl shadow-sm transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>

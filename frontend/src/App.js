@@ -1,6 +1,14 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+
+/** Guard: redirects to / if user's role is not in allowedRoles */
+function RoleGuard({ allowedRoles, children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (!allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+}
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
@@ -56,8 +64,16 @@ function AuthenticatedApp() {
           {/* Future modules */}
           <Route path="planificacion" element={<PlaceholderPage />} />
           <Route path="indicadores" element={<PlaceholderPage />} />
-          <Route path="configuracion" element={<ConfiguracionPage />} />
-          <Route path="admin/usuarios" element={<AdminUsersPage />} />
+          <Route path="configuracion" element={
+            <RoleGuard allowedRoles={['admin', 'director_pmo']}>
+              <ConfiguracionPage />
+            </RoleGuard>
+          } />
+          <Route path="admin/usuarios" element={
+            <RoleGuard allowedRoles={['admin']}>
+              <AdminUsersPage />
+            </RoleGuard>
+          } />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

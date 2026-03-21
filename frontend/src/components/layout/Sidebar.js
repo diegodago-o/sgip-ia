@@ -85,59 +85,61 @@ export default function Sidebar() {
           );
         })}
 
-        <div className="my-4 mx-3 border-t border-white/10" />
-        {!collapsed && <p className="px-3 mb-2 text-[10px] uppercase tracking-widest text-brand-500 font-semibold">Sistema</p>}
+        {/* Configuración — solo admin y director_pmo */}
+        {(role === 'admin' || role === 'director_pmo') && (
+          <>
+            <div className="my-4 mx-3 border-t border-white/10" />
+            {!collapsed && <p className="px-3 mb-2 text-[10px] uppercase tracking-widest text-brand-500 font-semibold">Sistema</p>}
 
-        {/* Configuración con sub-ítem de Usuarios (solo admin) */}
-        {collapsed ? (
-          /* Colapsado: sólo icono Configuración */
-          <NavLink to="/configuracion"
-            className={() => linkClasses(location.pathname === '/configuracion')}
-            title="Configuración">
-            <Settings className="w-[18px] h-[18px] flex-shrink-0 text-brand-400 group-hover:text-brand-200" />
-          </NavLink>
-        ) : (
-          <div>
-            {/* Botón principal Configuración */}
-            <button
-              onClick={() => setConfigOpen(o => !o)}
-              className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                location.pathname === '/configuracion' || location.pathname.startsWith('/admin')
-                  ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
-                  : 'text-brand-200 hover:bg-white/10 hover:text-white'
-              }`}>
-              <Settings className="w-[18px] h-[18px] flex-shrink-0 text-brand-400 group-hover:text-brand-200" />
-              <span className="flex-1 text-left truncate">Configuración</span>
-              <ChevronDown className={`w-3.5 h-3.5 text-brand-400 transition-transform duration-200 ${configOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Sub-ítems */}
-            {configOpen && (
-              <div className="ml-4 mt-1 space-y-0.5 border-l border-white/10 pl-3">
-                <NavLink to="/configuracion"
-                  className={() => `flex items-center gap-2 px-2 py-2 rounded-md text-xs font-medium transition-all duration-150 ${
-                    location.pathname === '/configuracion'
-                      ? 'text-white bg-white/10'
-                      : 'text-brand-300 hover:text-white hover:bg-white/5'
+            {collapsed ? (
+              /* Colapsado: sólo icono Configuración */
+              <NavLink to="/configuracion"
+                className={() => linkClasses(location.pathname === '/configuracion')}
+                title="Configuración">
+                <Settings className="w-[18px] h-[18px] flex-shrink-0 text-brand-400 group-hover:text-brand-200" />
+              </NavLink>
+            ) : (
+              <div>
+                <button
+                  onClick={() => setConfigOpen(o => !o)}
+                  className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    location.pathname === '/configuracion' || location.pathname.startsWith('/admin')
+                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                      : 'text-brand-200 hover:bg-white/10 hover:text-white'
                   }`}>
-                  <Settings className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span>Ajustes del sistema</span>
-                </NavLink>
+                  <Settings className="w-[18px] h-[18px] flex-shrink-0 text-brand-400 group-hover:text-brand-200" />
+                  <span className="flex-1 text-left truncate">Configuración</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-brand-400 transition-transform duration-200 ${configOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                {role === 'admin' && (
-                  <NavLink to="/admin/usuarios"
-                    className={() => `flex items-center gap-2 px-2 py-2 rounded-md text-xs font-medium transition-all duration-150 ${
-                      location.pathname.startsWith('/admin')
-                        ? 'text-white bg-white/10'
-                        : 'text-brand-300 hover:text-white hover:bg-white/5'
-                    }`}>
-                    <Users className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span>Usuarios y Roles</span>
-                  </NavLink>
+                {configOpen && (
+                  <div className="ml-4 mt-1 space-y-0.5 border-l border-white/10 pl-3">
+                    <NavLink to="/configuracion"
+                      className={() => `flex items-center gap-2 px-2 py-2 rounded-md text-xs font-medium transition-all duration-150 ${
+                        location.pathname === '/configuracion'
+                          ? 'text-white bg-white/10'
+                          : 'text-brand-300 hover:text-white hover:bg-white/5'
+                      }`}>
+                      <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Ajustes del sistema</span>
+                    </NavLink>
+
+                    {role === 'admin' && (
+                      <NavLink to="/admin/usuarios"
+                        className={() => `flex items-center gap-2 px-2 py-2 rounded-md text-xs font-medium transition-all duration-150 ${
+                          location.pathname.startsWith('/admin')
+                            ? 'text-white bg-white/10'
+                            : 'text-brand-300 hover:text-white hover:bg-white/5'
+                        }`}>
+                        <Users className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Usuarios y Roles</span>
+                      </NavLink>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </>
         )}
       </nav>
 

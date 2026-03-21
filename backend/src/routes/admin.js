@@ -23,6 +23,7 @@ router.get('/users', roleMiddleware('admin'), async (req, res) => {
   try {
     const [users] = await pool.execute(
       `SELECT u.id, u.email, u.full_name, u.role, u.phone, u.position, u.is_active, u.last_login, u.created_at,
+              u.oauth_provider,
         (SELECT COUNT(*) FROM project_assignments pa WHERE pa.user_id = u.id AND pa.is_active = 1) as project_count
        FROM users u ORDER BY u.full_name`
     );

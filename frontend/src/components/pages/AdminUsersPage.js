@@ -3,8 +3,13 @@ import { adminAPI, projectsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import {
   Users, UserPlus, Edit3, ToggleLeft, ToggleRight, Shield, Search,
-  X, Check, FolderOpen, ChevronDown, ChevronUp, Loader2, Plus, Trash2,
+  X, Check, FolderOpen, ChevronDown, ChevronUp, Loader2, Plus, Trash2, Link,
 } from 'lucide-react';
+
+const SSO_PROVIDER_LABEL = {
+  google:    { label: 'Google', bg: 'bg-red-50 text-red-600 border-red-200' },
+  microsoft: { label: 'Microsoft', bg: 'bg-blue-50 text-blue-600 border-blue-200' },
+};
 
 const ROLE_INFO = {
   admin:            { label: 'Administrador',       color: 'bg-red-100 text-red-700', desc: 'Acceso total al sistema' },
@@ -115,9 +120,17 @@ function UserCard({ user, isExpanded, onExpand, onEdit, onToggle, isSelf }) {
           <span className="text-sm font-bold text-brand-700">{user.full_name.charAt(0).toUpperCase()}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-brand-900 truncate">{user.full_name}</p>
             {!user.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">Inactivo</span>}
+            {user.oauth_provider && (() => {
+              const sso = SSO_PROVIDER_LABEL[user.oauth_provider] || { label: user.oauth_provider, bg: 'bg-gray-50 text-gray-500 border-gray-200' };
+              return (
+                <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${sso.bg}`}>
+                  <Link className="w-2.5 h-2.5" /> SSO · {sso.label}
+                </span>
+              );
+            })()}
           </div>
           <p className="text-xs text-surface-500 truncate">{user.email}{user.position ? ` · ${user.position}` : ''}</p>
         </div>
@@ -144,6 +157,10 @@ function UserCard({ user, isExpanded, onExpand, onEdit, onToggle, isSelf }) {
           <div className="text-xs text-surface-500 space-y-1">
             <p>Último acceso: {user.last_login ? new Date(user.last_login).toLocaleString('es-CO') : 'Nunca'}</p>
             <p>Creado: {new Date(user.created_at).toLocaleString('es-CO')}</p>
+            <p>Autenticación: {user.oauth_provider
+              ? <span className="font-medium text-brand-600">SSO — {SSO_PROVIDER_LABEL[user.oauth_provider]?.label || user.oauth_provider} (sin contraseña local)</span>
+              : 'Contraseña local'}
+            </p>
           </div>
           {user.role !== 'admin' && (
             <ProjectAssignments userId={user.id} userName={user.full_name} userRole={user.role} />

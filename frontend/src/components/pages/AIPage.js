@@ -527,7 +527,7 @@ export default function AIPage() {
       </div>
 
       {/* API Key warning */}
-      {!apiKey && (
+      {!apiKey && !systemConfigured?.[provider] && (
         <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           Configure su API Key en el selector de proveedor (ícono ⚙️) o en el archivo .env del backend.

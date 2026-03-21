@@ -292,7 +292,11 @@ export default function ProjectDetailPage() {
 
   const loadProject = useCallback(() => {
     projectsAPI.get(id)
-      .then(({ data }) => setProject(data.data))
+      .then(({ data }) => {
+        setProject(data.data);
+        // Keep cross-module project selection in sync
+        localStorage.setItem('sgip_selected_project', data.data.id);
+      })
       .catch(() => navigate('/adjudicacion'))
       .finally(() => setLoading(false));
   }, [id, navigate]);

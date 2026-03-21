@@ -442,7 +442,10 @@ function ChatTab({ projectId, provider, apiKey, model }) {
 // ── MAIN PAGE ──
 export default function AIPage() {
   const [projects, setProjects] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => {
+    const s = localStorage.getItem('sgip_selected_project');
+    return s ? parseInt(s, 10) : null;
+  });
   const [selectedProject, setSelectedProject] = useState(null);
   const [activeTab, setActiveTab] = useState('extract');
   const [loading, setLoading] = useState(true);
@@ -477,9 +480,20 @@ export default function AIPage() {
       .catch(() => {});
   }, []);
 
+  // Persist selected project across modules
+  useEffect(() => { if (selectedId) localStorage.setItem('sgip_selected_project', selectedId); }, [selectedId]);
+
   useEffect(() => {
     projectsAPI.list({ limit: 100 })
-      .then(({ data }) => { setProjects(data.data); if (data.data.length) { setSelectedId(data.data[0].id); setSelectedProject(data.data[0]); } })
+      .then(({ data }) => {
+        const all = data.data;
+        setProjects(all);
+        if (all.length === 0) return;
+        const stored = parseInt(localStorage.getItem('sgip_selected_project'), 10);
+        const preferred = all.find(p => p.id === stored) || all[0];
+        setSelectedId(preferred.id);
+        setSelectedProject(preferred);
+      })
       .catch(() => {}).finally(() => setLoading(false));
   }, []);
 

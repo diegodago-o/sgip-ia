@@ -38,27 +38,33 @@ function fmtMoney(v) { return v ? new Intl.NumberFormat('es-CO',{style:'currency
 export default function ExecutionPage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => {
+    const s = localStorage.getItem('sgip_selected_project');
+    return s ? parseInt(s, 10) : null;
+  });
   const [selectedProject, setSelectedProject] = useState(null);
   const [activeTab, setActiveTab] = useState('schedule');
   const [loading, setLoading] = useState(true);
   const [dropOpen, setDropOpen] = useState(false);
   const perms = usePermissions('ejecucion');
 
+  // Persist selected project across modules
+  useEffect(() => { if (selectedId) localStorage.setItem('sgip_selected_project', selectedId); }, [selectedId]);
+
   const loadProjects = useCallback(() => {
     projectsAPI.list({ limit: 100, status: '' })
       .then(({ data }) => {
         const active = data.data.filter(p => ['en_ejecucion','en_arranque','adjudicado'].includes(p.status));
         setProjects(active);
-        if (!selectedId && active.length > 0) { setSelectedId(active[0].id); setSelectedProject(active[0]); }
-        else if (selectedId) {
-          const updated = active.find(p => p.id === selectedId);
-          if (updated) setSelectedProject(updated);
-        }
+        if (active.length === 0) return;
+        const stored = parseInt(localStorage.getItem('sgip_selected_project'), 10);
+        const preferred = active.find(p => p.id === stored) || active[0];
+        setSelectedId(preferred.id);
+        setSelectedProject(preferred);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => { loadProjects(); }, []); // eslint-disable-line
 

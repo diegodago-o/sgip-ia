@@ -23,19 +23,29 @@ const STATUS_C = {
 
 export default function ClosurePage() {
   const [projects, setProjects] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => {
+    const s = localStorage.getItem('sgip_selected_project');
+    return s ? parseInt(s, 10) : null;
+  });
   const [selectedProject, setSelectedProject] = useState(null);
   const [activeTab, setActiveTab] = useState('checklist');
   const [loading, setLoading] = useState(true);
   const [dropOpen, setDropOpen] = useState(false);
   const perms = usePermissions('cierre');
 
+  // Persist selected project across modules
+  useEffect(() => { if (selectedId) localStorage.setItem('sgip_selected_project', selectedId); }, [selectedId]);
+
   useEffect(() => {
     projectsAPI.list({ limit: 100 })
       .then(({ data }) => {
         const all = data.data;
         setProjects(all);
-        if (all.length > 0) { setSelectedId(all[0].id); setSelectedProject(all[0]); }
+        if (all.length === 0) return;
+        const stored = parseInt(localStorage.getItem('sgip_selected_project'), 10);
+        const preferred = all.find(p => p.id === stored) || all[0];
+        setSelectedId(preferred.id);
+        setSelectedProject(preferred);
       })
       .catch(() => {})
       .finally(() => setLoading(false));

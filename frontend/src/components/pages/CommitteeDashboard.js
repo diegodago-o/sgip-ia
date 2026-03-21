@@ -256,6 +256,26 @@ Pendientes: ${d.commitments.pending || 0}
 Vencidos: ${d.commitments.overdue || 0}
 ${pendCommits.length > 0 ? `COMPROMISOS PENDIENTES:\n${pendCommits.slice(0, 10).map(c => `- ${c.description?.substring(0, 100)} → ${c.responsible || 'Sin asignar'}`).join('\n')}` : ''}
 
+═══ HITOS ═══
+Total: ${d.milestones?.total || 0}
+Completados: ${d.milestones?.completados || 0}
+En progreso: ${d.milestones?.en_progreso || 0}
+Pendientes: ${d.milestones?.pendientes || 0}
+Atrasados: ${d.milestones?.atrasados || 0}
+
+═══ ENTREGABLES ═══
+Total: ${d.deliverables?.total || 0}
+Aprobados: ${d.deliverables?.aprobados || 0}
+En revisión: ${d.deliverables?.en_revision || 0}
+Pendientes: ${d.deliverables?.pendientes || 0}
+Rechazados: ${d.deliverables?.rechazados || 0}
+
+═══ CONTROL DE CAMBIOS ═══
+Total cambios/adiciones: ${d.changes?.total || 0}
+Aprobados: ${d.changes?.approved || 0}
+Pendientes: ${d.changes?.pending || 0}
+Valor total cambios aprobados: ${COP(d.changes?.total_value || 0)}
+
 ═══ SEMÁFOROS ═══
 General: ${s.general} | Cronograma: ${s.cronograma} | Financiero: ${s.financiero}
 Obligaciones: ${s.obligaciones} | Riesgos: ${s.riesgos} | Pólizas: ${s.polizas}
@@ -350,170 +370,184 @@ REGLAS:
       const fd = new FormData();
       fd.append('text', summary);
       fd.append('extraction_type', 'analyze');
-      fd.append('analysis_prompt', `Eres un experto certificado PMP/PgMP en gestión de proyectos PMBoK 7. Con base en los datos reales del proyecto proporcionados, analiza y completa TODOS los indicadores. Usa cifras y datos concretos del proyecto — NUNCA valores genéricos ni placeholders. Infiere valores razonables basados en los semáforos y métricas cuando no haya dato exacto disponible.
+      fd.append('analysis_prompt', `Eres un experto PMP/PgMP. Tienes los datos reales del proyecto. Calcula CADA indicador usando las cifras concretas del texto. NO uses placeholders — usa los números reales o calcula el valor.
 
-Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con esta estructura:
+CÁLCULOS CLAVE que debes hacer:
+- SPI = Avance físico real % ÷ Tiempo transcurrido % (ejemplo: 42% ÷ 55% = 0.76)
+- CPI aproximado = (Presupuesto × Avance%) ÷ Total ejecutado
+- EAC = Total ejecutado ÷ (Avance físico / 100)
+- Cumplimiento obligaciones = (Cumplidas ÷ Total) × 100
+- Cumplimiento compromisos = (Completados ÷ Total) × 100
+- Cumplimiento entregables = (Aprobados ÷ Total) × 100
+- Cumplimiento hitos = (Completados ÷ Total) × 100
+- Cobertura pólizas = (Vigentes ÷ Total) × 100
+- Estado RAG → usa directamente los semáforos: verde/amarillo/rojo
+
+Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con esta estructura exacta:
 {
   "pmi_gerente": [
     {
       "grupo": "Cronograma",
       "emoji": "📅",
       "indicadores": [
-        { "nombre": "SPI – Índice desempeño cronograma", "valor": "<valor numérico calculado: avance_real/tiempo_transcurrido>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación concreta con datos>" },
-        { "nombre": "Desviación del cronograma", "valor": "<+/- días o %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifra real>" },
-        { "nombre": "Actividades críticas vencidas", "valor": "<N actividades>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Probabilidad de cumplir fecha final", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve basado en tendencia>" }
+        { "nombre": "SPI – Índice desempeño cronograma", "valor": "<calcula: avance_físico% ÷ tiempo_transcurrido%, ej: 0.76>", "estado": "<verde si >=0.9 | amarillo si 0.7-0.89 | rojo si <0.7>", "nota": "<avance X% con Y% de tiempo consumido>" },
+        { "nombre": "Desviación del cronograma", "valor": "<usa el campo Desviación directamente, ej: -8.5%>", "estado": "<verde si >=0 | amarillo si -1 a -15% | rojo si <-15%>", "nota": "<adelanto o atraso con días estimados>" },
+        { "nombre": "Actividades atrasadas", "valor": "<N actividades de M totales>", "estado": "<verde si 0 | amarillo si 1-3 | rojo si >3>", "nota": "<menciona la más crítica si hay lista>" },
+        { "nombre": "Hitos atrasados", "valor": "<N hitos de M totales>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<impacto en entrega final>" }
       ]
     },
     {
-      "grupo": "Costo y Control Financiero",
+      "grupo": "Costo y Ejecución Financiera",
       "emoji": "💰",
       "indicadores": [
-        { "nombre": "CPI – Índice desempeño del costo", "valor": "<valor numérico>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación>" },
-        { "nombre": "Presupuesto ejecutado vs aprobado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifras>" },
-        { "nombre": "EAC – Estimado al cierre", "valor": "<COP>", "estado": "<verde|amarillo|rojo>", "nota": "<vs presupuesto base>" },
-        { "nombre": "Variación presupuestal proyectada", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipa sobrecosto o ahorro>" }
+        { "nombre": "CPI – Índice desempeño del costo", "valor": "<calcula: (Presupuesto×avance%) ÷ ejecutado, ej: 0.89>", "estado": "<verde si >=0.9 | amarillo si 0.7-0.89 | rojo si <0.7>", "nota": "<por cada COP ejecutado cuánto valor ganado>" },
+        { "nombre": "Ejecución financiera vs ingreso", "valor": "<usa execution_pct directamente, ej: 34.2%>", "estado": "<verde si alineada con avance ±10% | amarillo si ±10-20% | rojo si >20%>", "nota": "<COP ejecutado de COP ingreso total>" },
+        { "nombre": "EAC – Estimado al cierre", "valor": "<calcula: ejecutado ÷ (avance/100), en COP>", "estado": "<verde si EAC <= presupuesto | amarillo si +1-15% | rojo si >15%>", "nota": "<vs presupuesto base de COP>" },
+        { "nombre": "Pagos pendientes por cobrar", "valor": "<COP pendientes de los pagos registrados>", "estado": "<verde si <20% del ingreso | amarillo si 20-40% | rojo si >40%>", "nota": "<riesgo de flujo de caja>" }
       ]
     },
     {
-      "grupo": "Riesgos e Incidentes",
+      "grupo": "Riesgos",
       "emoji": "🛡",
       "indicadores": [
-        { "nombre": "Top riesgos abiertos", "valor": "<N críticos, N altos>", "estado": "<verde|amarillo|rojo>", "nota": "<principales riesgos vigentes>" },
-        { "nombre": "Riesgos materializados en el período", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Issues o bloqueos críticos abiertos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Tiempo promedio resolución bloqueos", "valor": "<N días>", "estado": "<verde|amarillo|rojo>", "nota": "<capacidad de respuesta>" }
+        { "nombre": "Riesgos críticos y altos abiertos", "valor": "<N críticos + N altos>", "estado": "<usa semáforo riesgos directamente>", "nota": "<describe el top riesgo si hay lista>" },
+        { "nombre": "Riesgos materializados", "valor": "<N materializados del total>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<impacto real en el proyecto>" },
+        { "nombre": "Compromisos vencidos (proxy bloqueos)", "valor": "<N compromisos vencidos de actas>", "estado": "<usa semáforo compromisos>", "nota": "<obstáculos que requieren acción del gerente>" },
+        { "nombre": "Nuevos riesgos en el período", "valor": "<N riesgos nuevos en el período>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<tendencia de exposición al riesgo>" }
       ]
     },
     {
-      "grupo": "Calidad y Control Técnico",
-      "emoji": "✅",
-      "indicadores": [
-        { "nombre": "Entregables aceptados a la primera", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<calidad inicial>" },
-        { "nombre": "Retrabajo", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<esfuerzo en correcciones>" },
-        { "nombre": "No conformidades o defectos críticos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Cumplimiento criterios de aceptación", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<calidad funcional y contractual>" }
-      ]
-    },
-    {
-      "grupo": "Recursos y Capacidad",
-      "emoji": "👥",
-      "indicadores": [
-        { "nombre": "Disponibilidad de recursos críticos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<roles clave disponibles>" },
-        { "nombre": "Sobrecarga de capacidad por rol", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<saturación>" },
-        { "nombre": "Rotación de personal clave", "valor": "<N personas>", "estado": "<verde|amarillo|rojo>", "nota": "<riesgo continuidad>" },
-        { "nombre": "Dependencias externas vencidas", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<pendientes de terceros>" }
-      ]
-    },
-    {
-      "grupo": "Stakeholders y Gobernanza",
-      "emoji": "🤝",
-      "indicadores": [
-        { "nombre": "Decisiones pendientes de comité", "valor": "<N decisiones>", "estado": "<verde|amarillo|rojo>", "nota": "<decisiones ejecutivas abiertas>" },
-        { "nombre": "Compromisos vencidos de áreas", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<para escalar>" },
-        { "nombre": "Involucramiento de stakeholders", "valor": "<escala 1-5>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Cumplimiento plan de comunicaciones", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<alineación>" }
-      ]
-    },
-    {
-      "grupo": "Beneficios y Valor",
-      "emoji": "🎯",
-      "indicadores": [
-        { "nombre": "Beneficios planificados vs capturados", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<valor ya materializado>" },
-        { "nombre": "Valor entregado por etapa", "valor": "<descripción corta>", "estado": "<verde|amarillo|rojo>", "nota": "<resultados utilizables>" },
-        { "nombre": "Funcionalidades/servicios operativos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<entrega usable>" },
-        { "nombre": "Alineación con objetivos estratégicos", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<contribución>" }
-      ]
-    },
-    {
-      "grupo": "Cambio y Adopción",
-      "emoji": "🔄",
-      "indicadores": [
-        { "nombre": "Nivel de adopción del entregable", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<qué tanto se usa>" },
-        { "nombre": "Usuarios impactados vs activos", "valor": "<N/N>", "estado": "<verde|amarillo|rojo>", "nota": "<transformación digital>" },
-        { "nombre": "Cumplimiento gestión del cambio", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<formación, comunicaciones>" },
-        { "nombre": "Resistencia/incidentes de adopción", "valor": "<N incidentes>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipar fracaso>" }
-      ]
-    },
-    {
-      "grupo": "Obligaciones y Cumplimiento",
+      "grupo": "Obligaciones Contractuales",
       "emoji": "📋",
       "indicadores": [
-        { "nombre": "Cumplimiento obligaciones contractuales", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<obligaciones cumplidas vs total>" },
-        { "nombre": "Obligaciones vencidas sin atender", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<riesgo legal>" },
-        { "nombre": "Pólizas vigentes vs requeridas", "valor": "<N/N>", "estado": "<verde|amarillo|rojo>", "nota": "<cobertura>" },
-        { "nombre": "Índice de cumplimiento contractual", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<salud contractual general>" }
+        { "nombre": "Cumplimiento de obligaciones", "valor": "<calcula: (cumplidas ÷ total) × 100, ej: 68.4%>", "estado": "<verde si >=80% | amarillo si 60-79% | rojo si <60%>", "nota": "<cumplidas de total obligaciones>" },
+        { "nombre": "Obligaciones vencidas sin atender", "valor": "<N vencidas>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<riesgo legal y contractual>" },
+        { "nombre": "Obligaciones en curso", "valor": "<N en_curso de N pendientes>", "estado": "<verde si pendientes <= 20% total | amarillo si 20-40% | rojo si >40%>", "nota": "<capacidad de respuesta>" },
+        { "nombre": "Semáforo obligaciones", "valor": "<verde|Amarillo|Rojo — usa semáforo directo>", "estado": "<usa semáforo obligaciones directamente>", "nota": "<estado consolidado contractual>" }
+      ]
+    },
+    {
+      "grupo": "Entregables e Hitos",
+      "emoji": "📦",
+      "indicadores": [
+        { "nombre": "Entregables aprobados", "valor": "<N aprobados de M totales>", "estado": "<verde si >=60% | amarillo si 30-59% | rojo si <30%>", "nota": "<calidad y aceptación del cliente>" },
+        { "nombre": "Entregables rechazados", "valor": "<N rechazados>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<proxy de retrabajo y calidad>" },
+        { "nombre": "Hitos completados", "valor": "<N completados de M totales>", "estado": "<verde si >=70% según tiempo | amarillo si 40-69% | rojo si <40%>", "nota": "<progreso en hitos clave>" },
+        { "nombre": "Entregables pendientes de revisión", "valor": "<N en revisión + N pendientes>", "estado": "<verde si <30% total | amarillo si 30-50% | rojo si >50%>", "nota": "<carga de trabajo pendiente>" }
+      ]
+    },
+    {
+      "grupo": "Equipo y Recursos",
+      "emoji": "👥",
+      "indicadores": [
+        { "nombre": "Capacidad del equipo", "valor": "<N activos de N total — dedicación promedio X%>", "estado": "<usa semáforo equipo directamente>", "nota": "<disponibilidad real del equipo>" },
+        { "nombre": "Personas por reemplazar", "valor": "<N miembros en estado por_reemplazar>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<riesgo de continuidad>"},
+        { "nombre": "Dedicación promedio del equipo", "valor": "<X% dedicación promedio>", "estado": "<verde si >=70% | amarillo si 50-69% | rojo si <50%>", "nota": "<capacidad real vs requerida>" },
+        { "nombre": "Semáforo equipo", "valor": "<verde|Amarillo|Rojo — usa semáforo directo>", "estado": "<usa semáforo equipo directamente>", "nota": "<estado consolidado del equipo>" }
+      ]
+    },
+    {
+      "grupo": "Pólizas y Cobertura",
+      "emoji": "🔐",
+      "indicadores": [
+        { "nombre": "Cobertura de pólizas", "valor": "<calcula: vigentes ÷ total × 100, ej: 85.7%>", "estado": "<verde si 100% | amarillo si 70-99% | rojo si <70%>", "nota": "<pólizas vigentes de total requeridas>" },
+        { "nombre": "Pólizas vencidas", "valor": "<N pólizas vencidas>", "estado": "<verde si 0 | amarillo si 1 | rojo si >1>", "nota": "<exposición legal sin cobertura>" },
+        { "nombre": "Pólizas por vencer", "valor": "<N por vencer próximamente>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<acción preventiva requerida>" },
+        { "nombre": "Semáforo pólizas", "valor": "<verde|Amarillo|Rojo — usa semáforo directo>", "estado": "<usa semáforo polizas directamente>", "nota": "<estado consolidado cobertura>" }
+      ]
+    },
+    {
+      "grupo": "Compromisos de Actas",
+      "emoji": "✅",
+      "indicadores": [
+        { "nombre": "Cumplimiento de compromisos", "valor": "<calcula: (completados ÷ total) × 100, ej: 72.3%>", "estado": "<verde si >=75% | amarillo si 50-74% | rojo si <50%>", "nota": "<efectividad de seguimiento de acuerdos>" },
+        { "nombre": "Compromisos vencidos sin cerrar", "valor": "<N compromisos vencidos>", "estado": "<usa semáforo compromisos directamente>", "nota": "<requieren escalamiento>" },
+        { "nombre": "Compromisos pendientes", "valor": "<N pendientes de N total>", "estado": "<verde si <30% | amarillo si 30-50% | rojo si >50%>", "nota": "<carga de trabajo de seguimiento>" },
+        { "nombre": "Actividad del período", "valor": "<N completadas + N obligaciones en período>", "estado": "<verde si hay actividad | amarillo si poca | rojo si nula>", "nota": "<productividad del período>" }
+      ]
+    },
+    {
+      "grupo": "Control de Cambios",
+      "emoji": "🔄",
+      "indicadores": [
+        { "nombre": "Cambios/adiciones aprobados", "valor": "<N aprobados de N total>", "estado": "<verde si pendientes = 0 | amarillo si 1-2 | rojo si >2>", "nota": "<gestión del alcance>" },
+        { "nombre": "Cambios pendientes de aprobación", "valor": "<N pendientes>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<decisiones bloqueadas>" },
+        { "nombre": "Valor de cambios aprobados", "valor": "<COP total cambios aprobados>", "estado": "<verde si <5% contrato | amarillo si 5-15% | rojo si >15%>", "nota": "<impacto en presupuesto base>" },
+        { "nombre": "Tendencia de cambios", "valor": "<N cambios totales — alta/media/baja frecuencia>", "estado": "<verde si <5 total | amarillo si 5-10 | rojo si >10>", "nota": "<estabilidad del alcance>" }
       ]
     }
   ],
   "pmi_ceo": [
     {
-      "grupo": "Salud Ejecutiva",
+      "grupo": "Semáforos del Proyecto (RAG)",
       "emoji": "🚦",
       "indicadores": [
-        { "nombre": "Estado general del proyecto (RAG)", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<resumen ejecutivo en una línea>" },
-        { "nombre": "Estado de alcance", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Estado de tiempo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con días de desviación>" },
-        { "nombre": "Estado de costo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifra>" }
+        { "nombre": "Estado general", "valor": "<usa semáforo general: Verde|Amarillo|Rojo>", "estado": "<usa semáforo general directamente>", "nota": "<diagnóstico en una línea para el comité>" },
+        { "nombre": "Estado cronograma", "valor": "<usa semáforo cronograma: Verde|Amarillo|Rojo con desviación X%>", "estado": "<usa semáforo cronograma directamente>", "nota": "<adelanto o atraso con cifra>" },
+        { "nombre": "Estado financiero", "valor": "<usa semáforo financiero: Verde|Amarillo|Rojo con ejecución X%>", "estado": "<usa semáforo financiero directamente>", "nota": "<COP ejecutado vs ingreso>" },
+        { "nombre": "Estado obligaciones", "valor": "<usa semáforo obligaciones: Verde|Amarillo|Rojo con N vencidas>", "estado": "<usa semáforo obligaciones directamente>", "nota": "<cumplimiento contractual>" }
       ]
     },
     {
-      "grupo": "Valor y Beneficios",
-      "emoji": "💎",
+      "grupo": "Avance del Proyecto",
+      "emoji": "⏱",
       "indicadores": [
-        { "nombre": "Beneficio esperado del proyecto", "valor": "<descripción: ingreso/ahorro/eficiencia>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Beneficio capturado a la fecha", "valor": "<%> del esperado", "estado": "<verde|amarillo|rojo>", "nota": "<valor ya materializado>" },
-        { "nombre": "ROI actualizado / esperado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<fundamental para inversión>" },
-        { "nombre": "Valor en riesgo", "valor": "<COP o %>", "estado": "<verde|amarillo|rojo>", "nota": "<si el proyecto falla>" }
+        { "nombre": "Avance físico real", "valor": "<avance_físico% del cronograma>", "estado": "<verde si alineado con tiempo ±5% | amarillo si ±5-15% | rojo si >15% atrás>", "nota": "<con X% de tiempo consumido>" },
+        { "nombre": "Tiempo restante", "valor": "<N días restantes de N totales>", "estado": "<verde si >30% del plazo restante | amarillo si 10-30% | rojo si <10%>", "nota": "<fecha estimada de cierre>" },
+        { "nombre": "Velocidad de ejecución", "valor": "<N actividades completadas en el período>", "estado": "<verde si hay avance | amarillo si poco | rojo si nulo>", "nota": "<ritmo del período actual>" },
+        { "nombre": "Proyección de cumplimiento", "valor": "<A tiempo | Con retraso | En riesgo — basado en SPI>", "estado": "<verde si SPI>=0.9 | amarillo si 0.7-0.89 | rojo si <0.7>", "nota": "<basado en tendencia actual>" }
       ]
     },
     {
-      "grupo": "Tiempo y Costo Ejecutivo",
-      "emoji": "📊",
+      "grupo": "Ejecución Financiera",
+      "emoji": "💰",
       "indicadores": [
-        { "nombre": "Fecha compromiso vs estimada cierre", "valor": "<fecha1 vs fecha2>", "estado": "<verde|amarillo|rojo>", "nota": "<solo dato ejecutivo>" },
-        { "nombre": "Presupuesto aprobado vs ejecutado", "valor": "<COP aprobado | COP ejecutado>", "estado": "<verde|amarillo|rojo>", "nota": "<vistazo financiero>" },
-        { "nombre": "Sobrecosto esperado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<solo si es material>" },
-        { "nombre": "Necesidad de presupuesto adicional", "valor": "<Sí / No>", "estado": "<verde|amarillo|rojo>", "nota": "<para decisión inmediata>" }
+        { "nombre": "Ingreso vs Ejecución", "valor": "<COP ejecutado de COP ingreso total (X%)>", "estado": "<usa semáforo financiero directamente>", "nota": "<alineación físico-financiero>" },
+        { "nombre": "Pagos recibidos en período", "valor": "<N pagos por COP valor en el período>", "estado": "<verde si hay pagos | amarillo si pocos | rojo si ninguno>", "nota": "<flujo de caja del período>" },
+        { "nombre": "Cuentas por cobrar pendientes", "valor": "<COP pendientes de facturación/cobro>", "estado": "<verde si <20% ingreso | amarillo si 20-40% | rojo si >40%>", "nota": "<riesgo de liquidez>" },
+        { "nombre": "Proyección de cierre financiero", "valor": "<EAC calculado en COP vs presupuesto>", "estado": "<verde si EAC <= ingreso | amarillo si +1-10% | rojo si >10%>", "nota": "<¿el proyecto cerrará dentro del presupuesto?>" }
       ]
     },
     {
-      "grupo": "Riesgo Corporativo",
+      "grupo": "Riesgos Corporativos",
       "emoji": "⚠️",
       "indicadores": [
-        { "nombre": "Top 3 riesgos corporativos", "valor": "<riesgo 1 | riesgo 2 | riesgo 3>", "estado": "<verde|amarillo|rojo>", "nota": "<legales, reputacionales, financieros>" },
-        { "nombre": "Probabilidad de no lograr beneficios", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<más importante que retraso>" },
-        { "nombre": "Exposición residual del proyecto", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<tras controles>" },
-        { "nombre": "Impacto organizacional ante falla", "valor": "<descripción>", "estado": "<verde|amarillo|rojo>", "nota": "<criticidad para operación>" }
+        { "nombre": "Exposición a riesgos críticos", "valor": "<N críticos + N altos de N total>", "estado": "<usa semáforo riesgos directamente>", "nota": "<describe el riesgo más crítico vigente>" },
+        { "nombre": "Riesgos materializados", "valor": "<N materializados — impacto real en el proyecto>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<afectación a tiempo/costo/alcance>" },
+        { "nombre": "Pólizas y cobertura", "valor": "<N vigentes de N total — N vencidas>", "estado": "<usa semáforo polizas directamente>", "nota": "<exposición legal sin cobertura>" },
+        { "nombre": "Nuevos riesgos en el período", "valor": "<N riesgos nuevos identificados>", "estado": "<verde si 0-1 | amarillo si 2-3 | rojo si >3>", "nota": "<tendencia de riesgo incremental>" }
       ]
     },
     {
-      "grupo": "Gobernanza y Decisiones",
+      "grupo": "Cumplimiento Contractual",
+      "emoji": "📋",
+      "indicadores": [
+        { "nombre": "Cumplimiento de obligaciones", "valor": "<calcula: cumplidas/total × 100%>", "estado": "<usa semáforo obligaciones directamente>", "nota": "<N vencidas sin resolver>" },
+        { "nombre": "Disciplina de actas y compromisos", "valor": "<calcula: completados/total × 100%>", "estado": "<usa semáforo compromisos directamente>", "nota": "<N vencidos sin cerrar>" },
+        { "nombre": "Cambios pendientes de decisión", "valor": "<N cambios pendientes de aprobación>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<el comité debe aprobar estos cambios>" },
+        { "nombre": "Entregables sin aprobación", "valor": "<N en revisión + N rechazados>", "estado": "<verde si <20% total | amarillo si 20-40% | rojo si >40%>", "nota": "<aceptación del cliente>" }
+      ]
+    },
+    {
+      "grupo": "Decisiones y Gobernanza",
       "emoji": "🗳",
       "indicadores": [
-        { "nombre": "Decisiones que requiere el comité hoy", "valor": "<N decisiones pendientes>", "estado": "<verde|amarillo|rojo>", "nota": "<el comité debe decidir, no solo escuchar>" },
-        { "nombre": "Escalamientos abiertos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<obstáculos que necesitan intervención>" },
-        { "nombre": "Compromisos comité anterior cumplidos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<disciplina de gobernanza>" },
-        { "nombre": "Desviaciones fuera de tolerancia", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<ya excedieron umbrales>" }
-      ]
-    },
-    {
-      "grupo": "Adopción y Sostenibilidad",
-      "emoji": "🌱",
-      "indicadores": [
-        { "nombre": "Adopción ejecutiva / organizacional", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<si el cambio está entrando en operación>" },
-        { "nombre": "Preparación operativa", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<para recibir el entregable>" },
-        { "nombre": "Satisfacción del cliente", "valor": "<X/10>", "estado": "<verde|amarillo|rojo>", "nota": "<percepción resumida>" },
-        { "nombre": "Sostenibilidad del beneficio", "valor": "<Temporal|Permanente>", "estado": "<verde|amarillo|rojo>", "nota": "<si el valor será perdurable>" }
+        { "nombre": "Compromisos vencidos para escalar", "valor": "<N compromisos vencidos que necesitan intervención>", "estado": "<verde si 0 | amarillo si 1-3 | rojo si >3>", "nota": "<requieren decisión del comité>" },
+        { "nombre": "Hitos atrasados", "valor": "<N hitos atrasados de N total>", "estado": "<verde si 0 | amarillo si 1-2 | rojo si >2>", "nota": "<impacto en fecha de entrega>" },
+        { "nombre": "Actividad del período", "valor": "<N actividades + N obligaciones completadas en período>", "estado": "<verde si hay actividad significativa | amarillo si poca | rojo si nula>", "nota": "<velocidad de ejecución>" },
+        { "nombre": "Estado consolidado", "valor": "<Verde|Amarillo|Rojo — semáforo general>", "estado": "<usa semáforo general directamente>", "nota": "<¿requiere intervención del comité?>"}
       ]
     }
   ]
 }
 
 REGLAS:
-- Todos los valores deben ser CONCRETOS y basados en los datos reales del proyecto
-- Los estados (verde/amarillo/rojo): verde=bueno/dentro de tolerancia, amarillo=requiere atención, rojo=crítico
-- Si un dato no está disponible directamente, infiere un valor razonable con base en semáforos y tendencias
+- USA los números exactos del resumen — no inventes cifras que no estén ahí
+- Los semáforos (verde/amarillo/rojo) YA están calculados — úsalos directamente para los campos que los referencian
+- Para SPI/CPI: haz la división con los números del resumen y da el resultado con 2 decimales
+- Si un total es 0, el estado es verde (sin riesgo por ausencia de datos)
+- Los valores en COP deben usar el formato colombiano (ej: $1.234.567)
+- estado: verde=bien/dentro de tolerancia, amarillo=atención, rojo=crítico/acción inmediata
 - Para SPI: usar avance_físico / tiempo_transcurrido (ambos en porcentaje)
 - Para CPI: usar valor_ganado / costo_real (estimar si no disponible)
 - SOLO JSON válido, nada más`);

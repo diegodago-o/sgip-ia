@@ -919,7 +919,8 @@ const EMPTY_SSO = {
   google_client_id: '',
   google_client_secret: '',
   microsoft_enabled: false,
-  microsoft_tenant_id: '',
+  microsoft_mode: 'multi',       // 'multi' = todos los tenants M365 | 'single' = un tenant específico
+  microsoft_tenant_id: '',       // requerido solo cuando microsoft_mode === 'single'
   microsoft_client_id: '',
   microsoft_client_secret: '',
   allow_new_users: true,
@@ -1055,30 +1056,82 @@ function SSOSection() {
         </div>
 
         {form.microsoft_enabled && (
-          <div className="pt-3 border-t border-surface-100 space-y-3">
+          <div className="pt-3 border-t border-surface-100 space-y-4">
+
+            {/* Tenant mode selector */}
+            <div>
+              <p className="text-xs font-medium text-brand-800 mb-2">Modo de acceso</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, microsoft_mode: 'multi' }))}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    (form.microsoft_mode || 'multi') === 'multi'
+                      ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-400'
+                      : 'border-surface-200 bg-white hover:border-brand-300'
+                  }`}>
+                  <p className="text-xs font-semibold text-brand-900">Multi-tenant <span className="ml-1 px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">Recomendado</span></p>
+                  <p className="text-[10px] text-surface-500 mt-0.5 leading-relaxed">
+                    Acepta usuarios de <strong>cualquier tenant de Microsoft 365</strong>.<br/>
+                    Ideal si manejas múltiples organizaciones o tenants.
+                  </p>
+                </button>
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, microsoft_mode: 'single' }))}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    form.microsoft_mode === 'single'
+                      ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-400'
+                      : 'border-surface-200 bg-white hover:border-brand-300'
+                  }`}>
+                  <p className="text-xs font-semibold text-brand-900">Tenant único</p>
+                  <p className="text-[10px] text-surface-500 mt-0.5 leading-relaxed">
+                    Restringe el acceso a <strong>una sola organización</strong>.<br/>
+                    Requiere el Tenant ID de esa organización.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Azure setup instructions */}
             <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-xs text-blue-800 leading-relaxed">
               <strong>Configuración en Azure Active Directory:</strong>
               <ol className="list-decimal ml-4 mt-1 space-y-0.5">
                 <li>Ve a <a href="https://portal.azure.com/" target="_blank" rel="noreferrer" className="underline">portal.azure.com</a> → Azure AD → Registros de aplicaciones</li>
-                <li>Crea una nueva aplicación → tipo de cuenta: <strong>Cuentas en cualquier directorio organizacional</strong></li>
+                <li>Crea una nueva aplicación → tipo de cuenta:{' '}
+                  {(form.microsoft_mode || 'multi') === 'multi'
+                    ? <strong>Cuentas en cualquier directorio organizacional (multiinquilino)</strong>
+                    : <strong>Cuentas solo en este directorio organizacional (tenant único)</strong>}
+                </li>
                 <li>URI de redirección: <code className="bg-blue-100 px-1 rounded">{window.location.origin.replace(':3001', ':4000')}/api/auth/microsoft/callback</code></li>
                 <li>En "Certificados y secretos" crea un nuevo secreto de cliente</li>
-                <li>En "Permisos de API" agrega: <strong>openid, email, profile, User.Read</strong> (delegados)</li>
+                <li>Permisos de API (delegados): <strong>openid, email, profile, User.Read</strong></li>
               </ol>
             </div>
+
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Tenant ID" required hint="ID del directorio de Azure AD">
-                <Input value={form.microsoft_tenant_id} onChange={set('microsoft_tenant_id')} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              </Field>
-              <Field label="Client ID (Application ID)" required>
+              {/* Tenant ID — only required in single mode */}
+              {form.microsoft_mode === 'single' && (
+                <Field label="Tenant ID" required hint="ID del directorio Azure AD de tu organización">
+                  <Input value={form.microsoft_tenant_id} onChange={set('microsoft_tenant_id')} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                </Field>
+              )}
+              <Field label="Client ID (Application ID)" required className={form.microsoft_mode === 'single' ? '' : 'col-span-2'}>
                 <Input value={form.microsoft_client_id} onChange={set('microsoft_client_id')} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
               </Field>
-              <div className="col-span-2">
+              <div className={form.microsoft_mode === 'single' ? 'col-span-2' : 'col-span-2'}>
                 <Field label="Client Secret" required>
                   <PasswordInput value={form.microsoft_client_secret} onChange={set('microsoft_client_secret')} placeholder="Valor del secreto de cliente" />
                 </Field>
               </div>
             </div>
+
+            {(form.microsoft_mode || 'multi') === 'multi' && (
+              <div className="flex items-start gap-2 p-2.5 bg-green-50 rounded-lg border border-green-200">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-600 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-green-800 leading-relaxed">
+                  Modo multi-tenant activo — los usuarios de <strong>todos tus tenants de Microsoft 365</strong> podrán iniciar sesión con una sola configuración. No se requiere Tenant ID.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

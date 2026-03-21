@@ -125,9 +125,13 @@ function issueTokenAndRedirect(res, user) {
 router.get('/sso-providers', async (_req, res) => {
   try {
     const cfg = await loadSSOConfig();
+    // Microsoft: multi-tenant mode doesn't require tenant_id (uses 'organizations' endpoint)
+    const msReady = !!(cfg.microsoft_enabled && cfg.microsoft_client_id && cfg.microsoft_client_secret);
+    const msMulti  = cfg.microsoft_mode !== 'single';           // default → multi
+    const msSingle = cfg.microsoft_mode === 'single' && !!cfg.microsoft_tenant_id;
     res.json({
       google:    !!(cfg.google_enabled    && cfg.google_client_id    && cfg.google_client_secret),
-      microsoft: !!(cfg.microsoft_enabled && cfg.microsoft_client_id && cfg.microsoft_client_secret && cfg.microsoft_tenant_id),
+      microsoft: msReady && (msMulti || msSingle),
     });
   } catch {
     res.json({ google: false, microsoft: false });
@@ -216,12 +220,34 @@ router.get('/google/callback', async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // MICROSOFT 365
 // ══════════════════════════════════════════════════════════════════════════════
+/**
+ * Resolves which Microsoft tenant endpoint to use.
+ *
+ * microsoft_mode === 'single' + microsoft_tenant_id set → restrict to that tenant only
+ * anything else (including default/empty) → 'organizations' endpoint:
+ *   accepts ANY Azure AD / Microsoft 365 organizational tenant (multi-tenant)
+ *   personal Microsoft accounts (@outlook.com/@hotmail.com) are excluded by design
+ *
+ * To allow personal accounts as well, change 'organizations' → 'common'.
+ */
+function msTenantEndpoint(cfg) {
+  if (cfg.microsoft_mode === 'single' && cfg.microsoft_tenant_id) {
+    return cfg.microsoft_tenant_id;
+  }
+  return 'organizations'; // all M365 tenants, no personal accounts
+}
+
 router.get('/microsoft', async (req, res) => {
   try {
     const cfg = await loadSSOConfig();
-    if (!cfg.microsoft_enabled || !cfg.microsoft_client_id || !cfg.microsoft_tenant_id) {
+    if (!cfg.microsoft_enabled || !cfg.microsoft_client_id || !cfg.microsoft_client_secret) {
       return redirectError(res, 'Microsoft SSO no está habilitado');
     }
+    // In single-tenant mode, tenant_id is required
+    if (cfg.microsoft_mode === 'single' && !cfg.microsoft_tenant_id) {
+      return redirectError(res, 'Microsoft SSO: falta el Tenant ID para modo de tenant único');
+    }
+    const tenant   = msTenantEndpoint(cfg);
     const state    = createState();
     const callback = `${backendUrl(req)}/api/auth/microsoft/callback`;
     const params   = new URLSearchParams({
@@ -232,9 +258,7 @@ router.get('/microsoft', async (req, res) => {
       state,
       prompt:        'select_account',
     });
-    res.redirect(
-      `https://login.microsoftonline.com/${cfg.microsoft_tenant_id}/oauth2/v2.0/authorize?${params}`
-    );
+    res.redirect(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params}`);
   } catch (e) {
     redirectError(res, 'Error iniciando Microsoft SSO');
   }
@@ -251,9 +275,10 @@ router.get('/microsoft/callback', async (req, res) => {
     const cfg      = await loadSSOConfig();
     const callback = `${backendUrl(req)}/api/auth/microsoft/callback`;
 
-    // Exchange code for tokens
+    // Exchange code for tokens — use same tenant endpoint as the authorization request
+    const tenant = msTenantEndpoint(cfg);
     const tokenRes = await fetch(
-      `https://login.microsoftonline.com/${cfg.microsoft_tenant_id}/oauth2/v2.0/token`,
+      `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

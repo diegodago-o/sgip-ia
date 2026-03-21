@@ -214,6 +214,42 @@ app.use((err, _req, res, _next) => {
 });
 
 // ══════════════════════════════════════════════
+// AUTO-MIGRATIONS (run at startup, safe to re-run)
+// ══════════════════════════════════════════════
+const pool = require('./config/database');
+
+async function runMigrations() {
+  const run = async (label, sql) => {
+    try {
+      await pool.execute(sql);
+      console.log(`[migrate] ✓ ${label}`);
+    } catch (e) {
+      // Duplicate column / already exists → silent skip
+      if (e.code === 'ER_DUP_FIELDNAME' || e.code === 'ER_DUP_KEYNAME' ||
+          (e.message && (e.message.includes('Duplicate column') || e.message.includes('Duplicate key')))) {
+        console.log(`[migrate] ~ ${label} (ya existe)`);
+      } else {
+        console.warn(`[migrate] ⚠ ${label}:`, e.message);
+      }
+    }
+  };
+
+  // OAuth SSO columns (added for SSO feature)
+  await run('users.password_hash nullable',
+    'ALTER TABLE users MODIFY COLUMN password_hash VARCHAR(255) NULL');
+  await run('users.oauth_provider',
+    'ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(20) NULL DEFAULT NULL AFTER password_hash');
+  await run('users.oauth_provider_id',
+    'ALTER TABLE users ADD COLUMN oauth_provider_id VARCHAR(255) NULL DEFAULT NULL AFTER oauth_provider');
+  await run('users.avatar_url',
+    'ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL DEFAULT NULL');
+  await run('users uq_oauth index',
+    'ALTER TABLE users ADD UNIQUE KEY uq_oauth (oauth_provider, oauth_provider_id)');
+}
+
+runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));
+
+// ══════════════════════════════════════════════
 // GRACEFUL SHUTDOWN
 // ══════════════════════════════════════════════
 // Start notification scheduler

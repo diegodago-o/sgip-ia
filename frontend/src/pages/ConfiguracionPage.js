@@ -1363,7 +1363,8 @@ function SharePointSection() {
         <div className="text-xs text-blue-800 space-y-1.5">
           <p className="font-semibold text-sm">Cómo funciona la integración SharePoint</p>
           <p>SGIP-IA se conecta a SharePoint Online mediante la <strong>app registration de Azure AD</strong> existente (la misma usada para SSO). Solo es necesario agregar permisos de Graph API al app registration.</p>
-          <p>La integración es <strong>opcional por proyecto</strong>: cada proyecto puede tener configurada una carpeta de SharePoint. Si no la tiene, el tab de SharePoint no aparece.</p>
+          <p>La integración es <strong>opcional por proyecto</strong>: cada proyecto puede tener configurada su propia URL de sitio SharePoint y carpeta. Si el proyecto no tiene carpeta, el tab de SharePoint no aparece.</p>
+          <p><strong>Multi-sitio:</strong> <code className="bg-blue-100 px-1 rounded">SP_SITE_URL</code> en el servidor es el sitio por defecto. Cada proyecto puede sobreescribirlo con su propia URL en el formulario de proyecto.</p>
         </div>
       </div>
 
@@ -1406,7 +1407,7 @@ function SharePointSection() {
           <p><span className="text-violet-600">SP_TENANT_ID</span>=<span className="text-surface-400">  # Directory (tenant) ID</span></p>
           <p><span className="text-violet-600">SP_CLIENT_ID</span>=<span className="text-surface-400">  # Application (client) ID</span></p>
           <p><span className="text-violet-600">SP_CLIENT_SECRET</span>=<span className="text-surface-400">  # Client secret del app registration</span></p>
-          <p><span className="text-violet-600">SP_SITE_URL</span>=<span className="text-surface-400">  # ej: https://empresa.sharepoint.com/sites/proyectos</span></p>
+          <p><span className="text-violet-600">SP_SITE_URL</span>=<span className="text-surface-400">  # Sitio por defecto (puede sobreescribirse por proyecto)</span></p>
         </div>
 
         <p className="text-[11px] text-surface-500">

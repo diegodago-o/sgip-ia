@@ -2,12 +2,17 @@
  * SharePoint Online — Microsoft Graph API Service
  * Auth: Client Credentials (app-only, no user interaction)
  * Token cached for 55 min (tokens last 60 min)
+ *
+ * Multi-site support:
+ *   SP_SITE_URL in .env is the DEFAULT site.
+ *   Each public function accepts an optional `siteUrl` param; if omitted,
+ *   the env default is used. Site IDs are cached per URL in a Map.
  */
 
 const axios = require('axios');
 
-let _tokenCache = null;   // { token, expiresAt }
-let _siteIdCache = null;  // string
+let _tokenCache = null;             // { token, expiresAt }
+const _siteIdCache = new Map();     // url → siteId
 
 // ─────────────────────────────────────────────
 // Internal helpers
@@ -72,16 +77,23 @@ async function graphPut(path, buffer, contentType) {
   return res.data;
 }
 
-async function getSiteId() {
-  if (_siteIdCache) return _siteIdCache;
+/**
+ * Resolve and cache the Graph site ID for a given site URL.
+ * @param {string} [siteUrl]  Full SharePoint site URL. Falls back to SP_SITE_URL env var.
+ */
+async function getSiteId(siteUrl) {
+  const resolvedUrl = (siteUrl && siteUrl.trim()) || process.env.SP_SITE_URL;
+  if (!resolvedUrl) throw new Error('No se proporcionó URL de sitio SharePoint y SP_SITE_URL no está configurado.');
 
-  const url      = new URL(process.env.SP_SITE_URL);
-  const hostname = url.hostname;                      // e.g. empresa.sharepoint.com
-  const sitePath = url.pathname;                      // e.g. /sites/proyectos
+  if (_siteIdCache.has(resolvedUrl)) return _siteIdCache.get(resolvedUrl);
 
-  const data    = await graphGet(`/sites/${hostname}:${sitePath}`);
-  _siteIdCache  = data.id;
-  return _siteIdCache;
+  const url      = new URL(resolvedUrl);
+  const hostname = url.hostname;   // e.g. empresa.sharepoint.com
+  const sitePath = url.pathname;   // e.g. /sites/proyectos
+
+  const data   = await graphGet(`/sites/${hostname}:${sitePath}`);
+  _siteIdCache.set(resolvedUrl, data.id);
+  return data.id;
 }
 
 /**
@@ -102,29 +114,32 @@ function encodePath(rawPath) {
 module.exports = {
 
   /**
-   * Returns true only if all 4 SP env vars are set.
+   * Returns true only if the 3 required auth env vars are set.
+   * SP_SITE_URL is optional globally (can be set per-project instead).
    */
   isConfigured() {
-    const { SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET, SP_SITE_URL } = process.env;
-    return !!(SP_TENANT_ID && SP_CLIENT_ID && SP_CLIENT_SECRET && SP_SITE_URL);
+    const { SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET } = process.env;
+    return !!(SP_TENANT_ID && SP_CLIENT_ID && SP_CLIENT_SECRET);
   },
 
   /**
-   * Test connection — returns { site, status: 'ok' } or throws.
+   * Test connection to a specific site (or the global default).
+   * @param {string} [siteUrl]
    */
-  async testConnection() {
-    const siteId = await getSiteId();
+  async testConnection(siteUrl) {
+    const siteId = await getSiteId(siteUrl);
     const data   = await graphGet(`/sites/${siteId}`);
-    return { site: data.displayName || data.name, status: 'ok' };
+    return { site: data.displayName || data.name, siteUrl: siteUrl || process.env.SP_SITE_URL, status: 'ok' };
   },
 
   /**
    * List items inside a folder path (relative to the SP site drive root).
-   * @param {string} folderPath  e.g. "Proyectos/TI-2026-001" or "Proyectos/TI-2026-001/Contratos"
+   * @param {string} folderPath  e.g. "Proyectos/TI-2026-001"
+   * @param {string} [siteUrl]   Override site URL (falls back to SP_SITE_URL)
    * @returns {Array} items — normalised to { id, name, size, type, lastModified, webUrl, createdBy }
    */
-  async listFolder(folderPath) {
-    const siteId  = await getSiteId();
+  async listFolder(folderPath, siteUrl) {
+    const siteId  = await getSiteId(siteUrl);
     const encoded = encodePath(folderPath.replace(/^\/+/, ''));
     const data    = await graphGet(
       `/sites/${siteId}/drive/root:/${encoded}:/children`,
@@ -150,10 +165,11 @@ module.exports = {
    * @param {string} fileName
    * @param {Buffer} buffer
    * @param {string} mimeType
+   * @param {string} [siteUrl]   Override site URL
    * @returns uploaded item { id, name, webUrl }
    */
-  async uploadFile(folderPath, fileName, buffer, mimeType) {
-    const siteId         = await getSiteId();
+  async uploadFile(folderPath, fileName, buffer, mimeType, siteUrl) {
+    const siteId         = await getSiteId(siteUrl);
     const cleanFolder    = folderPath.replace(/^\/+/, '').replace(/\/+$/, '');
     const encodedFolder  = encodePath(cleanFolder);
     const encodedName    = encodeURIComponent(fileName);
@@ -186,8 +202,8 @@ module.exports = {
       const token = await getToken();
       const resp  = await axios.put(uploadUrl, chunk, {
         headers: {
-          Authorization:   `Bearer ${token}`,
-          'Content-Range': `bytes ${start}-${end - 1}/${buffer.length}`,
+          Authorization:    `Bearer ${token}`,
+          'Content-Range':  `bytes ${start}-${end - 1}/${buffer.length}`,
           'Content-Length': chunk.length,
         },
         maxContentLength: Infinity,
@@ -203,11 +219,12 @@ module.exports = {
 
   /**
    * Get a temporary download URL (~1 hour) for a Drive item.
-   * @param {string} itemId  SP item ID
+   * @param {string} itemId   SP item ID
+   * @param {string} [siteUrl]
    * @returns {string} download URL
    */
-  async getDownloadUrl(itemId) {
-    const siteId = await getSiteId();
+  async getDownloadUrl(itemId, siteUrl) {
+    const siteId = await getSiteId(siteUrl);
     const data   = await graphGet(`/sites/${siteId}/drive/items/${itemId}`);
     return data['@microsoft.graph.downloadUrl'] || data.webUrl;
   },
@@ -215,11 +232,12 @@ module.exports = {
   /**
    * Get an embed preview URL for a Drive item.
    * Falls back gracefully if the file type doesn't support preview.
-   * @param {string} itemId  SP item ID
+   * @param {string} itemId   SP item ID
+   * @param {string} [siteUrl]
    * @returns {{ url: string, type: 'embed'|'web' }}
    */
-  async getPreviewUrl(itemId) {
-    const siteId = await getSiteId();
+  async getPreviewUrl(itemId, siteUrl) {
+    const siteId = await getSiteId(siteUrl);
     try {
       const data = await graphPost(
         `/sites/${siteId}/drive/items/${itemId}/createLink`,

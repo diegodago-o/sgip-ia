@@ -36,7 +36,8 @@ const EMPTY_FORM = {
   execution_term: '', execution_term_unit: 'meses',
   supervisor: '', director_id: '', location: '', priority: 'media',
   selection_process: '', secop_number: '', cdp_number: '', rp_number: '',
-  sharepoint_folder: '',
+  sharepoint_folder:   '',
+  sharepoint_site_url: '',
   tags: [],
 };
 
@@ -90,7 +91,8 @@ export default function ProjectFormPage() {
             secop_number: p.secop_number || '',
             cdp_number: p.cdp_number || '',
             rp_number: p.rp_number || '',
-            sharepoint_folder: p.sharepoint_folder || '',
+            sharepoint_folder:   p.sharepoint_folder   || '',
+            sharepoint_site_url: p.sharepoint_site_url || '',
             tags: p.tags || [],
           });
         })
@@ -306,19 +308,34 @@ export default function ProjectFormPage() {
             <h3 className="font-display font-semibold text-brand-900">Integración SharePoint</h3>
             <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">Opcional</span>
           </div>
-          <Field label="Carpeta en SharePoint">
-            <input
-              type="text"
-              value={form.sharepoint_folder}
-              onChange={set('sharepoint_folder')}
-              className="input-field"
-              placeholder="ej: Proyectos/TI-2026-001"
-            />
-            <p className="text-[11px] text-surface-400 mt-1">
-              Ruta relativa dentro del sitio SharePoint configurado en el sistema.
-              Deja en blanco para no integrar este proyecto con SharePoint.
-            </p>
-          </Field>
+          <div className="grid grid-cols-1 gap-4">
+            <Field label="URL del sitio SharePoint">
+              <input
+                type="url"
+                value={form.sharepoint_site_url}
+                onChange={set('sharepoint_site_url')}
+                className="input-field"
+                placeholder="ej: https://empresa.sharepoint.com/sites/proyectos"
+              />
+              <p className="text-[11px] text-surface-400 mt-1">
+                URL completa del sitio SharePoint de este proyecto. Si se deja en blanco se usa
+                el sitio global configurado en el servidor (SP_SITE_URL).
+              </p>
+            </Field>
+            <Field label="Carpeta del proyecto en SharePoint">
+              <input
+                type="text"
+                value={form.sharepoint_folder}
+                onChange={set('sharepoint_folder')}
+                className="input-field"
+                placeholder="ej: Proyectos/TI-2026-001"
+              />
+              <p className="text-[11px] text-surface-400 mt-1">
+                Ruta relativa dentro del sitio (sin barra inicial). Deja en blanco
+                para no integrar este proyecto con SharePoint.
+              </p>
+            </Field>
+          </div>
         </section>
 
         {/* ── Section: Tags ── */}

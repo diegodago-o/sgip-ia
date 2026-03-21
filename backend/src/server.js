@@ -251,6 +251,8 @@ async function runMigrations() {
   // ── SharePoint integration columns ──────────────────────────────
   await run('projects.sharepoint_folder',
     'ALTER TABLE projects ADD COLUMN sharepoint_folder VARCHAR(500) NULL');
+  await run('projects.sharepoint_site_url',
+    'ALTER TABLE projects ADD COLUMN sharepoint_site_url VARCHAR(500) NULL');
   await run('policies.sp_item_id',
     'ALTER TABLE policies ADD COLUMN sp_item_id VARCHAR(200) NULL');
   await run('policies.sp_file_url',

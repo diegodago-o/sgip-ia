@@ -267,7 +267,8 @@ router.post('/',
         secop_number: req.body.secop_number || null,
         cdp_number: req.body.cdp_number || null,
         rp_number: req.body.rp_number || null,
-        sharepoint_folder: req.body.sharepoint_folder || null,
+        sharepoint_folder:    req.body.sharepoint_folder    || null,
+        sharepoint_site_url:  req.body.sharepoint_site_url  || null,
         created_by: req.user.id,
       };
 
@@ -315,7 +316,7 @@ router.put('/:id',
         'contract_object','contract_value','sign_date','start_date','execution_term',
         'execution_term_unit','supervisor','director_id','location','status','priority',
         'progress_pct','selection_process','secop_number','cdp_number','rp_number',
-        'sharepoint_folder',
+        'sharepoint_folder', 'sharepoint_site_url',
       ];
 
       const updates = [];

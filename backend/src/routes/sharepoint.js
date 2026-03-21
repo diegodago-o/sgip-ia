@@ -37,9 +37,12 @@ function validate(req, res) {
   return true;
 }
 
-/** Load project and verify sharepoint_folder is configured. */
+/** Load project — returns sharepoint_folder + sharepoint_site_url. */
 async function getProject(req, res) {
-  const [rows] = await pool.execute('SELECT id, name, sharepoint_folder FROM projects WHERE id = ?', [req.params.id]);
+  const [rows] = await pool.execute(
+    'SELECT id, name, sharepoint_folder, sharepoint_site_url FROM projects WHERE id = ?',
+    [req.params.id]
+  );
   if (!rows.length) { res.status(404).json({ error: 'Proyecto no encontrado' }); return null; }
   return rows[0];
 }
@@ -89,7 +92,7 @@ router.get('/projects/:id/files', [param('id').isInt()], async (req, res) => {
       ? `${project.sharepoint_folder.replace(/\/+$/, '')}/${subpath}`
       : project.sharepoint_folder;
 
-    const items = await sp.listFolder(folderPath);
+    const items = await sp.listFolder(folderPath, project.sharepoint_site_url || undefined);
     res.json({ data: items, folderPath });
   } catch (err) {
     const status = err.response?.status || 500;
@@ -123,7 +126,8 @@ router.post('/projects/:id/upload', [param('id').isInt()], upload.single('file')
       folderPath,
       req.file.originalname,
       req.file.buffer,
-      req.file.mimetype
+      req.file.mimetype,
+      project.sharepoint_site_url || undefined
     );
 
     res.status(201).json({ data: result });
@@ -147,7 +151,7 @@ router.get('/projects/:id/download/:itemId', [param('id').isInt()], async (req, 
     const project = await getProject(req, res);
     if (!project) return;
 
-    const url = await sp.getDownloadUrl(req.params.itemId);
+    const url = await sp.getDownloadUrl(req.params.itemId, project.sharepoint_site_url || undefined);
     res.json({ url });
   } catch (err) {
     const msg = err.response?.data?.error?.message || err.message;
@@ -167,7 +171,7 @@ router.get('/projects/:id/preview/:itemId', [param('id').isInt()], async (req, r
     const project = await getProject(req, res);
     if (!project) return;
 
-    const result = await sp.getPreviewUrl(req.params.itemId);
+    const result = await sp.getPreviewUrl(req.params.itemId, project.sharepoint_site_url || undefined);
     res.json(result);
   } catch (err) {
     const msg = err.response?.data?.error?.message || err.message;

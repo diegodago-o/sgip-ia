@@ -20,10 +20,18 @@ function getAIConfig(req) {
   const provider = req.body.provider || req.query.provider || process.env.AI_PROVIDER || 'anthropic';
   let apiKey, model;
   if (provider === 'anthropic') {
-    apiKey = req.body.api_key || process.env.ANTHROPIC_API_KEY;
+    const envKey = process.env.ANTHROPIC_API_KEY;
+    apiKey = envKey || req.body.api_key;
+    if (!envKey && req.body.api_key) {
+      console.warn(`[AI] Cliente usando clave propia (user=${req.user?.id}, provider=anthropic) — configurar ANTHROPIC_API_KEY en .env para producción`);
+    }
     model = req.body.model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
   } else {
-    apiKey = req.body.api_key || process.env.OPENAI_API_KEY;
+    const envKey = process.env.OPENAI_API_KEY;
+    apiKey = envKey || req.body.api_key;
+    if (!envKey && req.body.api_key) {
+      console.warn(`[AI] Cliente usando clave propia (user=${req.user?.id}, provider=openai) — configurar OPENAI_API_KEY en .env para producción`);
+    }
     model = req.body.model || process.env.OPENAI_MODEL || 'gpt-4o';
   }
   if (!apiKey) throw new Error(`API key no configurada para ${provider}. Configure en Ajustes o .env`);

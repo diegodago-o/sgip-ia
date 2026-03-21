@@ -92,6 +92,28 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+// 4b. AI route limiter — expensive LLM calls, limit per user (by JWT sub)
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 60,                 // 60 AI calls per hour per IP
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Límite de solicitudes al Motor IA alcanzado. Intente en una hora.' },
+  keyGenerator: (req) => req.user?.id ? `ai_user_${req.user.id}` : req.ip,
+  skip: (req) => isDev && req.ip === '127.0.0.1',
+});
+
+// 4c. Export limiter — PDF/Excel generation is CPU-intensive
+const exportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 30,                 // 30 exports per 15 min per user
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Límite de exportaciones alcanzado. Intente en 15 minutos.' },
+  keyGenerator: (req) => req.user?.id ? `export_user_${req.user.id}` : req.ip,
+  skip: (req) => isDev && req.ip === '127.0.0.1',
+});
+
 // 5. Body parsers with size limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
@@ -145,11 +167,11 @@ app.use('/api/exec', correspondenceRoutes);
 app.use('/api/close', closureRoutes);
 app.use('/api/close', liquidationRoutes);
 app.use('/api/close', lessonsRoutes);
-app.use('/api/ai', aiRoutes);
+app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/exports', exportRoutes);
+app.use('/api/exports', exportLimiter, exportRoutes);
 app.use('/api/budget', budgetTrackingRoutes);
-app.use('/api/ai-populate', aiPopulateRoutes);
+app.use('/api/ai-populate', aiLimiter, aiPopulateRoutes);
 app.use('/api/committee', committeeRoutes);
 app.use('/api/committee/:projectId/commitments', committeeCommitmentsRoutes);
 app.use('/api/dashboard', biDashboardRoutes);

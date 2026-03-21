@@ -35,27 +35,36 @@ const storage = multer.diskStorage({
   },
 });
 
+// MIME type → allowed extensions map (prevents double-extension spoofing)
+const MIME_EXT_MAP = {
+  'application/pdf':                                                              ['.pdf'],
+  'application/msword':                                                           ['.doc'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':     ['.docx'],
+  'application/vnd.ms-excel':                                                     ['.xls'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':           ['.xlsx'],
+  'application/vnd.ms-powerpoint':                                                ['.ppt'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':   ['.pptx'],
+  'image/jpeg':   ['.jpg', '.jpeg'],
+  'image/png':    ['.png'],
+  'image/tiff':   ['.tif', '.tiff'],
+  'image/webp':   ['.webp'],
+  'text/plain':   ['.txt'],
+  'text/csv':     ['.csv'],
+  'application/zip':            ['.zip'],
+  'application/x-rar-compressed': ['.rar'],
+};
+
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: (_req, file, cb) => {
-    const allowed = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'image/jpeg', 'image/png', 'image/tiff', 'image/webp',
-      'text/plain', 'text/csv',
-      'application/zip', 'application/x-rar-compressed',
-    ];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+    const allowedExts = MIME_EXT_MAP[file.mimetype];
+    if (!allowedExts) return cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!allowedExts.includes(ext)) {
+      return cb(new Error(`Extensión '${ext}' no corresponde al tipo de archivo declarado (${file.mimetype})`));
     }
+    cb(null, true);
   },
 });
 

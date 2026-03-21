@@ -172,6 +172,12 @@ export default function CommitteeDashboard() {
   const period = d.period || {};
   const corr = d.correspondence || { total: 0, borrador: 0, radicado: 0, enviado: 0, recibido: 0, respondido: 0, archivado: 0, pending_response: 0, recent: [] };
 
+  // Navigate to ExecutionPage on the correct tab, pre-selecting this project
+  const goToExecution = (tab) => {
+    localStorage.setItem('sgip_selected_project', id);
+    navigate(`/ejecucion?tab=${tab}`);
+  };
+
   const requestAIAnalysis = async () => {
     setAiLoading(true);
     setPmiAnalysis(null);
@@ -1066,7 +1072,7 @@ REGLAS:
       <div className="space-y-4">
         {/* CRONOGRAMA */}
         <Section title="Cronograma y Avance Físico" icon={CalendarRange} color="blue" semaforo={s.cronograma}
-          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver cronograma completo →</button>}>
+          extra={<button onClick={() => goToExecution('schedule')} className="text-[10px] text-brand-500 hover:underline">Ver cronograma completo →</button>}>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
             {[
               { label: 'Total', val: d.schedule.stats.total, color: 'surface' },
@@ -1118,7 +1124,7 @@ REGLAS:
 
         {/* COMPROMISOS DE ACTAS (legado) */}
         <Section title="Compromisos de Actas" icon={Target} color="amber" semaforo={s.compromisos}
-          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver actas completas →</button>}>
+          extra={<button onClick={() => goToExecution('minutes')} className="text-[10px] text-brand-500 hover:underline">Ver actas completas →</button>}>
 
           {/* Stats */}
           <div className="mt-3 grid grid-cols-4 gap-3 text-center">
@@ -1222,7 +1228,7 @@ REGLAS:
 
         {/* CORRESPONDENCIA */}
         <Section title="Correspondencia" icon={Mail} color="indigo"
-          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver correspondencia →</button>}>
+          extra={<button onClick={() => goToExecution('correspondence')} className="text-[10px] text-brand-500 hover:underline">Ver correspondencia →</button>}>
 
           {/* Stats por estado */}
           <div className="mt-3 grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
@@ -1312,7 +1318,7 @@ REGLAS:
 
         {/* FINANCIERO */}
         <Section title="Control Económico" icon={DollarSign} color="emerald" semaforo={s.financiero}
-          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver presupuesto detallado →</button>}>
+          extra={<button onClick={() => goToExecution('budget_tracking')} className="text-[10px] text-brand-500 hover:underline">Ver presupuesto detallado →</button>}>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-lg p-3 bg-blue-50 border border-blue-100">
               <p className="text-[10px] text-blue-600 font-medium">Valor Contrato</p>
@@ -1355,7 +1361,7 @@ REGLAS:
 
         {/* RIESGOS */}
         <Section title="Riesgos" icon={Shield} color="red" semaforo={s.riesgos}
-          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver matriz de riesgos →</button>}>
+          extra={<button onClick={() => goToExecution('risks')} className="text-[10px] text-brand-500 hover:underline">Ver matriz de riesgos →</button>}>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
             <div className="rounded-lg p-2 bg-surface-50"><p className="text-lg font-bold">{d.risks.total || 0}</p><p className="text-[10px] text-surface-500">Total</p></div>
             <div className="rounded-lg p-2 bg-red-50"><p className="text-lg font-bold text-red-700">{d.risks.criticos || 0}</p><p className="text-[10px] text-surface-500">Críticos</p></div>

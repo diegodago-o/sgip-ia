@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { projectsAPI } from '../../services/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import SchedulePanel from '../execution/SchedulePanel';
@@ -37,16 +37,28 @@ function fmtMoney(v) { return v ? new Intl.NumberFormat('es-CO',{style:'currency
 
 export default function ExecutionPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [projects, setProjects] = useState([]);
   const [selectedId, setSelectedId] = useState(() => {
     const s = localStorage.getItem('sgip_selected_project');
     return s ? parseInt(s, 10) : null;
   });
   const [selectedProject, setSelectedProject] = useState(null);
-  const [activeTab, setActiveTab] = useState('schedule');
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('tab');
+    return t && TABS.find(tab => tab.id === t) ? t : 'schedule';
+  });
   const [loading, setLoading] = useState(true);
   const [dropOpen, setDropOpen] = useState(false);
   const perms = usePermissions('ejecucion');
+
+  // Sync tab from URL when location changes (e.g. back/forward or direct link)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const t = params.get('tab');
+    if (t && TABS.find(tab => tab.id === t)) setActiveTab(t);
+  }, [location.search]);
 
   // Persist selected project across modules
   useEffect(() => { if (selectedId) localStorage.setItem('sgip_selected_project', selectedId); }, [selectedId]);

@@ -277,6 +277,9 @@ router.get('/microsoft/callback', async (req, res) => {
 
     // Exchange code for tokens — use same tenant endpoint as the authorization request
     const tenant = msTenantEndpoint(cfg);
+    console.log('[oauth/ms/callback] tenant endpoint:', tenant);
+    console.log('[oauth/ms/callback] redirect_uri:', callback);
+
     const tokenRes = await fetch(
       `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
       {
@@ -293,13 +296,22 @@ router.get('/microsoft/callback', async (req, res) => {
       }
     );
     const tokens = await tokenRes.json();
-    if (tokens.error) return redirectError(res, `Microsoft token error: ${tokens.error_description || tokens.error}`);
+    if (tokens.error) {
+      console.error('[oauth/ms/callback] token error:', tokens.error, '|', tokens.error_description);
+      return redirectError(res, `Microsoft: ${tokens.error_description || tokens.error}`);
+    }
+    console.log('[oauth/ms/callback] token OK, fetching Graph /me');
 
     // Get user info from Microsoft Graph
     const userRes = await fetch('https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     const profile = await userRes.json();
+    console.log('[oauth/ms/callback] Graph profile:', JSON.stringify({ id: profile.id, mail: profile.mail, upn: profile.userPrincipalName, err: profile.error }));
+
+    if (profile.error) {
+      return redirectError(res, `Microsoft Graph: ${profile.error.message || profile.error.code}`);
+    }
 
     const email = profile.mail || profile.userPrincipalName;
     if (!email) return redirectError(res, 'Microsoft no devolvió email del usuario');
@@ -315,7 +327,7 @@ router.get('/microsoft/callback', async (req, res) => {
 
     issueTokenAndRedirect(res, user);
   } catch (e) {
-    console.error('[oauth/microsoft/callback]', e.message);
+    console.error('[oauth/microsoft/callback] EXCEPTION:', e.message, e.stack);
     const msg = e.message === 'SSO_NEW_USERS_DISABLED'
       ? 'Tu cuenta no está registrada en el sistema. Contacta al administrador.'
       : 'Error procesando autenticación con Microsoft';

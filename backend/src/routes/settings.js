@@ -367,4 +367,49 @@ router.put('/sso', authenticate, requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Config — system-wide API keys and default models
+// ─────────────────────────────────────────────────────────────────────────────
+const { clearAIConfigCache } = require('../services/aiConfig');
+
+const AI_SENSITIVE = ['anthropic_api_key', 'openai_api_key'];
+
+// GET /api/settings/ai
+router.get('/ai', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'ai_config'"
+    );
+    const cfg = rows.length && rows[0].setting_value ? JSON.parse(rows[0].setting_value) : {};
+    // Mask secrets before sending to frontend
+    const masked = { ...cfg };
+    for (const k of AI_SENSITIVE) { if (masked[k]) masked[k] = '********'; }
+    res.json({ success: true, data: masked });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/settings/ai
+router.put('/ai', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const incoming = req.body || {};
+    const [rows] = await db.execute(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'ai_config'"
+    );
+    const existing = rows.length && rows[0].setting_value ? JSON.parse(rows[0].setting_value) : {};
+    const cfg = { ...incoming };
+    // Preserve existing secrets if placeholder was sent back
+    for (const k of AI_SENSITIVE) {
+      if (cfg[k] === '********' || cfg[k] === '') cfg[k] = existing[k] || '';
+    }
+    await db.execute(
+      `INSERT INTO system_settings (setting_key, setting_value, is_sensitive, updated_by)
+       VALUES ('ai_config', ?, 1, ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)`,
+      [JSON.stringify(cfg), req.user.id]
+    );
+    clearAIConfigCache(); // force next request to re-read from DB
+    res.json({ success: true, message: 'Configuración de IA guardada correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

@@ -23,6 +23,8 @@ const settingsAPI = {
   testNotif:      (d)   => api.post('/settings/notifications/test', d),
   getSSO:         ()    => api.get('/settings/sso'),
   saveSSO:        (d)   => api.put('/settings/sso', d),
+  getAI:          ()    => api.get('/settings/ai'),
+  saveAI:         (d)   => api.put('/settings/ai', d),
 };
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -116,9 +118,10 @@ const RECIPIENT_OPTIONS = [
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'email',           label: 'Correo electrónico', icon: Mail  },
-  { id: 'notificaciones',  label: 'Notificaciones',      icon: Bell  },
-  { id: 'integraciones',   label: 'Integraciones',       icon: Zap   },
+  { id: 'email',           label: 'Correo electrónico',    icon: Mail  },
+  { id: 'notificaciones',  label: 'Notificaciones',         icon: Bell  },
+  { id: 'integraciones',   label: 'Integraciones',          icon: Zap   },
+  { id: 'ia',              label: 'Motor de IA',            icon: Key   },
   { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn },
 ];
 
@@ -903,6 +906,140 @@ function NotificacionesSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// AI CONFIG SECTION — system-wide API keys for Motor de IA
+// ══════════════════════════════════════════════════════════════════════════════
+const AI_MODELS = {
+  anthropic: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-5-20251001'],
+  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'],
+};
+
+const EMPTY_AI = {
+  default_provider: 'anthropic',
+  anthropic_api_key: '',
+  anthropic_model: 'claude-sonnet-4-20250514',
+  openai_api_key: '',
+  openai_model: 'gpt-4o',
+};
+
+function AISection() {
+  const [form, setForm]         = useState(EMPTY_AI);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const showFb = (type, msg) => {
+    setFeedback({ type, msg });
+    if (type === 'success') setTimeout(() => setFeedback(null), 4000);
+  };
+
+  useEffect(() => {
+    settingsAPI.getAI()
+      .then(r => { const d = r.data?.data || {}; setForm(f => ({ ...f, ...d })); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsAPI.saveAI(form);
+      showFb('success', 'Configuración de IA guardada — todos los usuarios usarán esta clave por defecto');
+    } catch (e) {
+      showFb('error', e.response?.data?.error || e.message);
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-400" /></div>;
+
+  return (
+    <div className="space-y-5 max-w-2xl">
+      <Feedback fb={feedback} onClose={() => setFeedback(null)} />
+
+      {/* Info banner */}
+      <div className="p-4 bg-violet-50 rounded-xl border border-violet-200 flex gap-3">
+        <Info className="w-4 h-4 text-violet-600 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-violet-800 leading-relaxed space-y-1">
+          <p><strong>Clave del sistema:</strong> todos los usuarios del Motor de IA usarán estas claves por defecto sin necesidad de ingresarlas manualmente.</p>
+          <p>Prioridad: <strong>Variable de entorno (.env)</strong> &gt; <strong>Clave del sistema (aquí)</strong> &gt; <strong>Clave personal del usuario</strong>.</p>
+          <p>Los usuarios aún pueden ingresar su propia clave para sobreescribir temporalmente la del sistema.</p>
+        </div>
+      </div>
+
+      {/* Provider default */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-4">
+        <h3 className="text-sm font-semibold text-brand-900 flex items-center gap-2">
+          <Zap className="w-4 h-4 text-violet-500" />
+          Proveedor predeterminado del sistema
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { value: 'anthropic', label: 'Claude (Anthropic)', color: 'bg-orange-50 border-orange-400 text-orange-800' },
+            { value: 'openai',    label: 'GPT (OpenAI)',        color: 'bg-green-50 border-green-400 text-green-800' },
+          ].map(opt => (
+            <button key={opt.value} type="button"
+              onClick={() => setForm(f => ({ ...f, default_provider: opt.value }))}
+              className={`p-3 rounded-xl border-2 text-left transition-all ${
+                form.default_provider === opt.value ? opt.color + ' ring-1' : 'border-surface-200 bg-white hover:border-brand-300'
+              }`}>
+              <p className="text-xs font-semibold">{opt.label}</p>
+              <p className="text-[10px] text-surface-500 mt-0.5">Proveedor por defecto para nuevos usuarios</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Anthropic */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-3">
+        <h3 className="text-sm font-semibold text-brand-900 flex items-center gap-2">
+          <span className="w-5 h-5 rounded bg-orange-100 flex items-center justify-center text-[10px] font-bold text-orange-700">A</span>
+          Claude — Anthropic
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="API Key" hint="sk-ant-api03-...">
+            <PasswordInput value={form.anthropic_api_key} onChange={set('anthropic_api_key')} placeholder="sk-ant-api03-..." />
+          </Field>
+          <Field label="Modelo predeterminado">
+            <select value={form.anthropic_model} onChange={set('anthropic_model')} className="input-field text-sm w-full">
+              {AI_MODELS.anthropic.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+        </div>
+        <p className="text-[10px] text-surface-400">Obtén tu API key en <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer" className="underline text-brand-500">console.anthropic.com</a></p>
+      </div>
+
+      {/* OpenAI */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-3">
+        <h3 className="text-sm font-semibold text-brand-900 flex items-center gap-2">
+          <span className="w-5 h-5 rounded bg-green-100 flex items-center justify-center text-[10px] font-bold text-green-700">G</span>
+          GPT — OpenAI
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="API Key" hint="sk-...">
+            <PasswordInput value={form.openai_api_key} onChange={set('openai_api_key')} placeholder="sk-..." />
+          </Field>
+          <Field label="Modelo predeterminado">
+            <select value={form.openai_model} onChange={set('openai_model')} className="input-field text-sm w-full">
+              {AI_MODELS.openai.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+        </div>
+        <p className="text-[10px] text-surface-400">Obtén tu API key en <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="underline text-brand-500">platform.openai.com</a></p>
+      </div>
+
+      {/* Save */}
+      <div className="flex justify-end">
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Guardando...' : 'Guardar configuración de IA'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════════════
 // SSO SECTION
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1184,6 +1321,7 @@ export default function ConfiguracionPage() {
     email:           { h: 'Correo electrónico',         sub: 'Configura el servidor de correo para enviar notificaciones del sistema' },
     notificaciones:  { h: 'Notificaciones',              sub: 'Define qué eventos del sistema disparan emails, a quién y con cuánta anticipación' },
     integraciones:   { h: 'Integraciones',               sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
+    ia:              { h: 'Motor de IA — Claves del sistema', sub: 'Configura las API Keys de Claude y GPT para todos los usuarios sin que cada uno tenga que ingresar la suya' },
     sso:             { h: 'Inicio de sesión único (SSO)', sub: 'Configura Google y Microsoft 365 para que los usuarios inicien sesión con sus cuentas corporativas' },
   };
 
@@ -1228,6 +1366,7 @@ export default function ConfiguracionPage() {
         {active === 'email'          && <EmailSection />}
         {active === 'notificaciones' && <NotificacionesSection />}
         {active === 'integraciones'  && <IntegracionesSection />}
+        {active === 'ia'             && <AISection />}
         {active === 'sso'            && <SSOSection />}
       </main>
     </div>

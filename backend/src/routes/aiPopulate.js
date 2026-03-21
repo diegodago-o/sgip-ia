@@ -9,23 +9,13 @@ const { authMiddleware } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 
+const { resolveAIConfig } = require('../services/aiConfig');
+
 const router = express.Router();
 router.use(authMiddleware);
 
-function getAIConfig(req) {
-  const provider = req.body?.provider || req.query?.provider || process.env.AI_PROVIDER || 'anthropic';
-  let apiKey, model;
-
-  if (provider === 'anthropic') {
-    apiKey = req.body?.api_key || process.env.ANTHROPIC_API_KEY;
-    model = req.body?.model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
-  } else {
-    apiKey = req.body?.api_key || process.env.OPENAI_API_KEY;
-    model = req.body?.model || process.env.OPENAI_MODEL || 'gpt-4o';
-  }
-
-  if (!apiKey) throw new Error(`API key no configurada para ${provider}. Configure la key en Ajustes de IA o en el archivo .env`);
-  return { provider, apiKey, model };
+async function getAIConfig(req) {
+  return resolveAIConfig(req.body, req.query, req.user?.id);
 }
 
 // Provider-agnostic LLM call
@@ -264,7 +254,7 @@ async function extractPDFText(filePath) {
 router.post('/:projectId/analyze', [param('projectId').isInt()], async (req, res) => {
   try {
     const pid = req.params.projectId;
-    const { provider, apiKey, model } = getAIConfig(req);
+    const { provider, apiKey, model } = await getAIConfig(req);
     const { doc_ids, modules } = req.body; // modules: ['obligations','risks','team','schedule','budget']
 
     // Get documents

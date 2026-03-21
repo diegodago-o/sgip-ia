@@ -7,6 +7,8 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 
+const { resolveAIConfig, loadSystemAIConfig } = require('../services/aiConfig');
+
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -16,26 +18,9 @@ function validate(req, res) {
   return true;
 }
 
-function getAIConfig(req) {
-  const provider = req.body.provider || req.query.provider || process.env.AI_PROVIDER || 'anthropic';
-  let apiKey, model;
-  if (provider === 'anthropic') {
-    const envKey = process.env.ANTHROPIC_API_KEY;
-    apiKey = envKey || req.body.api_key;
-    if (!envKey && req.body.api_key) {
-      console.warn(`[AI] Cliente usando clave propia (user=${req.user?.id}, provider=anthropic) — configurar ANTHROPIC_API_KEY en .env para producción`);
-    }
-    model = req.body.model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
-  } else {
-    const envKey = process.env.OPENAI_API_KEY;
-    apiKey = envKey || req.body.api_key;
-    if (!envKey && req.body.api_key) {
-      console.warn(`[AI] Cliente usando clave propia (user=${req.user?.id}, provider=openai) — configurar OPENAI_API_KEY en .env para producción`);
-    }
-    model = req.body.model || process.env.OPENAI_MODEL || 'gpt-4o';
-  }
-  if (!apiKey) throw new Error(`API key no configurada para ${provider}. Configure en Ajustes o .env`);
-  return { provider, apiKey, model };
+// Thin wrapper so call sites stay clean
+async function getAIConfig(req) {
+  return resolveAIConfig(req.body, req.query, req.user?.id);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -203,7 +188,7 @@ const upload = multer({ dest: path.join(__dirname, '../../uploads/tmp'), limits:
 
 router.post('/extract', upload.single('file'), async (req, res) => {
   try {
-    const { provider, apiKey, model } = getAIConfig(req);
+    const { provider, apiKey, model } = await getAIConfig(req);
     let text = req.body.text || '';
     let method = 'manual-text';
 
@@ -283,7 +268,7 @@ router.post('/:projectId/generate',
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
-      const { provider, apiKey, model } = getAIConfig(req);
+      const { provider, apiKey, model } = await getAIConfig(req);
       const result = await aiEngine.generateDocument(provider, apiKey, model, req.params.projectId, req.body.document_type, req.body.instructions || '');
       await pool.execute('INSERT INTO audit_log (user_id,action,entity_type,entity_id,details) VALUES (?,?,?,?,?)',
         [req.user.id, 'ai_generate', 'project', parseInt(req.params.projectId), JSON.stringify({ provider, model, doc_type: req.body.document_type })]);
@@ -296,7 +281,7 @@ router.post('/:projectId/analyze', [param('projectId').isInt()],
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
-      const { provider, apiKey, model } = getAIConfig(req);
+      const { provider, apiKey, model } = await getAIConfig(req);
       const result = await aiEngine.analyzeProject(provider, apiKey, model, req.params.projectId);
       await pool.execute('INSERT INTO audit_log (user_id,action,entity_type,entity_id,details) VALUES (?,?,?,?,?)',
         [req.user.id, 'ai_analyze', 'project', parseInt(req.params.projectId), JSON.stringify({ provider, model })]);
@@ -310,7 +295,7 @@ router.post('/:projectId/chat',
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
-      const { provider, apiKey, model } = getAIConfig(req);
+      const { provider, apiKey, model } = await getAIConfig(req);
       const messages = [];
       if (req.body.history && Array.isArray(req.body.history)) {
         req.body.history.forEach(m => messages.push({ role: m.role, content: m.content }));
@@ -321,15 +306,23 @@ router.post('/:projectId/chat',
     } catch (err) { console.error('AI Chat error:', err.message); res.status(500).json({ error: err.message }); }
   });
 
-// ═══ 5. SETTINGS ═══
+// ═══ 5. SETTINGS — reports whether system key is configured (env or DB) ═══
 router.get('/settings', async (req, res) => {
-  res.json({ data: {
-    anthropic_configured: !!(process.env.ANTHROPIC_API_KEY),
-    openai_configured: !!(process.env.OPENAI_API_KEY),
-    default_provider: process.env.AI_PROVIDER || 'anthropic',
-    anthropic_model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
-    openai_model: process.env.OPENAI_MODEL || 'gpt-4o',
-  }});
+  try {
+    const sysCfg = await loadSystemAIConfig();
+    const anthropicReady = !!(process.env.ANTHROPIC_API_KEY || sysCfg.anthropic_api_key);
+    const openaiReady    = !!(process.env.OPENAI_API_KEY    || sysCfg.openai_api_key);
+    res.json({ data: {
+      anthropic_configured: anthropicReady,
+      openai_configured:    openaiReady,
+      // 'env' | 'system' | 'none' — tells the UI which source is active
+      anthropic_source: process.env.ANTHROPIC_API_KEY ? 'env' : (sysCfg.anthropic_api_key ? 'system' : 'none'),
+      openai_source:    process.env.OPENAI_API_KEY    ? 'env' : (sysCfg.openai_api_key    ? 'system' : 'none'),
+      default_provider: process.env.AI_PROVIDER || sysCfg.default_provider || 'anthropic',
+      anthropic_model:  process.env.ANTHROPIC_MODEL || sysCfg.anthropic_model || 'claude-sonnet-4-20250514',
+      openai_model:     process.env.OPENAI_MODEL    || sysCfg.openai_model    || 'gpt-4o',
+    }});
+  } catch { res.json({ data: { anthropic_configured: false, openai_configured: false } }); }
 });
 
 module.exports = router;

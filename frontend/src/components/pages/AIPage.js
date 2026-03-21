@@ -40,11 +40,19 @@ const EXTRACT_TYPES = {
 const ALERT_COLORS = { critico: 'bg-red-100 text-red-800 border-red-200', alto: 'bg-orange-100 text-orange-800 border-orange-200', medio: 'bg-amber-100 text-amber-800 border-amber-200', bajo: 'bg-blue-100 text-blue-800 border-blue-200' };
 const ALERT_ICONS = { critico: <XCircle className="w-4 h-4" />, alto: <AlertTriangle className="w-4 h-4" />, medio: <Clock className="w-4 h-4" />, bajo: <CheckCircle2 className="w-4 h-4" /> };
 
-function ProviderSelector({ provider, setProvider, apiKey, setApiKey, model, setModel }) {
+function ProviderSelector({ provider, setProvider, apiKey, setApiKey, model, setModel, systemConfigured }) {
   const [show, setShow] = useState(false);
   const p = PROVIDERS[provider];
+  const sysActive = systemConfigured?.[provider]; // true if system key is set for this provider
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
+      {/* System key badge */}
+      {sysActive && (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-medium text-emerald-700">
+          <CheckCircle2 className="w-3 h-3" /> Clave del sistema activa
+        </span>
+      )}
       <button onClick={() => setShow(!show)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-200 text-xs text-brand-800 hover:bg-surface-50">
         <Settings2 className="w-3.5 h-3.5 text-surface-400" /> {p.name} <ChevronDown className={`w-3 h-3 transition-transform ${show ? 'rotate-180' : ''}`} />
       </button>
@@ -56,7 +64,9 @@ function ProviderSelector({ provider, setProvider, apiKey, setApiKey, model, set
           <select value={model} onChange={e => setModel(e.target.value)} className="input-field text-xs py-1.5 w-48">
             {p.models.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} className="input-field text-xs py-1.5 w-56" placeholder={`API Key ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}...`} />
+          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+            className="input-field text-xs py-1.5 w-56"
+            placeholder={sysActive ? 'Clave personal (opcional — sobreescribe la del sistema)' : `API Key ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} (requerida)`} />
         </div>
       )}
     </div>
@@ -442,11 +452,30 @@ export default function AIPage() {
   const [provider, setProvider] = useState(localStorage.getItem('sgip_ai_provider') || 'anthropic');
   const [apiKey, setApiKey] = useState(localStorage.getItem('sgip_ai_key') || '');
   const [model, setModel] = useState(localStorage.getItem('sgip_ai_model') || 'claude-sonnet-4-20250514');
+  // System-wide key status: { anthropic: bool, openai: bool }
+  const [systemConfigured, setSystemConfigured] = useState({ anthropic: false, openai: false });
 
   // Persist AI config
   useEffect(() => { localStorage.setItem('sgip_ai_provider', provider); }, [provider]);
   useEffect(() => { localStorage.setItem('sgip_ai_key', apiKey); }, [apiKey]);
   useEffect(() => { localStorage.setItem('sgip_ai_model', model); }, [model]);
+
+  // Fetch system AI config status once on mount
+  useEffect(() => {
+    aiAPI.settings()
+      .then(r => {
+        const d = r.data?.data || {};
+        setSystemConfigured({
+          anthropic: !!(d.anthropic_configured),
+          openai:    !!(d.openai_configured),
+        });
+        // If system has a default provider set and user hasn't chosen one yet, respect it
+        if (d.default_provider && !localStorage.getItem('sgip_ai_provider')) {
+          setProvider(d.default_provider);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     projectsAPI.list({ limit: 100 })
@@ -473,7 +502,7 @@ export default function AIPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <ProviderSelector provider={provider} setProvider={setProvider} apiKey={apiKey} setApiKey={setApiKey} model={model} setModel={setModel} />
+            <ProviderSelector provider={provider} setProvider={setProvider} apiKey={apiKey} setApiKey={setApiKey} model={model} setModel={setModel} systemConfigured={systemConfigured} />
             {/* Project selector for generate/analyze/chat */}
             {activeTab !== 'extract' && (
               <div className="relative">

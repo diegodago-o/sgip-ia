@@ -90,6 +90,7 @@ export default function CommitteeDashboard() {
   const [dateTo, setDateTo] = useState(today);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiView, setAiView] = useState('gerente'); // 'gerente' | 'ceo' | 'operativo'
   const [commitmentUpdating, setCommitmentUpdating] = useState(null);
   const [commitmentToast, setCommitmentToast] = useState(null);
 
@@ -296,7 +297,163 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
   "next_actions": ["<acción inmediata 1 con responsable y fecha>", "<acción 2>", "<acción 3>", "<acción 4>", "<acción 5>"],
   "committee_decisions_needed": ["<decisión que debe tomar el comité 1>", "<decisión 2>"],
   "productivity": { "score": "<buena|aceptable|baja|critica>", "analysis": "<análisis de velocidad: actividades/mes, gasto/mes, tendencia>" },
-  "forecast": "<pronóstico: a este ritmo, ¿terminará a tiempo? ¿dentro del presupuesto? ¿qué debe cambiar?>"
+  "forecast": "<pronóstico: a este ritmo, ¿terminará a tiempo? ¿dentro del presupuesto? ¿qué debe cambiar?>",
+
+  "pmi_gerente": [
+    {
+      "grupo": "Entrega y Avance",
+      "emoji": "📦",
+      "indicadores": [
+        { "nombre": "Avance físico real vs planificado", "valor": "<ej: 68% real vs 75% planif.>", "estado": "<verde|amarillo|rojo>", "nota": "<breve interpretación>" },
+        { "nombre": "Cumplimiento de hitos críticos", "valor": "<hitos_cumplidos/hitos_programados = %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Entregables aprobados vs pendientes", "valor": "<X aprobados, Y pendientes>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Variación del alcance", "valor": "<N cambios aprobados>", "estado": "<verde|amarillo|rojo>", "nota": "<impacto en tiempo/costo>" }
+      ]
+    },
+    {
+      "grupo": "Cronograma",
+      "emoji": "📅",
+      "indicadores": [
+        { "nombre": "SPI – Índice desempeño cronograma", "valor": "<valor numérico>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación>" },
+        { "nombre": "Desviación del cronograma", "valor": "<+/- días o %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Actividades críticas vencidas", "valor": "<N actividades>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Probabilidad de cumplir fecha final", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" }
+      ]
+    },
+    {
+      "grupo": "Costo y Control Financiero",
+      "emoji": "💰",
+      "indicadores": [
+        { "nombre": "CPI – Índice desempeño del costo", "valor": "<valor numérico>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación>" },
+        { "nombre": "Presupuesto ejecutado vs aprobado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "EAC – Estimado al cierre", "valor": "<COP>", "estado": "<verde|amarillo|rojo>", "nota": "<vs presupuesto base>" },
+        { "nombre": "Variación presupuestal proyectada", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipa sobrecosto>" }
+      ]
+    },
+    {
+      "grupo": "Riesgos e Incidentes",
+      "emoji": "🛡",
+      "indicadores": [
+        { "nombre": "Top riesgos abiertos", "valor": "<N críticos, N altos>", "estado": "<verde|amarillo|rojo>", "nota": "<principales riesgos vigentes>" },
+        { "nombre": "Riesgos materializados en el período", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Issues o bloqueos críticos abiertos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Tiempo promedio resolución bloqueos", "valor": "<N días>", "estado": "<verde|amarillo|rojo>", "nota": "<capacidad de respuesta>" }
+      ]
+    },
+    {
+      "grupo": "Calidad y Control Técnico",
+      "emoji": "✅",
+      "indicadores": [
+        { "nombre": "Entregables aceptados a la primera", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<calidad inicial>" },
+        { "nombre": "Retrabajo", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<esfuerzo en correcciones>" },
+        { "nombre": "No conformidades o defectos críticos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Cumplimiento criterios de aceptación", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<calidad funcional y contractual>" }
+      ]
+    },
+    {
+      "grupo": "Recursos y Capacidad",
+      "emoji": "👥",
+      "indicadores": [
+        { "nombre": "Disponibilidad de recursos críticos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<roles clave disponibles>" },
+        { "nombre": "Sobrecarga de capacidad por rol", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<saturación>" },
+        { "nombre": "Rotación de personal clave", "valor": "<N personas>", "estado": "<verde|amarillo|rojo>", "nota": "<riesgo continuidad>" },
+        { "nombre": "Dependencias externas vencidas", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<pendientes de terceros>" }
+      ]
+    },
+    {
+      "grupo": "Stakeholders y Gobernanza",
+      "emoji": "🤝",
+      "indicadores": [
+        { "nombre": "Decisiones pendientes de comité", "valor": "<N decisiones>", "estado": "<verde|amarillo|rojo>", "nota": "<decisiones ejecutivas abiertas>" },
+        { "nombre": "Compromisos vencidos de áreas", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<para escalar>" },
+        { "nombre": "Involucramiento de stakeholders", "valor": "<escala 1-5 o semáforo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Cumplimiento plan de comunicaciones", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<alineación>" }
+      ]
+    },
+    {
+      "grupo": "Beneficios y Valor",
+      "emoji": "🎯",
+      "indicadores": [
+        { "nombre": "Beneficios planificados vs capturados", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<valor ya materializado>" },
+        { "nombre": "Valor entregado por etapa", "valor": "<descripción corta>", "estado": "<verde|amarillo|rojo>", "nota": "<resultados utilizables>" },
+        { "nombre": "Funcionalidades/servicios operativos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<entrega usable>" },
+        { "nombre": "Alineación con objetivos estratégicos", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<contribución>" }
+      ]
+    },
+    {
+      "grupo": "Cambio y Adopción",
+      "emoji": "🔄",
+      "indicadores": [
+        { "nombre": "Nivel de adopción del entregable", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<qué tanto se usa>" },
+        { "nombre": "Usuarios impactados vs activos", "valor": "<N/N>", "estado": "<verde|amarillo|rojo>", "nota": "<transformación digital>" },
+        { "nombre": "Cumplimiento gestión del cambio", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<formación, comunicaciones>" },
+        { "nombre": "Resistencia/incidentes de adopción", "valor": "<N incidentes>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipar fracaso>" }
+      ]
+    }
+  ],
+
+  "pmi_ceo": [
+    {
+      "grupo": "Salud Ejecutiva",
+      "emoji": "🚦",
+      "indicadores": [
+        { "nombre": "Estado general del proyecto (RAG)", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<resumen ejecutivo>" },
+        { "nombre": "Estado de alcance", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Estado de tiempo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Estado de costo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" }
+      ]
+    },
+    {
+      "grupo": "Valor y Beneficios",
+      "emoji": "💎",
+      "indicadores": [
+        { "nombre": "Beneficio esperado del proyecto", "valor": "<descripción: ingreso/ahorro/eficiencia>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Beneficio capturado a la fecha", "valor": "<%> del esperado", "estado": "<verde|amarillo|rojo>", "nota": "<valor ya materializado>" },
+        { "nombre": "ROI actualizado / esperado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<fundamental para inversión>" },
+        { "nombre": "Valor en riesgo", "valor": "<COP o %>", "estado": "<verde|amarillo|rojo>", "nota": "<si el proyecto falla>" }
+      ]
+    },
+    {
+      "grupo": "Tiempo y Costo Ejecutivo",
+      "emoji": "📊",
+      "indicadores": [
+        { "nombre": "Fecha compromiso vs estimada cierre", "valor": "<fecha1 vs fecha2>", "estado": "<verde|amarillo|rojo>", "nota": "<solo dato ejecutivo>" },
+        { "nombre": "Presupuesto aprobado vs ejecutado", "valor": "<COP aprobado | COP ejecutado | COP proyectado>", "estado": "<verde|amarillo|rojo>", "nota": "<vistazo financiero>" },
+        { "nombre": "Sobrecosto esperado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<solo si es material>" },
+        { "nombre": "Necesidad de presupuesto adicional", "valor": "<Sí / No>", "estado": "<verde|amarillo|rojo>", "nota": "<para decisión inmediata>" }
+      ]
+    },
+    {
+      "grupo": "Riesgo Corporativo",
+      "emoji": "⚠️",
+      "indicadores": [
+        { "nombre": "Top 3 riesgos corporativos", "valor": "<riesgo 1 | riesgo 2 | riesgo 3>", "estado": "<verde|amarillo|rojo>", "nota": "<legales, reputacionales, financieros>" },
+        { "nombre": "Probabilidad de no lograr beneficios", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<más importante que retraso>" },
+        { "nombre": "Exposición residual del proyecto", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<tras controles>" },
+        { "nombre": "Impacto organizacional ante falla", "valor": "<descripción>", "estado": "<verde|amarillo|rojo>", "nota": "<criticidad para operación>" }
+      ]
+    },
+    {
+      "grupo": "Gobernanza y Decisiones",
+      "emoji": "🗳",
+      "indicadores": [
+        { "nombre": "Decisiones que requiere el comité hoy", "valor": "<N decisiones pendientes>", "estado": "<verde|amarillo|rojo>", "nota": "<el comité debe decidir, no solo escuchar>" },
+        { "nombre": "Escalamientos abiertos", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<obstáculos que necesitan intervención>" },
+        { "nombre": "Compromisos comité anterior cumplidos", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<disciplina de gobernanza>" },
+        { "nombre": "Desviaciones fuera de tolerancia", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<ya excedieron umbrales>" }
+      ]
+    },
+    {
+      "grupo": "Adopción y Sostenibilidad",
+      "emoji": "🌱",
+      "indicadores": [
+        { "nombre": "Adopción ejecutiva / organizacional", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<si el cambio está entrando en operación>" },
+        { "nombre": "Preparación operativa", "valor": "<Alta|Media|Baja>", "estado": "<verde|amarillo|rojo>", "nota": "<para recibir el entregable>" },
+        { "nombre": "Satisfacción del cliente", "valor": "<X/10>", "estado": "<verde|amarillo|rojo>", "nota": "<percepción resumida>" },
+        { "nombre": "Sostenibilidad del beneficio", "valor": "<Temporal|Permanente>", "estado": "<verde|amarillo|rojo>", "nota": "<si el valor será perdurable>" }
+      ]
+    }
+  ]
 }
 
 REGLAS:
@@ -307,6 +464,8 @@ REGLAS:
 - Los critical_issues son los que necesitan acción INMEDIATA del comité
 - El forecast debe ser realista basado en tendencias
 - committee_decisions_needed son las decisiones que el comité debe tomar HOY
+- Para pmi_gerente y pmi_ceo: usa los datos reales del proyecto, no valores genéricos
+- Los estados (verde/amarillo/rojo) deben ser coherentes con los semáforos calculados
 - SOLO JSON válido, nada más`);
       fd.append('provider', provider);
       if (apiKey) fd.append('api_key', apiKey);
@@ -513,6 +672,38 @@ REGLAS:
           const hLabel = { critico:'Crítico', en_riesgo:'En Riesgo', precaucion:'Precaución', saludable:'Saludable', excelente:'Excelente' };
           const pColors = { buena:'text-emerald-700 bg-emerald-50', aceptable:'text-blue-700 bg-blue-50', baja:'text-amber-700 bg-amber-50', critica:'text-red-700 bg-red-50' };
 
+          // RAG helpers
+          const ragDot = (estado) => {
+            const c = { verde:'bg-emerald-500', amarillo:'bg-amber-400', rojo:'bg-red-500' };
+            const t = { verde:'bg-emerald-50 border-emerald-200 text-emerald-800', amarillo:'bg-amber-50 border-amber-200 text-amber-800', rojo:'bg-red-50 border-red-200 text-red-800' };
+            return { dot: c[estado] || 'bg-surface-300', card: t[estado] || 'bg-surface-50 border-surface-200 text-surface-700' };
+          };
+
+          const PmiIndicatorCard = ({ ind }) => {
+            const rag = ragDot(ind.estado);
+            return (
+              <div className={`p-3 rounded-lg border ${rag.card} flex flex-col gap-1`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[11px] font-semibold leading-tight flex-1">{ind.nombre}</p>
+                  <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5 ${rag.dot}`} />
+                </div>
+                <p className="text-sm font-bold leading-tight">{ind.valor}</p>
+                {ind.nota && <p className="text-[10px] opacity-60 leading-tight italic">{ind.nota}</p>}
+              </div>
+            );
+          };
+
+          const PmiGroupSection = ({ grupo }) => (
+            <div>
+              <h5 className="text-xs font-bold text-brand-700 mb-2 flex items-center gap-1.5">
+                <span>{grupo.emoji}</span> {grupo.grupo}
+              </h5>
+              <div className="grid grid-cols-2 gap-2">
+                {(grupo.indicadores || []).map((ind, i) => <PmiIndicatorCard key={i} ind={ind} />)}
+              </div>
+            </div>
+          );
+
           return (
             <div className="space-y-4 animate-slide-up">
               {/* Health Score */}
@@ -533,6 +724,46 @@ REGLAS:
                 <p className="text-sm mt-3 opacity-80 leading-relaxed">{ai.executive_summary}</p>
                 {ai.productivity?.analysis && <p className="text-xs mt-2 opacity-60 italic">{ai.productivity.analysis}</p>}
               </div>
+
+              {/* ── Vista switcher ── */}
+              <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl">
+                {[
+                  { id: 'gerente', label: '🎯 Gerente de Programa' },
+                  { id: 'ceo',     label: '👔 CEO / Dirección' },
+                  { id: 'operativo', label: '📋 Diagnóstico Operativo' },
+                ].map(v => (
+                  <button key={v.id} onClick={() => setAiView(v.id)}
+                    className={`flex-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg transition-all duration-150 ${aiView === v.id ? 'bg-white text-brand-700 shadow-sm' : 'text-surface-500 hover:text-brand-600'}`}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Vista Gerente de Programa ── */}
+              {aiView === 'gerente' && ai.pmi_gerente?.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 py-1">
+                    <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — Gerente de Programa</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-100 text-brand-600 font-medium">9 grupos · 36 indicadores</span>
+                  </div>
+                  {ai.pmi_gerente.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
+                </div>
+              )}
+
+              {/* ── Vista CEO ── */}
+              {aiView === 'ceo' && ai.pmi_ceo?.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 py-1">
+                    <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — CEO / Dirección General</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">6 grupos · 24 indicadores</span>
+                  </div>
+                  {ai.pmi_ceo.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
+                </div>
+              )}
+
+              {/* ── Vista Operativo (diagnóstico original) ── */}
+              {aiView === 'operativo' && (
+                <div className="space-y-4">
 
               {/* Period Analysis */}
               {ai.period_analysis && (
@@ -711,6 +942,10 @@ REGLAS:
                   <p className="text-xs text-emerald-900 leading-relaxed">{ai.financial_analysis}</p>
                 </div>
               )}
+
+                </div>
+              )}
+
             </div>
           );
         })() : aiAnalysis?.text ? (

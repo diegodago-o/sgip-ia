@@ -225,6 +225,37 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
     const [docStats] = await pool.execute(`
       SELECT COUNT(*) as total FROM documents WHERE project_id=?`, [pid]);
 
+    // ── 12. CORRESPONDENCIA ──
+    let correspondence = { total: 0, borrador: 0, radicado: 0, enviado: 0, recibido: 0, respondido: 0, archivado: 0, pending_response: 0, recent: [] };
+    try {
+      const [corrStats] = await pool.execute(`
+        SELECT COUNT(*) as total,
+          SUM(status='borrador') as borrador,
+          SUM(status='radicado') as radicado,
+          SUM(status='enviado') as enviado,
+          SUM(status='recibido') as recibido,
+          SUM(status='respondido') as respondido,
+          SUM(status='archivado') as archivado,
+          SUM(status IN ('enviado','radicado')) as pending_response
+        FROM correspondence WHERE project_id=?`, [pid]);
+      const [corrRecent] = await pool.execute(`
+        SELECT id, consecutive_code, correspondence_type, subject,
+               recipient_entity, status, reference_date, sent_date
+        FROM correspondence WHERE project_id=?
+        ORDER BY reference_date DESC, created_at DESC LIMIT 5`, [pid]);
+      correspondence = {
+        total:           parseInt(corrStats[0].total || 0),
+        borrador:        parseInt(corrStats[0].borrador || 0),
+        radicado:        parseInt(corrStats[0].radicado || 0),
+        enviado:         parseInt(corrStats[0].enviado || 0),
+        recibido:        parseInt(corrStats[0].recibido || 0),
+        respondido:      parseInt(corrStats[0].respondido || 0),
+        archivado:       parseInt(corrStats[0].archivado || 0),
+        pending_response: parseInt(corrStats[0].pending_response || 0),
+        recent: corrRecent,
+      };
+    } catch (e) { console.warn('Correspondence stats:', e.message); }
+
     // ── SEMÁFOROS (traffic lights) ──
     const physicalProgress = sched.avg_progress || 0;
     const timeProgress = timePct;
@@ -266,7 +297,7 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
     const periodDays = Math.ceil((periodEnd - periodStart) / 86400000);
 
     // ── PERIOD ACTIVITY — what happened in this period ──
-    let periodActivity = { activities_completed: 0, obligations_completed: 0, risks_new: 0, risks_closed: 0, payments_count: 0, payments_value: 0 };
+    let periodActivity = { activities_completed: 0, obligations_completed: 0, risks_new: 0, risks_closed: 0, payments_count: 0, payments_value: 0, correspondence_sent: 0, correspondence_received: 0 };
     try {
       const [actComp] = await pool.execute(
         "SELECT COUNT(*) as c FROM schedule_activities WHERE project_id=? AND status='completada' AND updated_at BETWEEN ? AND ?",
@@ -293,6 +324,16 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
         [pid, periodStartStr, periodEndStr]);
       periodActivity.payments_count = parseInt(pays[0]?.c || 0);
       periodActivity.payments_value = parseFloat(pays[0]?.v || 0);
+
+      const [corrSent] = await pool.execute(
+        "SELECT COUNT(*) as c FROM correspondence WHERE project_id=? AND status IN ('enviado','radicado') AND (sent_date BETWEEN ? AND ? OR (sent_date IS NULL AND created_at BETWEEN ? AND ?))",
+        [pid, periodStartStr, periodEndStr, periodStartStr, periodEndStr]);
+      periodActivity.correspondence_sent = parseInt(corrSent[0]?.c || 0);
+
+      const [corrRecv] = await pool.execute(
+        "SELECT COUNT(*) as c FROM correspondence WHERE project_id=? AND status='recibido' AND created_at BETWEEN ? AND ?",
+        [pid, periodStartStr, periodEndStr]);
+      periodActivity.correspondence_received = parseInt(corrRecv[0]?.c || 0);
     } catch (e) { console.warn('Period activity:', e.message); }
 
     // ── RESPONSE ──
@@ -338,6 +379,7 @@ router.get('/:projectId/dashboard', [param('projectId').isInt()], async (req, re
         deliverables: delivStats[0],
         commitments,
         changes,
+        correspondence,
         documents: docStats[0],
         period: { type: committeeType, label: periodLabel, start: periodStartStr, end: periodEndStr, days: periodDays },
         period_activity: periodActivity,

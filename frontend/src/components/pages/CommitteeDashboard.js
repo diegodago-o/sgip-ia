@@ -5,7 +5,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, TrendingUp, TrendingDown,
   DollarSign, Shield, Users, CalendarRange, ClipboardList, FileText,
   ChevronDown, ChevronRight, AlertCircle, Target, Eye, BarChart3, Sparkles,
-  Calendar,
+  Calendar, Mail, Send,
 } from 'lucide-react';
 import { committeeAPI, aiAPI } from '../../services/api';
 import CommitteeCommitmentsPanel from './CommitteeCommitmentsPanel';
@@ -170,6 +170,7 @@ export default function CommitteeDashboard() {
   const genColor = SEMAFORO_COLORS[s.general];
   const pa = d.period_activity || {};
   const period = d.period || {};
+  const corr = d.correspondence || { total: 0, borrador: 0, radicado: 0, enviado: 0, recibido: 0, respondido: 0, archivado: 0, pending_response: 0, recent: [] };
 
   const requestAIAnalysis = async () => {
     setAiLoading(true);
@@ -1217,6 +1218,96 @@ REGLAS:
               </div>
             );
           })()}
+        </Section>
+
+        {/* CORRESPONDENCIA */}
+        <Section title="Correspondencia" icon={Mail} color="indigo"
+          extra={<button onClick={() => navigate('/ejecucion')} className="text-[10px] text-brand-500 hover:underline">Ver correspondencia →</button>}>
+
+          {/* Stats por estado */}
+          <div className="mt-3 grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+            {[
+              { label: 'Total',      val: corr.total,      bg: 'bg-surface-50',  text: 'text-surface-700',  border: 'border-surface-100' },
+              { label: 'Borrador',   val: corr.borrador,   bg: 'bg-surface-50',  text: 'text-surface-500',  border: 'border-surface-100' },
+              { label: 'Radicado',   val: corr.radicado,   bg: 'bg-blue-50',     text: 'text-blue-700',     border: 'border-blue-100' },
+              { label: 'Enviado',    val: corr.enviado,    bg: 'bg-indigo-50',   text: 'text-indigo-700',   border: 'border-indigo-100' },
+              { label: 'Recibido',   val: corr.recibido,   bg: 'bg-violet-50',   text: 'text-violet-700',   border: 'border-violet-100' },
+              { label: 'Respondido', val: corr.respondido, bg: 'bg-emerald-50',  text: 'text-emerald-700',  border: 'border-emerald-100' },
+            ].map(({ label, val, bg, text, border }) => (
+              <div key={label} className={`rounded-lg p-2 ${bg} border ${border}`}>
+                <p className={`text-lg font-bold ${text}`}>{val}</p>
+                <p className="text-[9px] text-surface-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Alerta pendiente de respuesta */}
+          {corr.pending_response > 0 && (
+            <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+              <p className="text-xs text-amber-800">
+                <b>{corr.pending_response}</b> correspondencia{corr.pending_response !== 1 ? 's' : ''} enviada{corr.pending_response !== 1 ? 's' : ''}/radicada{corr.pending_response !== 1 ? 's' : ''} pendiente{corr.pending_response !== 1 ? 's' : ''} de respuesta
+              </p>
+            </div>
+          )}
+
+          {/* Actividad del período */}
+          {(pa.correspondence_sent > 0 || pa.correspondence_received > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {pa.correspondence_sent > 0 && (
+                <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-[10px] font-medium px-2 py-1 rounded-full border border-indigo-100">
+                  <Send className="w-2.5 h-2.5" /> {pa.correspondence_sent} enviada{pa.correspondence_sent !== 1 ? 's' : ''} en el período
+                </span>
+              )}
+              {pa.correspondence_received > 0 && (
+                <span className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 text-[10px] font-medium px-2 py-1 rounded-full border border-violet-100">
+                  <Mail className="w-2.5 h-2.5" /> {pa.correspondence_received} recibida{pa.correspondence_received !== 1 ? 's' : ''} en el período
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Listado reciente */}
+          {corr.recent?.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-brand-800 mb-2">Correspondencia reciente</p>
+              <div className="space-y-1.5">
+                {corr.recent.map((c, i) => {
+                  const statusStyle = {
+                    borrador:   'bg-surface-100 text-surface-500',
+                    radicado:   'bg-blue-100 text-blue-700',
+                    enviado:    'bg-indigo-100 text-indigo-700',
+                    recibido:   'bg-violet-100 text-violet-700',
+                    respondido: 'bg-emerald-100 text-emerald-700',
+                    archivado:  'bg-surface-100 text-surface-400',
+                  }[c.status] || 'bg-surface-100 text-surface-500';
+                  const typeLabel = {
+                    oficio: 'Oficio', circular: 'Circular', memorando: 'Memorando',
+                    comunicado: 'Comunicado', carta: 'Carta',
+                    radicado: 'Radicado', derecho_peticion: 'Der. Petición',
+                  }[c.correspondence_type] || c.correspondence_type;
+                  return (
+                    <div key={i} className="flex items-center gap-2 bg-surface-50 rounded-lg px-3 py-2 text-xs">
+                      <span className="text-[9px] font-medium bg-brand-50 text-brand-500 px-1.5 py-0.5 rounded flex-shrink-0">{typeLabel}</span>
+                      <span className="flex-1 font-medium text-brand-900 truncate">{c.subject}</span>
+                      {c.recipient_entity && (
+                        <span className="text-surface-400 flex-shrink-0 hidden sm:block truncate max-w-[140px]">{c.recipient_entity}</span>
+                      )}
+                      <span className="text-surface-400 flex-shrink-0 text-[10px]">{DATE(c.reference_date)}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold flex-shrink-0 ${statusStyle}`}>{c.status}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-surface-400 italic">Sin correspondencia registrada para este proyecto.</p>
+          )}
+
+          {/* Archivado note */}
+          {corr.archivado > 0 && (
+            <p className="mt-2 text-[10px] text-surface-400">+ {corr.archivado} archivada{corr.archivado !== 1 ? 's' : ''}</p>
+          )}
         </Section>
 
         {/* FINANCIERO */}

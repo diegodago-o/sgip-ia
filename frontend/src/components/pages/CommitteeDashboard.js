@@ -178,6 +178,11 @@ export default function CommitteeDashboard() {
     navigate(`/ejecucion?tab=${tab}`);
   };
 
+  // Navigate to ProjectDetailPage (Adjudicación) on the correct tab
+  const goToAdjudicacion = (tab) => {
+    navigate(`/adjudicacion/${id}?tab=${tab}`);
+  };
+
   const requestAIAnalysis = async () => {
     setAiLoading(true);
     setPmiAnalysis(null);
@@ -1387,7 +1392,7 @@ REGLAS:
 
         {/* OBLIGACIONES */}
         <Section title="Obligaciones Contractuales" icon={ClipboardList} color="violet" semaforo={s.obligaciones} defaultOpen={false}
-          extra={<button onClick={() => navigate(`/adjudicacion/${id}`)} className="text-[10px] text-brand-500 hover:underline">Ver obligaciones →</button>}>
+          extra={<button onClick={() => goToAdjudicacion('obligations')} className="text-[10px] text-brand-500 hover:underline">Ver obligaciones →</button>}>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
             <div className="rounded-lg p-2 bg-surface-50"><p className="text-lg font-bold">{d.obligations.total || 0}</p><p className="text-[10px] text-surface-500">Total</p></div>
             <div className="rounded-lg p-2 bg-amber-50"><p className="text-lg font-bold text-amber-700">{d.obligations.pendientes || 0}</p><p className="text-[10px] text-surface-500">Pendientes</p></div>
@@ -1413,10 +1418,13 @@ REGLAS:
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Equipo */}
           <div className="bg-white rounded-xl border border-surface-100 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Users className="w-4 h-4 text-purple-500" />
-              <h3 className="font-display font-bold text-brand-900 text-sm">Equipo</h3>
-              <SemaforoLight color={s.equipo} size="sm" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-purple-500" />
+                <h3 className="font-display font-bold text-brand-900 text-sm">Equipo</h3>
+                <SemaforoLight color={s.equipo} size="sm" />
+              </div>
+              <button onClick={() => goToAdjudicacion('team')} className="text-[10px] text-brand-500 hover:underline">Ver equipo →</button>
             </div>
             <div className="grid grid-cols-2 gap-2 text-center text-xs">
               <div className="bg-surface-50 rounded p-2"><p className="font-bold text-lg">{d.team.total || 0}</p><p className="text-[10px] text-surface-500">Total</p></div>
@@ -1428,10 +1436,13 @@ REGLAS:
 
           {/* Pólizas */}
           <div className="bg-white rounded-xl border border-surface-100 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <FileText className="w-4 h-4 text-orange-500" />
-              <h3 className="font-display font-bold text-brand-900 text-sm">Pólizas</h3>
-              <SemaforoLight color={s.polizas} size="sm" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-orange-500" />
+                <h3 className="font-display font-bold text-brand-900 text-sm">Pólizas</h3>
+                <SemaforoLight color={s.polizas} size="sm" />
+              </div>
+              <button onClick={() => goToAdjudicacion('policies')} className="text-[10px] text-brand-500 hover:underline">Ver pólizas →</button>
             </div>
             <div className="grid grid-cols-2 gap-2 text-center text-xs">
               <div className="bg-surface-50 rounded p-2"><p className="font-bold text-lg">{d.policies.total || 0}</p><p className="text-[10px] text-surface-500">Total</p></div>
@@ -1443,9 +1454,12 @@ REGLAS:
 
           {/* Hitos y Entregables */}
           <div className="bg-white rounded-xl border border-surface-100 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Target className="w-4 h-4 text-cyan-500" />
-              <h3 className="font-display font-bold text-brand-900 text-sm">Hitos y Entregables</h3>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-cyan-500" />
+                <h3 className="font-display font-bold text-brand-900 text-sm">Hitos y Entregables</h3>
+              </div>
+              <button onClick={() => goToAdjudicacion('milestones')} className="text-[10px] text-brand-500 hover:underline">Ver hitos →</button>
             </div>
             <div className="grid grid-cols-2 gap-2 text-center text-xs">
               <div className="bg-surface-50 rounded p-2"><p className="font-bold text-lg">{d.milestones.total || 0}</p><p className="text-[10px] text-surface-500">Hitos</p></div>

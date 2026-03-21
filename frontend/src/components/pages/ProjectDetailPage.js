@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projectsAPI } from '../../services/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import DocumentsPanel from '../documents/DocumentsPanel';
@@ -285,10 +285,22 @@ const TABS = [
 export default function ProjectDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const perms = usePermissions('adjudicacion');
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('info');
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('tab');
+    return t && TABS.find(tab => tab.id === t) ? t : 'info';
+  });
+
+  // Sync tab when URL changes (e.g. navigating from committee dashboard)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const t = params.get('tab');
+    if (t && TABS.find(tab => tab.id === t)) setActiveTab(t);
+  }, [location.search]);
 
   const loadProject = useCallback(() => {
     projectsAPI.get(id)

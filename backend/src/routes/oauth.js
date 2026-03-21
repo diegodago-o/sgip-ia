@@ -333,7 +333,7 @@ router.get('/microsoft/callback', async (req, res) => {
     console.error('[oauth/microsoft/callback] EXCEPTION:', e.message, e.stack);
     const msg = e.message === 'SSO_NEW_USERS_DISABLED'
       ? 'Tu cuenta no está registrada en el sistema. Contacta al administrador.'
-      : 'Error procesando autenticación con Microsoft';
+      : `MS_ERR: ${e.message}`;   // ← TEMPORAL: muestra error real para diagnóstico
     redirectError(res, msg);
   }
 });

@@ -13,7 +13,9 @@ import {
   ArrowLeft, Edit2, FileText, ClipboardList, Package,
   Flag, Shield, DollarSign, Users, FolderOpen, Info as InfoIcon,
   ArrowRight, ChevronRight, AlertTriangle, CheckCircle2, X, Loader2,
+  FolderKanban,
 } from 'lucide-react';
+import SharePointPanel from '../sharepoint/SharePointPanel';
 
 const TYPE_L = { obra_civil:'Obra Civil', ti:'TI', consultoria:'Consultoría', interventoria:'Interventoría', asesoria:'Asesoría', mixto:'Mixto', otro:'Otro' };
 
@@ -268,7 +270,7 @@ function StatusFlowBar({ project, perms, onStatusChanged }) {
 // ═══════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════
-const TABS = [
+const ALL_TABS = [
   { id: 'info',        label: 'Información',  icon: InfoIcon },
   { id: 'documents',   label: 'Documentos',   icon: FolderOpen },
   { id: 'obligations', label: 'Obligaciones', icon: ClipboardList },
@@ -277,6 +279,7 @@ const TABS = [
   { id: 'budget',      label: 'Presupuesto',  icon: DollarSign },
   { id: 'team',        label: 'Equipo',       icon: Users },
   { id: 'assignments', label: 'Asignaciones', icon: Shield },
+  { id: 'sharepoint',  label: 'SharePoint',   icon: FolderKanban, spOnly: true },
 ];
 
 // ═══════════════════════════════════════
@@ -292,14 +295,14 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get('tab');
-    return t && TABS.find(tab => tab.id === t) ? t : 'info';
+    return t && ALL_TABS.find(tab => tab.id === t) ? t : 'info';
   });
 
   // Sync tab when URL changes (e.g. navigating from committee dashboard)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const t = params.get('tab');
-    if (t && TABS.find(tab => tab.id === t)) setActiveTab(t);
+    if (t && ALL_TABS.find(tab => tab.id === t)) setActiveTab(t);
   }, [location.search]);
 
   const loadProject = useCallback(() => {
@@ -322,6 +325,9 @@ export default function ProjectDetailPage() {
   const st = STATUS_C[project.status] || {};
   const pr = PRIO_C[project.priority] || {};
   const c = project.counts || {};
+
+  // Only show SharePoint tab if project has a folder configured
+  const TABS = ALL_TABS.filter(tab => !tab.spOnly || !!project.sharepoint_folder);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -443,6 +449,17 @@ export default function ProjectDetailPage() {
                 </div>
               )}
 
+              {project.sharepoint_folder && (
+                <div className="flex items-center gap-2 py-2 px-3 bg-brand-50 rounded-lg border border-brand-100">
+                  <FolderKanban className="w-4 h-4 text-brand-500 flex-shrink-0" />
+                  <span className="text-xs text-brand-700 font-medium">SharePoint:</span>
+                  <button onClick={() => setActiveTab('sharepoint')}
+                    className="text-xs text-brand-600 hover:underline truncate">
+                    {project.sharepoint_folder}
+                  </button>
+                </div>
+              )}
+
               {project.tags && project.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {project.tags.map(t => (
@@ -455,11 +472,16 @@ export default function ProjectDetailPage() {
 
           {activeTab === 'documents' && <div className="animate-fade-in"><DocumentsPanel projectId={parseInt(id)} perms={perms} onUpdate={loadProject} /></div>}
           {activeTab === 'obligations' && <div className="animate-fade-in"><ObligationsPanel projectId={parseInt(id)} perms={perms} /></div>}
-          {activeTab === 'milestones' && <div className="animate-fade-in"><MilestonesPanel projectId={parseInt(id)} perms={perms} /></div>}
-          {activeTab === 'policies' && <div className="animate-fade-in"><PoliciesPanel projectId={parseInt(id)} perms={perms} /></div>}
+          {activeTab === 'milestones' && <div className="animate-fade-in"><MilestonesPanel projectId={parseInt(id)} spFolder={project.sharepoint_folder || null} perms={perms} /></div>}
+          {activeTab === 'policies' && <div className="animate-fade-in"><PoliciesPanel projectId={parseInt(id)} spFolder={project.sharepoint_folder || null} perms={perms} /></div>}
           {activeTab === 'budget' && <div className="animate-fade-in"><BudgetPanel projectId={parseInt(id)} perms={perms} /></div>}
           {activeTab === 'team' && <div className="animate-fade-in"><TeamPanel projectId={parseInt(id)} perms={perms} /></div>}
           {activeTab === 'assignments' && <div className="animate-fade-in"><ProjectAssignmentsPanel projectId={parseInt(id)} /></div>}
+          {activeTab === 'sharepoint'  && project.sharepoint_folder && (
+            <div className="animate-fade-in">
+              <SharePointPanel projectId={parseInt(id)} folderPath={project.sharepoint_folder} />
+            </div>
+          )}
         </div>
       </div>
     </div>

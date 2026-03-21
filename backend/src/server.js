@@ -41,6 +41,7 @@ const notificationsRoutes  = require('./routes/notifications');
 const { signaturesRouter, firmaRouter } = require('./routes/signatures');
 const { corrSigRouter, corrSigPublicRouter } = require('./routes/corrSignatures');
 const oauthRoutes          = require('./routes/oauth');
+const sharepointRoutes     = require('./routes/sharepoint');
 const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
@@ -184,6 +185,7 @@ app.use('/api/exec/:projectId/minutes/:minuteId/firma', signaturesRouter);
 app.use('/api/firma', firmaRouter);
 app.use('/api/exec/:projectId/correspondence/:correspondenceId/firma', corrSigRouter);
 app.use('/api/firma/corr', corrSigPublicRouter);
+app.use('/api/sharepoint', sharepointRoutes);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK
@@ -245,6 +247,22 @@ async function runMigrations() {
     'ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL DEFAULT NULL');
   await run('users uq_oauth index',
     'ALTER TABLE users ADD UNIQUE KEY uq_oauth (oauth_provider, oauth_provider_id)');
+
+  // ── SharePoint integration columns ──────────────────────────────
+  await run('projects.sharepoint_folder',
+    'ALTER TABLE projects ADD COLUMN sharepoint_folder VARCHAR(500) NULL');
+  await run('policies.sp_item_id',
+    'ALTER TABLE policies ADD COLUMN sp_item_id VARCHAR(200) NULL');
+  await run('policies.sp_file_url',
+    'ALTER TABLE policies ADD COLUMN sp_file_url VARCHAR(500) NULL');
+  await run('deliverables.sp_item_id',
+    'ALTER TABLE deliverables ADD COLUMN sp_item_id VARCHAR(200) NULL');
+  await run('deliverables.sp_file_url',
+    'ALTER TABLE deliverables ADD COLUMN sp_file_url VARCHAR(500) NULL');
+  await run('meeting_minutes.sp_item_id',
+    'ALTER TABLE meeting_minutes ADD COLUMN sp_item_id VARCHAR(200) NULL');
+  await run('meeting_minutes.sp_file_url',
+    'ALTER TABLE meeting_minutes ADD COLUMN sp_file_url VARCHAR(500) NULL');
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

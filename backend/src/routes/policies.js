@@ -129,6 +129,8 @@ router.post('/:projectId',
         status,
         document_id: req.body.document_id || null,
         required_by_contract: req.body.required_by_contract !== undefined ? req.body.required_by_contract : 1,
+        sp_item_id: req.body.sp_item_id || null,
+        sp_file_url: req.body.sp_file_url || null,
       };
 
       const cols = Object.keys(fields);
@@ -168,6 +170,7 @@ router.put('/:projectId/:id',
       const allowed = [
         'policy_type', 'insurer', 'policy_number', 'coverage_pct', 'insured_value',
         'issue_date', 'expiry_date', 'status', 'document_id', 'required_by_contract',
+        'sp_item_id', 'sp_file_url',
       ];
 
       const updates = [];

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { milestonesAPI, deliverablesAPI, obligationsAPI, documentsAPI, evidenceAPI } from '../../services/api';
 import {
   Plus, Edit2, Trash2, X, Save, Loader2, Flag, Package, CheckCircle2,
-  Clock, AlertTriangle, FileText, Link2, Paperclip,
+  Clock, AlertTriangle, FileText, Link2, Paperclip, FolderKanban,
 } from 'lucide-react';
+import SharePointPicker from '../sharepoint/SharePointPicker';
 
 const M_STATUS = {
   pendiente:{label:'Pendiente',bg:'bg-blue-100',text:'text-blue-700'},
@@ -22,7 +23,7 @@ const ALERT_S = { overdue:'border-l-4 border-l-red-500 bg-red-50/30', urgent:'bo
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'}) : '\u2014'; }
 
 // ═══ Generic Modal ═══
-function ItemModal({ type, item, projectId, obligations, milestones, onClose, onSaved }) {
+function ItemModal({ type, item, projectId, spFolder, obligations, milestones, onClose, onSaved }) {
   const isEdit = Boolean(item?.id);
   const isMilestone = type === 'milestone';
   const [form, setForm] = useState(
@@ -30,12 +31,23 @@ function ItemModal({ type, item, projectId, obligations, milestones, onClose, on
     : { name:item?.name||'', description:item?.description||'', due_date:item?.due_date?item.due_date.split('T')[0]:'', obligation_id:item?.obligation_id||'', milestone_id:item?.milestone_id||'', required_format:item?.required_format||'', acceptance_criteria:item?.acceptance_criteria||'', status:item?.status||'pendiente' }
   );
   const [saving, setSaving] = useState(false);
+  const [spLink, setSpLink] = useState(
+    (!isMilestone && item?.sp_item_id)
+      ? { id: item.sp_item_id, name: item.sp_file_url?.split('/').pop() || 'Archivo SP', url: item.sp_file_url }
+      : null
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
   const set = f => e => setForm(d=>({...d,[f]:e.target.value}));
 
   const handleSubmit = async(e)=>{ e.preventDefault(); setSaving(true);
     try {
+      const payload = { ...form };
+      if (!isMilestone) {
+        payload.sp_item_id = spLink?.id || null;
+        payload.sp_file_url = spLink?.url || null;
+      }
       const api = isMilestone ? milestonesAPI : deliverablesAPI;
-      if (isEdit) await api.update(projectId, item.id, form); else await api.create(projectId, form);
+      if (isEdit) await api.update(projectId, item.id, payload); else await api.create(projectId, payload);
       onSaved();
     } catch{} finally{setSaving(false);}
   };
@@ -66,6 +78,30 @@ function ItemModal({ type, item, projectId, obligations, milestones, onClose, on
               </select></div>}
           </div>
           {!isMilestone && <div><label className="block text-sm font-medium text-brand-800 mb-1">Criterios de aceptación</label><textarea value={form.acceptance_criteria} onChange={set('acceptance_criteria')} className="input-field min-h-[50px] resize-y" placeholder="Criterios que debe cumplir el entregable..."/></div>}
+
+          {/* SharePoint link (deliverables only) */}
+          {!isMilestone && spFolder && (
+            <div>
+              <label className="block text-sm font-medium text-brand-800 mb-1">Documento en SharePoint</label>
+              <div className="flex items-center gap-2">
+                {spLink ? (
+                  <>
+                    <a href={spLink.url} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline flex-1 min-w-0 truncate">
+                      <FolderKanban className="w-3.5 h-3.5 flex-shrink-0"/> {spLink.name}
+                    </a>
+                    <button type="button" onClick={() => setSpLink(null)} className="text-xs text-red-400 hover:text-red-600">Quitar</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setPickerOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
+                    <FolderKanban className="w-3.5 h-3.5"/> Vincular archivo de SharePoint
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
             <button type="submit" disabled={saving} className="btn-primary flex items-center gap-2">{saving?<Loader2 className="w-4 h-4 animate-spin"/>:<Save className="w-4 h-4"/>} {isEdit?'Guardar':'Crear'}</button>
@@ -73,6 +109,14 @@ function ItemModal({ type, item, projectId, obligations, milestones, onClose, on
         </form>
       </div>
     </div>
+
+    {pickerOpen && (
+      <SharePointPicker
+        projectId={projectId}
+        onSelect={(item) => { setSpLink({ id: item.id, name: item.name, url: item.webUrl }); }}
+        onClose={() => setPickerOpen(false)}
+      />
+    )}
   );
 }
 
@@ -122,7 +166,7 @@ export function EvidencePanel({ projectId, obligationId, documents }) {
 }
 
 // ═══ Main Panel ═══
-export default function MilestonesPanel({ projectId, perms = {} }) {
+export default function MilestonesPanel({ projectId, spFolder = null, perms = {} }) {
   const [subTab, setSubTab] = useState('milestones');
   const [milestones, setMilestones] = useState([]);
   const [deliverables, setDeliverables] = useState([]);
@@ -229,6 +273,13 @@ export default function MilestonesPanel({ projectId, perms = {} }) {
                       {d.milestone_name && <span className="text-xs text-violet-500 flex items-center gap-1"><Flag className="w-3 h-3"/>{d.milestone_name}</span>}
                     </div>
                     {d.acceptance_criteria && <div className="mt-2 p-2 bg-surface-50 rounded text-xs text-surface-500"><strong className="text-surface-600">Criterios:</strong> {d.acceptance_criteria}</div>}
+                    {d.sp_file_url && (
+                      <a href={d.sp_file_url} target="_blank" rel="noreferrer"
+                        className="mt-1 flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 hover:underline">
+                        <FolderKanban className="w-3 h-3 flex-shrink-0"/>
+                        <span className="truncate">{d.sp_file_url.split('/').pop() || 'Archivo SP'}</span>
+                      </a>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     {d.status==='pendiente'&&<button onClick={()=>handleQuickStatus('d',d.id,'en_elaboracion')} className="w-7 h-7 rounded hover:bg-amber-50 flex items-center justify-center" title="Iniciar"><Clock className="w-4 h-4 text-amber-400"/></button>}
@@ -244,7 +295,7 @@ export default function MilestonesPanel({ projectId, perms = {} }) {
       )}
 
       {/* Modal */}
-      {modal && <ItemModal type={modal.type} item={modal.item||null} projectId={projectId} obligations={obligations} milestones={milestones} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);showToast(modal.item?'Actualizado':'Creado');load();}} />}
+      {modal && <ItemModal type={modal.type} item={modal.item||null} projectId={projectId} spFolder={spFolder} obligations={obligations} milestones={milestones} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);showToast(modal.item?'Actualizado':'Creado');load();}} />}
     </div>
   );
 }

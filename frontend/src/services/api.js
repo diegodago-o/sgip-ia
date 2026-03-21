@@ -358,4 +358,29 @@ export const corrSignaturesAPI = {
   },
 };
 
+// ═══ SHAREPOINT ═══
+export const sharepointAPI = {
+  // Test connection (admin only)
+  test: () =>
+    api.get('/sharepoint/test'),
+  // List files/folders in project root or subfolder
+  listFiles: (projectId, subpath = '') =>
+    api.get(`/sharepoint/projects/${projectId}/files`, { params: subpath ? { subpath } : {} }),
+  // Upload a file (multipart/form-data)
+  upload: (projectId, file, destFolder = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    if (destFolder) form.append('destFolder', destFolder);
+    return api.post(`/sharepoint/projects/${projectId}/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  // Returns { url } — frontend opens in new tab
+  getDownloadUrl: (projectId, itemId) =>
+    api.get(`/sharepoint/projects/${projectId}/download/${itemId}`),
+  // Get preview URL for an item
+  preview: (projectId, itemId) =>
+    api.get(`/sharepoint/projects/${projectId}/preview/${itemId}`),
+};
+
 export default api;

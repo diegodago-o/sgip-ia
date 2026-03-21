@@ -73,11 +73,12 @@ router.post('/:projectId/minutes', roleMiddleware('admin','gerente_proyecto','ap
 
       const [r] = await pool.execute(
         `INSERT INTO meeting_minutes (project_id,minute_number,minute_type,title,meeting_date,location,
-          attendees,agenda,discussions,agreements,action_items,next_meeting_date,status,document_id,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          attendees,agenda,discussions,agreements,action_items,next_meeting_date,status,document_id,created_by,sp_item_id,sp_file_url)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [pid, mx[0].n, b.minute_type||'comite_seguimiento', b.title, b.meeting_date, b.location||null,
           attendeesJSON, b.agenda||null, b.discussions||null, agreementsJSON, actionItemsJSON,
-          b.next_meeting_date||null, 'borrador', b.document_id||null, req.user.id]);
+          b.next_meeting_date||null, 'borrador', b.document_id||null, req.user.id,
+          b.sp_item_id||null, b.sp_file_url||null]);
       
       const [rows] = await pool.execute('SELECT * FROM meeting_minutes WHERE id=?', [r.insertId]);
       parseMinuteRow(rows[0]);
@@ -103,7 +104,8 @@ router.put('/:projectId/minutes/:id', roleMiddleware('admin','gerente_proyecto',
     if (!validate(req, res)) return;
     try {
       const allowed = ['minute_type','title','meeting_date','location','attendees','agenda',
-        'discussions','agreements','action_items','next_meeting_date','status','document_id'];
+        'discussions','agreements','action_items','next_meeting_date','status','document_id',
+        'sp_item_id','sp_file_url'];
       const updates = []; const values = [];
       allowed.forEach(f => {
         if (req.body[f] !== undefined) {

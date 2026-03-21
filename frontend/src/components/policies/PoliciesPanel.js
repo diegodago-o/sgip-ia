@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { policiesAPI, documentsAPI } from '../../services/api';
 import {
   Plus, X, Edit2, Trash2, Shield, ShieldAlert, ShieldCheck, ShieldX,
-  Clock, Loader2, Save, AlertTriangle, CheckCircle2, FileText,
+  Clock, Loader2, Save, AlertTriangle, CheckCircle2, FileText, FolderKanban,
 } from 'lucide-react';
+import SharePointPicker from '../sharepoint/SharePointPicker';
 
 const POLICY_TYPES = [
   { value: 'cumplimiento',         label: 'Cumplimiento' },
@@ -65,7 +66,7 @@ function StatsBar({ stats }) {
 }
 
 // ── Modal Form ──
-function PolicyModal({ policy, projectId, documents, onClose, onSaved }) {
+function PolicyModal({ policy, projectId, spFolder, documents, onClose, onSaved }) {
   const isEdit = Boolean(policy?.id);
   const [form, setForm] = useState({
     policy_type: policy?.policy_type || 'cumplimiento',
@@ -81,6 +82,10 @@ function PolicyModal({ policy, projectId, documents, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [spLink, setSpLink] = useState(
+    policy?.sp_item_id ? { id: policy.sp_item_id, name: policy.sp_file_url?.split('/').pop() || 'Archivo SP', url: policy.sp_file_url } : null
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const set = (f) => (e) => setForm(prev => ({ ...prev, [f]: e.target.value }));
 
@@ -94,6 +99,8 @@ function PolicyModal({ policy, projectId, documents, onClose, onSaved }) {
       if (payload.insured_value) payload.insured_value = parseFloat(payload.insured_value);
       if (!payload.document_id) delete payload.document_id;
       payload.required_by_contract = payload.required_by_contract ? 1 : 0;
+      if (spLink) { payload.sp_item_id = spLink.id; payload.sp_file_url = spLink.url; }
+      else { payload.sp_item_id = null; payload.sp_file_url = null; }
 
       if (isEdit) {
         await policiesAPI.update(projectId, policy.id, payload);
@@ -178,7 +185,31 @@ function PolicyModal({ policy, projectId, documents, onClose, onSaved }) {
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-2">
+          {/* SharePoint link */}
+          {spFolder && (
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-brand-800 mb-1">Documento en SharePoint</label>
+              <div className="flex items-center gap-2">
+                {spLink ? (
+                  <>
+                    <a href={spLink.url} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline flex-1 min-w-0 truncate">
+                      <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" /> {spLink.name}
+                    </a>
+                    <button type="button" onClick={() => setSpLink(null)}
+                      className="text-xs text-red-400 hover:text-red-600">Quitar</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setPickerOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
+                    <FolderKanban className="w-3.5 h-3.5" /> Vincular archivo de SharePoint
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 col-span-2">
             <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
             <button type="submit" disabled={saving} className="btn-primary flex items-center gap-2">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -188,11 +219,19 @@ function PolicyModal({ policy, projectId, documents, onClose, onSaved }) {
         </form>
       </div>
     </div>
+
+    {pickerOpen && (
+      <SharePointPicker
+        projectId={projectId}
+        onSelect={(item) => { setSpLink({ id: item.id, name: item.name, url: item.webUrl }); }}
+        onClose={() => setPickerOpen(false)}
+      />
+    )}
   );
 }
 
 // ═══ Main Panel ═══
-export default function PoliciesPanel({ projectId, perms = {} }) {
+export default function PoliciesPanel({ projectId, spFolder = null, perms = {} }) {
   const [policies, setPolicies] = useState([]);
   const [stats, setStats] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -356,6 +395,15 @@ export default function PoliciesPanel({ projectId, perms = {} }) {
                   </div>
                 )}
 
+                {/* SharePoint link */}
+                {pol.sp_file_url && (
+                  <a href={pol.sp_file_url} target="_blank" rel="noreferrer"
+                    className="mt-1 flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 hover:underline">
+                    <FolderKanban className="w-3 h-3" />
+                    <span className="truncate">{pol.sp_file_url.split('/').pop() || 'Archivo SP'}</span>
+                  </a>
+                )}
+
                 {/* Required badge */}
                 {pol.required_by_contract === 1 && (
                   <div className="mt-2 text-[10px] text-brand-500 font-semibold uppercase tracking-wide">
@@ -373,6 +421,7 @@ export default function PoliciesPanel({ projectId, perms = {} }) {
         <PolicyModal
           policy={modal === 'new' ? null : modal}
           projectId={projectId}
+          spFolder={spFolder}
           documents={documents}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); showToast(modal === 'new' ? 'Póliza registrada' : 'Póliza actualizada'); load(); }}

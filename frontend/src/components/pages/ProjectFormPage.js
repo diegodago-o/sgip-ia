@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { projectsAPI } from '../../services/api';
-import { Save, ArrowLeft, Loader2 } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, FolderKanban } from 'lucide-react';
 
 const TYPE_OPTIONS = [
   { value: 'obra_civil', label: 'Obra Civil' },
@@ -36,6 +36,7 @@ const EMPTY_FORM = {
   execution_term: '', execution_term_unit: 'meses',
   supervisor: '', director_id: '', location: '', priority: 'media',
   selection_process: '', secop_number: '', cdp_number: '', rp_number: '',
+  sharepoint_folder: '',
   tags: [],
 };
 
@@ -89,6 +90,7 @@ export default function ProjectFormPage() {
             secop_number: p.secop_number || '',
             cdp_number: p.cdp_number || '',
             rp_number: p.rp_number || '',
+            sharepoint_folder: p.sharepoint_folder || '',
             tags: p.tags || [],
           });
         })
@@ -296,6 +298,28 @@ export default function ProjectFormPage() {
             </div>
           </section>
         )}
+
+        {/* ── Section: SharePoint ── */}
+        <section className="bg-white rounded-xl shadow-card p-6">
+          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-surface-100">
+            <FolderKanban className="w-4 h-4 text-surface-400" />
+            <h3 className="font-display font-semibold text-brand-900">Integración SharePoint</h3>
+            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">Opcional</span>
+          </div>
+          <Field label="Carpeta en SharePoint">
+            <input
+              type="text"
+              value={form.sharepoint_folder}
+              onChange={set('sharepoint_folder')}
+              className="input-field"
+              placeholder="ej: Proyectos/TI-2026-001"
+            />
+            <p className="text-[11px] text-surface-400 mt-1">
+              Ruta relativa dentro del sitio SharePoint configurado en el sistema.
+              Deja en blanco para no integrar este proyecto con SharePoint.
+            </p>
+          </Field>
+        </section>
 
         {/* ── Section: Tags ── */}
         <section className="bg-white rounded-xl shadow-card p-6">

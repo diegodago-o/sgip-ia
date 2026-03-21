@@ -4,8 +4,10 @@ import {
   Loader2, Shield, Server, User, Lock, Settings, ChevronRight,
   AlertTriangle, Info, Zap, Key, Plus, Trash2, Copy, RefreshCw,
   ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell, LogIn,
+  FolderKanban,
 } from 'lucide-react';
 import api from '../services/api';
+import { sharepointAPI } from '../services/api';
 
 // ─── settingsAPI ─────────────────────────────────────────────────────────────
 const settingsAPI = {
@@ -118,11 +120,12 @@ const RECIPIENT_OPTIONS = [
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'email',           label: 'Correo electrónico',    icon: Mail  },
-  { id: 'notificaciones',  label: 'Notificaciones',         icon: Bell  },
-  { id: 'integraciones',   label: 'Integraciones',          icon: Zap   },
-  { id: 'ia',              label: 'Motor de IA',            icon: Key   },
-  { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn },
+  { id: 'email',           label: 'Correo electrónico',    icon: Mail         },
+  { id: 'notificaciones',  label: 'Notificaciones',         icon: Bell         },
+  { id: 'integraciones',   label: 'Integraciones',          icon: Zap          },
+  { id: 'ia',              label: 'Motor de IA',            icon: Key          },
+  { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn        },
+  { id: 'sharepoint',      label: 'SharePoint',             icon: FolderKanban },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1312,6 +1315,129 @@ function SSOSection() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// SHAREPOINT SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+function SharePointSection() {
+  const [status,  setStatus]  = useState(null); // null | { ok: true, site } | { ok: false, error }
+  const [testing, setTesting] = useState(false);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setStatus(null);
+    try {
+      const r = await sharepointAPI.test();
+      setStatus({ ok: true, site: r.data?.site || '(sitio sin nombre)' });
+    } catch (e) {
+      setStatus({ ok: false, error: e.response?.data?.error || e.message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+
+      {/* Status banner */}
+      {status && (
+        <div className={`flex items-start gap-3 p-4 rounded-xl border ${
+          status.ok
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          {status.ok
+            ? <CheckCircle2 className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
+            : <XCircle      className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-500" />}
+          <div>
+            {status.ok
+              ? <p className="text-sm font-semibold">Conexión exitosa — <span className="font-normal">{status.site}</span></p>
+              : <p className="text-sm font-semibold">Error de conexión</p>}
+            {!status.ok && <p className="text-xs mt-1">{status.error}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Info card */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
+        <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-800 space-y-1.5">
+          <p className="font-semibold text-sm">Cómo funciona la integración SharePoint</p>
+          <p>SGIP-IA se conecta a SharePoint Online mediante la <strong>app registration de Azure AD</strong> existente (la misma usada para SSO). Solo es necesario agregar permisos de Graph API al app registration.</p>
+          <p>La integración es <strong>opcional por proyecto</strong>: cada proyecto puede tener configurada una carpeta de SharePoint. Si no la tiene, el tab de SharePoint no aparece.</p>
+        </div>
+      </div>
+
+      {/* Azure AD permissions */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
+            <Shield className="w-4 h-4 text-violet-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-brand-900">Permisos Azure AD (configuración única)</h3>
+            <p className="text-[11px] text-surface-400">Agregar en el portal de Azure → App registrations → API permissions</p>
+          </div>
+        </div>
+
+        <div className="bg-surface-50 rounded-lg border border-surface-200 p-3 font-mono text-xs space-y-1">
+          <p className="text-surface-500">Microsoft Graph → Application permissions:</p>
+          <p className="text-brand-700 font-semibold">Sites.ReadWrite.All</p>
+          <p className="text-brand-700 font-semibold">Files.ReadWrite.All</p>
+        </div>
+
+        <p className="text-[11px] text-surface-500">
+          Después de agregar los permisos, haz clic en <strong>"Grant admin consent for [tenant]"</strong> para que sean efectivos.
+        </p>
+      </div>
+
+      {/* Env vars reference */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-surface-100 flex items-center justify-center">
+            <Server className="w-4 h-4 text-surface-500" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-brand-900">Variables de entorno del servidor</h3>
+            <p className="text-[11px] text-surface-400">Configurar en el archivo <code className="bg-surface-100 px-1 rounded">backend/.env</code></p>
+          </div>
+        </div>
+
+        <div className="bg-surface-50 rounded-lg border border-surface-200 p-3 font-mono text-xs space-y-0.5">
+          <p><span className="text-violet-600">SP_TENANT_ID</span>=<span className="text-surface-400">  # Directory (tenant) ID</span></p>
+          <p><span className="text-violet-600">SP_CLIENT_ID</span>=<span className="text-surface-400">  # Application (client) ID</span></p>
+          <p><span className="text-violet-600">SP_CLIENT_SECRET</span>=<span className="text-surface-400">  # Client secret del app registration</span></p>
+          <p><span className="text-violet-600">SP_SITE_URL</span>=<span className="text-surface-400">  # ej: https://empresa.sharepoint.com/sites/proyectos</span></p>
+        </div>
+
+        <p className="text-[11px] text-surface-500">
+          Los valores del <code className="bg-surface-100 px-1 rounded">SP_TENANT_ID</code> y <code className="bg-surface-100 px-1 rounded">SP_CLIENT_ID</code> son los mismos del app registration de SSO.
+          Los valores no se muestran aquí por seguridad.
+        </p>
+      </div>
+
+      {/* Test connection */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center">
+            <FolderKanban className="w-4 h-4 text-brand-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-brand-900">Probar conexión</h3>
+            <p className="text-[11px] text-surface-400">Verifica que las credenciales y permisos están correctamente configurados</p>
+          </div>
+        </div>
+
+        <button onClick={handleTest} disabled={testing}
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+          {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderKanban className="w-4 h-4" />}
+          {testing ? 'Probando conexión...' : 'Probar conexión con SharePoint'}
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
 // Main ConfiguracionPage
 // ══════════════════════════════════════════════════════════════════════════════
 export default function ConfiguracionPage() {
@@ -1323,6 +1449,7 @@ export default function ConfiguracionPage() {
     integraciones:   { h: 'Integraciones',               sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
     ia:              { h: 'Motor de IA — Claves del sistema', sub: 'Configura las API Keys de Claude y GPT para todos los usuarios sin que cada uno tenga que ingresar la suya' },
     sso:             { h: 'Inicio de sesión único (SSO)', sub: 'Configura Google y Microsoft 365 para que los usuarios inicien sesión con sus cuentas corporativas' },
+    sharepoint:      { h: 'Integración SharePoint',       sub: 'Conecta SGIP-IA con SharePoint Online para gestionar documentos de cada proyecto directamente desde el sistema' },
   };
 
   return (
@@ -1368,6 +1495,7 @@ export default function ConfiguracionPage() {
         {active === 'integraciones'  && <IntegracionesSection />}
         {active === 'ia'             && <AISection />}
         {active === 'sso'            && <SSOSection />}
+        {active === 'sharepoint'     && <SharePointSection />}
       </main>
     </div>
   );

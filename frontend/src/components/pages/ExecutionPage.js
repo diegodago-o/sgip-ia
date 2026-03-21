@@ -203,7 +203,7 @@ export default function ExecutionPage() {
           {activeTab === 'progress' && <ProgressPanel projectId={selectedId} perms={perms} />}
           {activeTab === 'budget_tracking' && <BudgetTrackingPanel projectId={selectedId} perms={perms} />}
           {activeTab === 'payments' && <PaymentsPanel projectId={selectedId} perms={perms} />}
-          {activeTab === 'minutes' && <MinutesPanel projectId={selectedId} perms={perms} />}
+          {activeTab === 'minutes' && <MinutesPanel projectId={selectedId} spFolder={sp?.sharepoint_folder || null} perms={perms} />}
           {activeTab === 'changes' && <ChangesPanel projectId={selectedId} perms={perms} onProjectChanged={reloadSelectedProject} />}
           {activeTab === 'risks'           && <RisksPanel           projectId={selectedId} perms={perms} />}
           {activeTab === 'correspondence'  && <CorrespondencePanel  projectId={selectedId} perms={perms} />}

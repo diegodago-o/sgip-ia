@@ -131,8 +131,8 @@ router.post('/:projectId/deliverables', roleMiddleware('admin','director'),
     try {
       const b = req.body;
       const [r] = await pool.execute(
-        'INSERT INTO deliverables (project_id,obligation_id,milestone_id,name,description,required_format,due_date,acceptance_criteria,status) VALUES (?,?,?,?,?,?,?,?,?)',
-        [req.params.projectId, b.obligation_id||null, b.milestone_id||null, b.name, b.description||null, b.required_format||null, b.due_date||null, b.acceptance_criteria||null, 'pendiente']);
+        'INSERT INTO deliverables (project_id,obligation_id,milestone_id,name,description,required_format,due_date,acceptance_criteria,status,sp_item_id,sp_file_url) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [req.params.projectId, b.obligation_id||null, b.milestone_id||null, b.name, b.description||null, b.required_format||null, b.due_date||null, b.acceptance_criteria||null, 'pendiente', b.sp_item_id||null, b.sp_file_url||null]);
       await pool.execute('INSERT INTO audit_log (user_id,action,entity_type,entity_id,details) VALUES (?,?,?,?,?)',
         [req.user.id,'create','deliverable',r.insertId,JSON.stringify({name:b.name})]);
       const [rows] = await pool.execute('SELECT * FROM deliverables WHERE id=?', [r.insertId]);
@@ -147,7 +147,7 @@ router.put('/:projectId/deliverables/:id', roleMiddleware('admin','director'),
     try {
       const [ex] = await pool.execute('SELECT id FROM deliverables WHERE id=? AND project_id=?', [req.params.id, req.params.projectId]);
       if (ex.length===0) return res.status(404).json({error:'Entregable no encontrado'});
-      const allowed = ['name','description','obligation_id','milestone_id','required_format','due_date','acceptance_criteria','status'];
+      const allowed = ['name','description','obligation_id','milestone_id','required_format','due_date','acceptance_criteria','status','sp_item_id','sp_file_url'];
       const updates = []; const values = [];
       allowed.forEach(f => { if (req.body[f]!==undefined) { updates.push(`${f}=?`); values.push(req.body[f]===''?null:req.body[f]); }});
       if (req.body.status==='entregado'||req.body.status==='aprobado') { updates.push('delivered_at=NOW()'); }

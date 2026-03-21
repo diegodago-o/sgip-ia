@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { minutesAPI, exportsAPI, signaturesAPI } from '../../services/api';
-import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown, PenLine, Shield, UserPlus, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown, PenLine, Shield, UserPlus, AlertTriangle, FolderKanban } from 'lucide-react';
+import SharePointPicker from '../sharepoint/SharePointPicker';
 
 const MT = { comite_obra: 'Comité de obra', comite_seguimiento: 'Comité seguimiento', reunion_tecnica: 'Reunión técnica', reunion_financiera: 'Reunión financiera', otro: 'Otro' };
 const MS = { borrador: { l: 'Borrador', bg: 'bg-amber-100', t: 'text-amber-700' }, firmada: { l: 'Firmada', bg: 'bg-emerald-100', t: 'text-emerald-700' }, archivada: { l: 'Archivada', bg: 'bg-slate-100', t: 'text-slate-600' } };
@@ -16,7 +17,7 @@ function safeArr(v) {
 // ═══════════════════════════════════════
 // Minute Modal (create / edit / AI prefill)
 // ═══════════════════════════════════════
-function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
+function MinuteModal({ item, prefill, projectId, spFolder, onClose, onSaved }) {
   const isEdit = Boolean(item?.id);
   const src = prefill || item || {};
 
@@ -38,6 +39,10 @@ function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
   const [newAgr, setNewAgr] = useState('');
   const [newAI, setNewAI] = useState({ task: '', responsible: '', due_date: '' });
   const [saving, setSaving] = useState(false);
+  const [spLink, setSpLink] = useState(
+    item?.sp_item_id ? { id: item.sp_item_id, name: item.sp_file_url?.split('/').pop() || 'Archivo SP', url: item.sp_file_url } : null
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const set = f => e => setForm(d => ({ ...d, [f]: e.target.value }));
   const addAtt = () => { if (newAtt.trim()) { setAttendees([...attendees, newAtt.trim()]); setNewAtt(''); } };
@@ -48,6 +53,8 @@ function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
     e.preventDefault(); setSaving(true);
     try {
       const data = { ...form, attendees, agreements, action_items: actionItems };
+      data.sp_item_id = spLink?.id || null;
+      data.sp_file_url = spLink?.url || null;
       if (isEdit) await minutesAPI.update(projectId, item.id, data);
       else await minutesAPI.create(projectId, data);
       onSaved();
@@ -107,6 +114,29 @@ function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
 
           {isEdit && <div><label className="block text-xs font-medium text-brand-800 mb-1">Estado</label><select value={form.status} onChange={set('status')} className="input-field text-sm">{Object.entries(MS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}</select></div>}
 
+          {/* SharePoint link */}
+          {spFolder && (
+            <div>
+              <label className="block text-xs font-medium text-brand-800 mb-1">Acta en SharePoint</label>
+              <div className="flex items-center gap-2">
+                {spLink ? (
+                  <>
+                    <a href={spLink.url} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline flex-1 min-w-0 truncate">
+                      <FolderKanban className="w-3.5 h-3.5 flex-shrink-0"/> {spLink.name}
+                    </a>
+                    <button type="button" onClick={() => setSpLink(null)} className="text-xs text-red-400 hover:text-red-600">Quitar</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setPickerOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
+                    <FolderKanban className="w-3.5 h-3.5"/> Vincular documento del acta en SharePoint
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
             <button type="submit" disabled={saving} className="btn-primary text-sm flex items-center gap-2">
@@ -117,6 +147,14 @@ function MinuteModal({ item, prefill, projectId, onClose, onSaved }) {
         </form>
       </div>
     </div>
+
+    {pickerOpen && (
+      <SharePointPicker
+        projectId={projectId}
+        onSelect={(item) => { setSpLink({ id: item.id, name: item.name, url: item.webUrl }); }}
+        onClose={() => setPickerOpen(false)}
+      />
+    )}
   );
 }
 
@@ -734,7 +772,7 @@ function SignatureModal({ projectId, minute, existingRequest, onClose, onChanged
   );
 }
 
-export default function MinutesPanel({ projectId, perms = {} }) {
+export default function MinutesPanel({ projectId, spFolder = null, perms = {} }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -1156,6 +1194,13 @@ export default function MinutesPanel({ projectId, perms = {} }) {
                   </div>
                   <p className="text-sm font-medium text-brand-900">{m.title}</p>
                   <p className="text-xs text-surface-400 mt-0.5">{new Date(m.meeting_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })} {m.location ? `· ${m.location}` : ''}</p>
+                  {m.sp_file_url && (
+                    <a href={m.sp_file_url} target="_blank" rel="noreferrer"
+                      className="mt-1 flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 hover:underline">
+                      <FolderKanban className="w-3 h-3 flex-shrink-0"/>
+                      <span className="truncate">{m.sp_file_url.split('/').pop() || 'Acta en SharePoint'}</span>
+                    </a>
+                  )}
                 </div>
                 {/* Action buttons — always visible */}
                 <div className="flex items-center gap-1 flex-shrink-0">
@@ -1211,7 +1256,7 @@ export default function MinutesPanel({ projectId, perms = {} }) {
 
       {/* Manual create */}
       {modal === 'manual' && (
-        <MinuteModal item={null} projectId={projectId}
+        <MinuteModal item={null} projectId={projectId} spFolder={spFolder}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); showToast('Acta creada'); load(); }} />
       )}
@@ -1225,14 +1270,14 @@ export default function MinutesPanel({ projectId, perms = {} }) {
 
       {/* AI prefilled form (review before save) */}
       {modal?.prefill && (
-        <MinuteModal prefill={modal.prefill} projectId={projectId}
+        <MinuteModal prefill={modal.prefill} projectId={projectId} spFolder={spFolder}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); showToast('Acta generada con IA y guardada'); load(); }} />
       )}
 
       {/* Edit existing */}
       {modal && modal.id && !modal.prefill && (
-        <MinuteModal item={modal} projectId={projectId}
+        <MinuteModal item={modal} projectId={projectId} spFolder={spFolder}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); showToast('Acta actualizada'); load(); }} />
       )}

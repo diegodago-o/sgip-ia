@@ -90,6 +90,8 @@ export default function CommitteeDashboard() {
   const [dateTo, setDateTo] = useState(today);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [pmiAnalysis, setPmiAnalysis] = useState(null);
+  const [pmiLoading, setPmiLoading] = useState(false);
   const [aiView, setAiView] = useState('gerente'); // 'gerente' | 'ceo' | 'operativo'
   const [commitmentUpdating, setCommitmentUpdating] = useState(null);
   const [commitmentToast, setCommitmentToast] = useState(null);
@@ -171,6 +173,7 @@ export default function CommitteeDashboard() {
 
   const requestAIAnalysis = async () => {
     setAiLoading(true);
+    setPmiAnalysis(null);
     try {
       const provider = localStorage.getItem('sgip_ai_provider') || 'openai';
       const apiKey = localStorage.getItem('sgip_ai_key') || '';
@@ -297,27 +300,69 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
   "next_actions": ["<acción inmediata 1 con responsable y fecha>", "<acción 2>", "<acción 3>", "<acción 4>", "<acción 5>"],
   "committee_decisions_needed": ["<decisión que debe tomar el comité 1>", "<decisión 2>"],
   "productivity": { "score": "<buena|aceptable|baja|critica>", "analysis": "<análisis de velocidad: actividades/mes, gasto/mes, tendencia>" },
-  "forecast": "<pronóstico: a este ritmo, ¿terminará a tiempo? ¿dentro del presupuesto? ¿qué debe cambiar?>",
+  "forecast": "<pronóstico: a este ritmo, ¿terminará a tiempo? ¿dentro del presupuesto? ¿qué debe cambiar?>"
+}
 
+REGLAS:
+- health_score DEBE reflejar los semáforos reales (rojo=0-35, amarillo=36-65, verde=66-100)
+- Genera mínimo 4 alertas y 4 recomendaciones basadas en datos reales
+- SPI y CPI deben calcularse con los datos proporcionados
+- Las recomendaciones deben incluir responsable y plazo concreto
+- Los critical_issues son los que necesitan acción INMEDIATA del comité
+- El forecast debe ser realista basado en tendencias
+- committee_decisions_needed son las decisiones que el comité debe tomar HOY
+- Los estados (verde/amarillo/rojo) deben ser coherentes con los semáforos calculados
+- SOLO JSON válido, nada más`);
+      fd.append('provider', provider);
+      if (apiKey) fd.append('api_key', apiKey);
+      if (model) fd.append('model', model);
+      
+      const res = await aiAPI.extract(fd);
+      const raw = res.data.data.analysis || res.data.data.raw_response || JSON.stringify(res.data.data);
+      
+      // Try parsing JSON from response
+      try {
+        const clean = raw.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        setAiAnalysis({ structured: true, ...parsed });
+        requestPMIAnalysis(summary, provider, apiKey, model);
+      } catch {
+        // Fallback: try to find JSON in the text
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            setAiAnalysis({ structured: true, ...parsed });
+            requestPMIAnalysis(summary, provider, apiKey, model);
+          } catch { setAiAnalysis({ structured: false, text: raw }); }
+        } else {
+          setAiAnalysis({ structured: false, text: raw });
+        }
+      }
+    } catch (e) {
+      setAiAnalysis({ structured: false, text: `Error: ${e.response?.data?.error || e.message}` });
+    } finally { setAiLoading(false); }
+  };
+
+  const requestPMIAnalysis = async (summary, provider, apiKey, model) => {
+    setPmiLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('text', summary);
+      fd.append('extraction_type', 'analyze');
+      fd.append('analysis_prompt', `Eres un experto certificado PMP/PgMP en gestión de proyectos PMBoK 7. Con base en los datos reales del proyecto proporcionados, analiza y completa TODOS los indicadores. Usa cifras y datos concretos del proyecto — NUNCA valores genéricos ni placeholders. Infiere valores razonables basados en los semáforos y métricas cuando no haya dato exacto disponible.
+
+Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con esta estructura:
+{
   "pmi_gerente": [
-    {
-      "grupo": "Entrega y Avance",
-      "emoji": "📦",
-      "indicadores": [
-        { "nombre": "Avance físico real vs planificado", "valor": "<ej: 68% real vs 75% planif.>", "estado": "<verde|amarillo|rojo>", "nota": "<breve interpretación>" },
-        { "nombre": "Cumplimiento de hitos críticos", "valor": "<hitos_cumplidos/hitos_programados = %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Entregables aprobados vs pendientes", "valor": "<X aprobados, Y pendientes>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Variación del alcance", "valor": "<N cambios aprobados>", "estado": "<verde|amarillo|rojo>", "nota": "<impacto en tiempo/costo>" }
-      ]
-    },
     {
       "grupo": "Cronograma",
       "emoji": "📅",
       "indicadores": [
-        { "nombre": "SPI – Índice desempeño cronograma", "valor": "<valor numérico>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación>" },
-        { "nombre": "Desviación del cronograma", "valor": "<+/- días o %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "SPI – Índice desempeño cronograma", "valor": "<valor numérico calculado: avance_real/tiempo_transcurrido>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación concreta con datos>" },
+        { "nombre": "Desviación del cronograma", "valor": "<+/- días o %>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifra real>" },
         { "nombre": "Actividades críticas vencidas", "valor": "<N actividades>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Probabilidad de cumplir fecha final", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" }
+        { "nombre": "Probabilidad de cumplir fecha final", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve basado en tendencia>" }
       ]
     },
     {
@@ -325,9 +370,9 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
       "emoji": "💰",
       "indicadores": [
         { "nombre": "CPI – Índice desempeño del costo", "valor": "<valor numérico>", "estado": "<verde|amarillo|rojo>", "nota": "<interpretación>" },
-        { "nombre": "Presupuesto ejecutado vs aprobado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Presupuesto ejecutado vs aprobado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifras>" },
         { "nombre": "EAC – Estimado al cierre", "valor": "<COP>", "estado": "<verde|amarillo|rojo>", "nota": "<vs presupuesto base>" },
-        { "nombre": "Variación presupuestal proyectada", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipa sobrecosto>" }
+        { "nombre": "Variación presupuestal proyectada", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipa sobrecosto o ahorro>" }
       ]
     },
     {
@@ -366,7 +411,7 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
       "indicadores": [
         { "nombre": "Decisiones pendientes de comité", "valor": "<N decisiones>", "estado": "<verde|amarillo|rojo>", "nota": "<decisiones ejecutivas abiertas>" },
         { "nombre": "Compromisos vencidos de áreas", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<para escalar>" },
-        { "nombre": "Involucramiento de stakeholders", "valor": "<escala 1-5 o semáforo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
+        { "nombre": "Involucramiento de stakeholders", "valor": "<escala 1-5>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
         { "nombre": "Cumplimiento plan de comunicaciones", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<alineación>" }
       ]
     },
@@ -389,18 +434,27 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
         { "nombre": "Cumplimiento gestión del cambio", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<formación, comunicaciones>" },
         { "nombre": "Resistencia/incidentes de adopción", "valor": "<N incidentes>", "estado": "<verde|amarillo|rojo>", "nota": "<anticipar fracaso>" }
       ]
+    },
+    {
+      "grupo": "Obligaciones y Cumplimiento",
+      "emoji": "📋",
+      "indicadores": [
+        { "nombre": "Cumplimiento obligaciones contractuales", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<obligaciones cumplidas vs total>" },
+        { "nombre": "Obligaciones vencidas sin atender", "valor": "<N>", "estado": "<verde|amarillo|rojo>", "nota": "<riesgo legal>" },
+        { "nombre": "Pólizas vigentes vs requeridas", "valor": "<N/N>", "estado": "<verde|amarillo|rojo>", "nota": "<cobertura>" },
+        { "nombre": "Índice de cumplimiento contractual", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<salud contractual general>" }
+      ]
     }
   ],
-
   "pmi_ceo": [
     {
       "grupo": "Salud Ejecutiva",
       "emoji": "🚦",
       "indicadores": [
-        { "nombre": "Estado general del proyecto (RAG)", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<resumen ejecutivo>" },
+        { "nombre": "Estado general del proyecto (RAG)", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<resumen ejecutivo en una línea>" },
         { "nombre": "Estado de alcance", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Estado de tiempo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" },
-        { "nombre": "Estado de costo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve>" }
+        { "nombre": "Estado de tiempo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con días de desviación>" },
+        { "nombre": "Estado de costo", "valor": "<Verde|Amarillo|Rojo>", "estado": "<verde|amarillo|rojo>", "nota": "<breve con cifra>" }
       ]
     },
     {
@@ -418,7 +472,7 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
       "emoji": "📊",
       "indicadores": [
         { "nombre": "Fecha compromiso vs estimada cierre", "valor": "<fecha1 vs fecha2>", "estado": "<verde|amarillo|rojo>", "nota": "<solo dato ejecutivo>" },
-        { "nombre": "Presupuesto aprobado vs ejecutado", "valor": "<COP aprobado | COP ejecutado | COP proyectado>", "estado": "<verde|amarillo|rojo>", "nota": "<vistazo financiero>" },
+        { "nombre": "Presupuesto aprobado vs ejecutado", "valor": "<COP aprobado | COP ejecutado>", "estado": "<verde|amarillo|rojo>", "nota": "<vistazo financiero>" },
         { "nombre": "Sobrecosto esperado", "valor": "<%>", "estado": "<verde|amarillo|rojo>", "nota": "<solo si es material>" },
         { "nombre": "Necesidad de presupuesto adicional", "valor": "<Sí / No>", "estado": "<verde|amarillo|rojo>", "nota": "<para decisión inmediata>" }
       ]
@@ -457,43 +511,37 @@ Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) con es
 }
 
 REGLAS:
-- health_score DEBE reflejar los semáforos reales (rojo=0-35, amarillo=36-65, verde=66-100)
-- Genera mínimo 4 alertas y 4 recomendaciones basadas en datos reales
-- SPI y CPI deben calcularse con los datos proporcionados
-- Las recomendaciones deben incluir responsable y plazo concreto
-- Los critical_issues son los que necesitan acción INMEDIATA del comité
-- El forecast debe ser realista basado en tendencias
-- committee_decisions_needed son las decisiones que el comité debe tomar HOY
-- Para pmi_gerente y pmi_ceo: usa los datos reales del proyecto, no valores genéricos
-- Los estados (verde/amarillo/rojo) deben ser coherentes con los semáforos calculados
+- Todos los valores deben ser CONCRETOS y basados en los datos reales del proyecto
+- Los estados (verde/amarillo/rojo): verde=bueno/dentro de tolerancia, amarillo=requiere atención, rojo=crítico
+- Si un dato no está disponible directamente, infiere un valor razonable con base en semáforos y tendencias
+- Para SPI: usar avance_físico / tiempo_transcurrido (ambos en porcentaje)
+- Para CPI: usar valor_ganado / costo_real (estimar si no disponible)
 - SOLO JSON válido, nada más`);
       fd.append('provider', provider);
       if (apiKey) fd.append('api_key', apiKey);
       if (model) fd.append('model', model);
-      
+
       const res = await aiAPI.extract(fd);
       const raw = res.data.data.analysis || res.data.data.raw_response || JSON.stringify(res.data.data);
-      
-      // Try parsing JSON from response
+
       try {
         const clean = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
-        setAiAnalysis({ structured: true, ...parsed });
+        if (parsed.pmi_gerente || parsed.pmi_ceo) setPmiAnalysis(parsed);
       } catch {
-        // Fallback: try to find JSON in the text
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
-            setAiAnalysis({ structured: true, ...parsed });
-          } catch { setAiAnalysis({ structured: false, text: raw }); }
-        } else {
-          setAiAnalysis({ structured: false, text: raw });
+            if (parsed.pmi_gerente || parsed.pmi_ceo) setPmiAnalysis(parsed);
+          } catch {}
         }
       }
     } catch (e) {
-      setAiAnalysis({ structured: false, text: `Error: ${e.response?.data?.error || e.message}` });
-    } finally { setAiLoading(false); }
+      console.error('PMI analysis failed:', e.message);
+    } finally {
+      setPmiLoading(false);
+    }
   };
 
   return (
@@ -658,10 +706,10 @@ REGLAS:
             <Sparkles className="w-4.5 h-4.5 text-violet-500" />
             <h3 className="font-display font-bold text-brand-900 text-sm">Análisis IA del Comité</h3>
           </div>
-          <button onClick={requestAIAnalysis} disabled={aiLoading}
+          <button onClick={requestAIAnalysis} disabled={aiLoading || pmiLoading}
             className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5">
-            {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {aiLoading ? 'Analizando...' : aiAnalysis ? 'Regenerar análisis' : 'Generar análisis IA'}
+            {(aiLoading || pmiLoading) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {aiLoading ? 'Analizando diagnóstico...' : pmiLoading ? 'Calculando PMBoK...' : aiAnalysis ? 'Regenerar análisis' : 'Generar análisis IA'}
           </button>
         </div>
         {aiAnalysis?.structured ? (() => {
@@ -740,25 +788,45 @@ REGLAS:
               </div>
 
               {/* ── Vista Gerente de Programa ── */}
-              {aiView === 'gerente' && ai.pmi_gerente?.length > 0 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 py-1">
-                    <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — Gerente de Programa</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-100 text-brand-600 font-medium">9 grupos · 36 indicadores</span>
+              {aiView === 'gerente' && (
+                pmiLoading ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-10 text-surface-400">
+                    <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
+                    <span className="text-xs font-medium">Analizando 36 indicadores PMBoK...</span>
+                    <span className="text-[10px] text-surface-300">Esto puede tomar unos segundos</span>
                   </div>
-                  {ai.pmi_gerente.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
-                </div>
+                ) : pmiAnalysis?.pmi_gerente?.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 py-1">
+                      <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — Gerente de Programa</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-100 text-brand-600 font-medium">{pmiAnalysis.pmi_gerente.length} grupos · {pmiAnalysis.pmi_gerente.reduce((s, g) => s + (g.indicadores?.length || 0), 0)} indicadores</span>
+                    </div>
+                    {pmiAnalysis.pmi_gerente.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
+                  </div>
+                ) : (
+                  <p className="text-xs text-surface-400 italic text-center py-6">Los indicadores PMBoK se generarán automáticamente al hacer clic en "Generar análisis IA".</p>
+                )
               )}
 
               {/* ── Vista CEO ── */}
-              {aiView === 'ceo' && ai.pmi_ceo?.length > 0 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 py-1">
-                    <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — CEO / Dirección General</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">6 grupos · 24 indicadores</span>
+              {aiView === 'ceo' && (
+                pmiLoading ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-10 text-surface-400">
+                    <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
+                    <span className="text-xs font-medium">Analizando indicadores ejecutivos PMBoK...</span>
+                    <span className="text-[10px] text-surface-300">Esto puede tomar unos segundos</span>
                   </div>
-                  {ai.pmi_ceo.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
-                </div>
+                ) : pmiAnalysis?.pmi_ceo?.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 py-1">
+                      <span className="text-xs font-bold text-brand-800">Indicadores PMBoK — CEO / Dirección General</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">{pmiAnalysis.pmi_ceo.length} grupos · {pmiAnalysis.pmi_ceo.reduce((s, g) => s + (g.indicadores?.length || 0), 0)} indicadores</span>
+                    </div>
+                    {pmiAnalysis.pmi_ceo.map((grupo, gi) => <PmiGroupSection key={gi} grupo={grupo} />)}
+                  </div>
+                ) : (
+                  <p className="text-xs text-surface-400 italic text-center py-6">Los indicadores ejecutivos PMBoK se generarán automáticamente al hacer clic en "Generar análisis IA".</p>
+                )
               )}
 
               {/* ── Vista Operativo (diagnóstico original) ── */}

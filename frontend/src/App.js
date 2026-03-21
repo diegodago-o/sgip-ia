@@ -16,6 +16,7 @@ import AdminUsersPage from './components/pages/AdminUsersPage';
 import CommitteeDashboard from './components/pages/CommitteeDashboard';
 import SigningPage from './components/pages/SigningPage';
 import CorrespondenceSigningPage from './components/pages/CorrespondenceSigningPage';
+import OAuthCallbackPage from './components/auth/OAuthCallbackPage';
 import ConfiguracionPage from './pages/ConfiguracionPage';
 
 function LoginGuard() {
@@ -31,6 +32,7 @@ function AuthenticatedApp() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginGuard />} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
 
         <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
           {/* Dashboard */}

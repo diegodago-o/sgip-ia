@@ -309,4 +309,62 @@ router.post('/n8n/test', authenticate, requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SSO (Single Sign-On) — Google + Microsoft
+// ─────────────────────────────────────────────────────────────────────────────
+const SSO_SENSITIVE = ['google_client_secret', 'microsoft_client_secret'];
+
+async function loadSSOConfig() {
+  const [rows] = await db.execute(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'sso_config'"
+  );
+  if (!rows.length || !rows[0].setting_value) return {};
+  try { return JSON.parse(rows[0].setting_value); } catch { return {}; }
+}
+
+async function saveSSOConfig(cfg, userId) {
+  await db.execute(
+    `INSERT INTO system_settings (setting_key, setting_value, is_sensitive, updated_by)
+     VALUES ('sso_config', ?, 1, ?)
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)`,
+    [JSON.stringify(cfg), userId]
+  );
+}
+
+function maskSSOConfig(cfg) {
+  const out = { ...cfg };
+  for (const key of SSO_SENSITIVE) {
+    if (out[key]) out[key] = '********';
+  }
+  return out;
+}
+
+// GET /api/settings/sso
+router.get('/sso', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const cfg = await loadSSOConfig();
+    res.json({ success: true, data: maskSSOConfig(cfg) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/settings/sso
+router.put('/sso', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const incoming = req.body || {};
+    let existing = {};
+    try { existing = await loadSSOConfig(); } catch {}
+
+    const cfg = { ...incoming };
+    // Preserve existing secrets if placeholder sent back
+    for (const key of SSO_SENSITIVE) {
+      if (cfg[key] === '********' || cfg[key] === '') {
+        cfg[key] = existing[key] || '';
+      }
+    }
+
+    await saveSSOConfig(cfg, req.user.id);
+    res.json({ success: true, message: 'Configuración SSO guardada correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

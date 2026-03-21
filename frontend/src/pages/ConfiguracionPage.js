@@ -3,7 +3,7 @@ import {
   Mail, Save, Send, Eye, EyeOff, CheckCircle2, XCircle,
   Loader2, Shield, Server, User, Lock, Settings, ChevronRight,
   AlertTriangle, Info, Zap, Key, Plus, Trash2, Copy, RefreshCw,
-  ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell,
+  ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell, LogIn,
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -21,6 +21,8 @@ const settingsAPI = {
   getNotifs:      ()    => api.get('/settings/notifications'),
   saveNotifs:     (d)   => api.put('/settings/notifications', d),
   testNotif:      (d)   => api.post('/settings/notifications/test', d),
+  getSSO:         ()    => api.get('/settings/sso'),
+  saveSSO:        (d)   => api.put('/settings/sso', d),
 };
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -114,9 +116,10 @@ const RECIPIENT_OPTIONS = [
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'email',           label: 'Correo electrónico', icon: Mail },
-  { id: 'notificaciones',  label: 'Notificaciones',      icon: Bell },
-  { id: 'integraciones',   label: 'Integraciones',       icon: Zap  },
+  { id: 'email',           label: 'Correo electrónico', icon: Mail  },
+  { id: 'notificaciones',  label: 'Notificaciones',      icon: Bell  },
+  { id: 'integraciones',   label: 'Integraciones',       icon: Zap   },
+  { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -900,15 +903,235 @@ function NotificacionesSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// SSO SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+const ROLES = [
+  { value: 'apoyo',          label: 'Apoyo' },
+  { value: 'coordinador',    label: 'Coordinador' },
+  { value: 'director',       label: 'Director' },
+  { value: 'director_pmo',   label: 'Director PMO' },
+  { value: 'admin',          label: 'Administrador' },
+];
+
+const EMPTY_SSO = {
+  google_enabled: false,
+  google_client_id: '',
+  google_client_secret: '',
+  microsoft_enabled: false,
+  microsoft_tenant_id: '',
+  microsoft_client_id: '',
+  microsoft_client_secret: '',
+  allow_new_users: true,
+  default_role: 'apoyo',
+};
+
+function SSOSection() {
+  const [form, setForm]         = useState(EMPTY_SSO);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const set  = (k) => (e) => {
+    const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setForm(f => ({ ...f, [k]: v }));
+  };
+
+  const showFb = (type, msg) => {
+    setFeedback({ type, msg });
+    if (type === 'success') setTimeout(() => setFeedback(null), 4000);
+  };
+
+  useEffect(() => {
+    settingsAPI.getSSO()
+      .then(r => { const d = r.data?.data || {}; setForm(f => ({ ...f, ...d })); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsAPI.saveSSO(form);
+      showFb('success', 'Configuración SSO guardada correctamente');
+    } catch (e) {
+      showFb('error', e.response?.data?.error || e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-400" /></div>;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Feedback fb={feedback} onClose={() => setFeedback(null)} />
+
+      {/* Info banner */}
+      <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 flex gap-3">
+        <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-800 leading-relaxed space-y-1">
+          <p>El SSO permite que los usuarios inicien sesión con sus cuentas corporativas sin contraseña.</p>
+          <p>Los usuarios existentes se vinculan por <strong>email</strong>. Los nuevos se crean con el rol predeterminado configurado abajo.</p>
+          <p>Los botones aparecen en la página de inicio de sesión solo cuando el proveedor está <strong>habilitado y completamente configurado</strong>.</p>
+        </div>
+      </div>
+
+      {/* Google */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-surface-50 border border-surface-200 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-brand-900">Google Workspace / Gmail</h3>
+              <p className="text-[10px] text-surface-400">OAuth 2.0 — Google Cloud Console</p>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span className="text-xs text-surface-500">{form.google_enabled ? 'Habilitado' : 'Deshabilitado'}</span>
+            <button type="button" onClick={() => setForm(f => ({ ...f, google_enabled: !f.google_enabled }))}>
+              {form.google_enabled
+                ? <ToggleRight className="w-7 h-7 text-brand-600" />
+                : <ToggleLeft  className="w-7 h-7 text-surface-300" />}
+            </button>
+          </label>
+        </div>
+
+        {form.google_enabled && (
+          <div className="pt-3 border-t border-surface-100 space-y-3">
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-800 leading-relaxed">
+              <strong>Configuración en Google Cloud Console:</strong>
+              <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+                <li>Crea un proyecto en <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="underline">console.cloud.google.com</a></li>
+                <li>Habilita la <strong>Google+ API</strong> / <strong>People API</strong></li>
+                <li>En "Credenciales" → "ID de cliente OAuth 2.0" → tipo: <strong>Aplicación web</strong></li>
+                <li>URI de redireccionamiento autorizado: <code className="bg-amber-100 px-1 rounded">{window.location.origin.replace(':3001', ':4000')}/api/auth/google/callback</code></li>
+              </ol>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Client ID" required>
+                <Input value={form.google_client_id} onChange={set('google_client_id')} placeholder="xxxxxxxxxx.apps.googleusercontent.com" />
+              </Field>
+              <Field label="Client Secret" required>
+                <PasswordInput value={form.google_client_secret} onChange={set('google_client_secret')} placeholder="GOCSPX-..." />
+              </Field>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Microsoft */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-surface-50 border border-surface-200 flex items-center justify-center">
+              <svg viewBox="0 0 23 23" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+                <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
+                <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
+                <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-brand-900">Microsoft 365 / Outlook</h3>
+              <p className="text-[10px] text-surface-400">OAuth 2.0 — Azure Active Directory</p>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span className="text-xs text-surface-500">{form.microsoft_enabled ? 'Habilitado' : 'Deshabilitado'}</span>
+            <button type="button" onClick={() => setForm(f => ({ ...f, microsoft_enabled: !f.microsoft_enabled }))}>
+              {form.microsoft_enabled
+                ? <ToggleRight className="w-7 h-7 text-brand-600" />
+                : <ToggleLeft  className="w-7 h-7 text-surface-300" />}
+            </button>
+          </label>
+        </div>
+
+        {form.microsoft_enabled && (
+          <div className="pt-3 border-t border-surface-100 space-y-3">
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-xs text-blue-800 leading-relaxed">
+              <strong>Configuración en Azure Active Directory:</strong>
+              <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+                <li>Ve a <a href="https://portal.azure.com/" target="_blank" rel="noreferrer" className="underline">portal.azure.com</a> → Azure AD → Registros de aplicaciones</li>
+                <li>Crea una nueva aplicación → tipo de cuenta: <strong>Cuentas en cualquier directorio organizacional</strong></li>
+                <li>URI de redirección: <code className="bg-blue-100 px-1 rounded">{window.location.origin.replace(':3001', ':4000')}/api/auth/microsoft/callback</code></li>
+                <li>En "Certificados y secretos" crea un nuevo secreto de cliente</li>
+                <li>En "Permisos de API" agrega: <strong>openid, email, profile, User.Read</strong> (delegados)</li>
+              </ol>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Tenant ID" required hint="ID del directorio de Azure AD">
+                <Input value={form.microsoft_tenant_id} onChange={set('microsoft_tenant_id')} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+              </Field>
+              <Field label="Client ID (Application ID)" required>
+                <Input value={form.microsoft_client_id} onChange={set('microsoft_client_id')} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+              </Field>
+              <div className="col-span-2">
+                <Field label="Client Secret" required>
+                  <PasswordInput value={form.microsoft_client_secret} onChange={set('microsoft_client_secret')} placeholder="Valor del secreto de cliente" />
+                </Field>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* User provisioning */}
+      <div className="p-5 bg-white rounded-xl border border-surface-200 space-y-4">
+        <h3 className="text-sm font-semibold text-brand-900 flex items-center gap-2">
+          <User className="w-4 h-4 text-brand-500" />
+          Aprovisionamiento de usuarios
+        </h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between py-2 border-b border-surface-100">
+            <div>
+              <p className="text-sm text-brand-800 font-medium">Permitir nuevos usuarios</p>
+              <p className="text-xs text-surface-400 mt-0.5">Si está deshabilitado, solo usuarios ya registrados pueden usar SSO</p>
+            </div>
+            <button type="button" onClick={() => setForm(f => ({ ...f, allow_new_users: !f.allow_new_users }))}>
+              {form.allow_new_users
+                ? <ToggleRight className="w-7 h-7 text-brand-600" />
+                : <ToggleLeft  className="w-7 h-7 text-surface-300" />}
+            </button>
+          </div>
+          <Field label="Rol predeterminado para nuevos usuarios" hint="Rol asignado automáticamente al registrar un usuario vía SSO por primera vez">
+            <select value={form.default_role} onChange={set('default_role')}
+              className="input-field text-sm w-full">
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
+        </div>
+      </div>
+
+      {/* Save */}
+      <div className="flex justify-end">
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Guardando...' : 'Guardar configuración SSO'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Main ConfiguracionPage
 // ══════════════════════════════════════════════════════════════════════════════
 export default function ConfiguracionPage() {
   const [active, setActive] = useState('email');
 
   const titles = {
-    email:           { h: 'Correo electrónico',   sub: 'Configura el servidor de correo para enviar notificaciones del sistema' },
-    notificaciones:  { h: 'Notificaciones',        sub: 'Define qué eventos del sistema disparan emails, a quién y con cuánta anticipación' },
-    integraciones:   { h: 'Integraciones',         sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
+    email:           { h: 'Correo electrónico',         sub: 'Configura el servidor de correo para enviar notificaciones del sistema' },
+    notificaciones:  { h: 'Notificaciones',              sub: 'Define qué eventos del sistema disparan emails, a quién y con cuánta anticipación' },
+    integraciones:   { h: 'Integraciones',               sub: 'Conecta SGIP-IA con N8N y herramientas externas mediante webhooks y API Keys' },
+    sso:             { h: 'Inicio de sesión único (SSO)', sub: 'Configura Google y Microsoft 365 para que los usuarios inicien sesión con sus cuentas corporativas' },
   };
 
   return (
@@ -952,6 +1175,7 @@ export default function ConfiguracionPage() {
         {active === 'email'          && <EmailSection />}
         {active === 'notificaciones' && <NotificacionesSection />}
         {active === 'integraciones'  && <IntegracionesSection />}
+        {active === 'sso'            && <SSOSection />}
       </main>
     </div>
   );

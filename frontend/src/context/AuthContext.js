@@ -45,8 +45,15 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Called after OAuth callback — token + user already provided by backend redirect
+  const loginWithToken = (token, userData) => {
+    localStorage.setItem('sgip_token', token);
+    localStorage.setItem('sgip_user', JSON.stringify(userData));
+    setUser(userData);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, loginWithToken, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

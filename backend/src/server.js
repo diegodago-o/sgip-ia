@@ -40,6 +40,7 @@ const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
 const { signaturesRouter, firmaRouter } = require('./routes/signatures');
 const { corrSigRouter, corrSigPublicRouter } = require('./routes/corrSignatures');
+const oauthRoutes          = require('./routes/oauth');
 const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
@@ -149,6 +150,7 @@ app.use((req, _res, next) => {
 // ══════════════════════════════════════════════
 // ROUTES
 // ══════════════════════════════════════════════
+app.use('/api/auth', oauthRoutes);         // SSO OAuth redirects (no rate limit — they're browser redirects)
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/documents', documentRoutes);

@@ -234,7 +234,10 @@ function msTenantEndpoint(cfg) {
   if (cfg.microsoft_mode === 'single' && cfg.microsoft_tenant_id) {
     return cfg.microsoft_tenant_id;
   }
-  return 'organizations'; // all M365 tenants, no personal accounts
+  // 'common' is required when signInAudience = AzureADandPersonalMicrosoftAccount.
+  // It accepts all M365 organizational tenants + personal Microsoft accounts.
+  // If you change the Azure app to signInAudience=AzureADMultipleOrgs, switch this to 'organizations'.
+  return 'common';
 }
 
 router.get('/microsoft', async (req, res) => {

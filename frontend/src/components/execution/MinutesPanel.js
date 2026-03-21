@@ -63,6 +63,7 @@ function MinuteModal({ item, prefill, projectId, spFolder, onClose, onSaved }) {
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-surface-100">
@@ -155,6 +156,7 @@ function MinuteModal({ item, prefill, projectId, spFolder, onClose, onSaved }) {
         onClose={() => setPickerOpen(false)}
       />
     )}
+    </>
   );
 }
 

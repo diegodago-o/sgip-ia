@@ -66,51 +66,95 @@ function fmtValue(key, val) {
 }
 
 // ── AI Config Panel — igual que otros módulos ─────────────────────────────────
-function AIConfigPanel({ settings, localKey, setLocalKey }) {
-  const isConfigured = settings?.anthropic_configured || settings?.openai_configured;
-  if (isConfigured) {
-    const provider = settings.default_provider || (settings.anthropic_configured ? 'anthropic' : 'openai');
-    const model    = provider === 'anthropic' ? settings.anthropic_model : settings.openai_model;
+function AIConfigPanel({ settings, provider, setProvider, localKey, setLocalKey }) {
+  const hasAnthropic = settings?.anthropic_configured;
+  const hasOpenAI    = settings?.openai_configured;
+  const isConfigured = hasAnthropic || hasOpenAI;
+
+  // If none configured → show key input
+  if (!isConfigured) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
-        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-        <span>Motor de IA configurado · <span className="font-medium capitalize">{provider}</span> — {model}</span>
+      <div className="space-y-2">
+        <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span>
+            Motor de IA no configurado. Configure la API key en{' '}
+            <strong>Configuración → Integraciones → Motor de IA</strong>, o ingresa tu clave de Anthropic:
+          </span>
+        </div>
+        <div className="relative">
+          <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-400" />
+          <input
+            type="password"
+            value={localKey}
+            onChange={e => setLocalKey(e.target.value)}
+            placeholder="sk-ant-..."
+            className="input-field pl-9 text-sm py-2"
+          />
+        </div>
       </div>
     );
   }
 
+  // At least one provider configured — show selector
+  const currentModel = provider === 'anthropic' ? settings.anthropic_model : settings.openai_model;
+
   return (
     <div className="space-y-2">
-      <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-        <span>
-          Motor de IA no configurado. Configure la API key en{' '}
-          <strong>Configuración → Integraciones → Motor de IA</strong>, o ingresa tu clave de Anthropic aquí:
-        </span>
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+        <span className="text-xs text-emerald-700 font-medium">Motor de IA configurado</span>
+        <span className="text-xs text-surface-400">· {currentModel}</span>
       </div>
-      <div className="relative">
-        <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-400" />
-        <input
-          type="password"
-          value={localKey}
-          onChange={e => setLocalKey(e.target.value)}
-          placeholder="sk-ant-..."
-          className="input-field pl-9 text-sm py-2"
-        />
-      </div>
+      {/* Provider selector — only shown when both are configured */}
+      {hasAnthropic && hasOpenAI && (
+        <div className="flex gap-1 p-0.5 bg-surface-100 rounded-lg w-fit">
+          {[
+            { id: 'anthropic', label: 'Claude (Anthropic)' },
+            { id: 'openai',    label: 'GPT (OpenAI)' },
+          ].map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setProvider(p.id)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors
+                ${provider === p.id ? 'bg-white shadow-sm text-brand-700' : 'text-surface-500 hover:text-surface-700'}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* Single provider info */}
+      {!(hasAnthropic && hasOpenAI) && (
+        <p className="text-xs text-surface-400">
+          Proveedor: <span className="font-medium text-surface-600 capitalize">{provider}</span>
+        </p>
+      )}
     </div>
   );
 }
 
 // ── Step 1: Upload ────────────────────────────────────────────────────────────
 function StepUpload({ settings, onAnalyze, onClose }) {
-  const [mode, setMode]       = useState('file');
-  const [file, setFile]       = useState(null);
-  const [text, setText]       = useState('');
+  const [mode, setMode]         = useState('file');
+  const [file, setFile]         = useState(null);
+  const [text, setText]         = useState('');
   const [localKey, setLocalKey] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
   const inputRef = useRef(null);
+
+  // Determine default provider: prefer the one that is configured;
+  // if both, use the system default; if neither, default to anthropic for manual key.
+  const defaultProvider = (() => {
+    const s = settings || {};
+    if (s.anthropic_configured && s.openai_configured)
+      return s.default_provider || 'anthropic';
+    if (s.openai_configured) return 'openai';
+    return 'anthropic';
+  })();
+  const [provider, setProvider] = useState(defaultProvider);
 
   const isConfigured = settings?.anthropic_configured || settings?.openai_configured;
   const canSubmit    = (mode === 'file' ? !!file : text.trim().length > 50)
@@ -126,10 +170,11 @@ function StepUpload({ settings, onAnalyze, onClose }) {
       } else {
         fd.append('text', text.trim());
       }
+      // Always pass provider so backend uses the right one
+      fd.append('provider', provider);
       // Pass local key if system is not configured
       if (!isConfigured && localKey.trim()) {
         fd.append('anthropic_api_key', localKey.trim());
-        fd.append('provider', 'anthropic');
       }
       const { data } = await aiAPI.extractProject(fd);
       onAnalyze(data.data);
@@ -143,7 +188,13 @@ function StepUpload({ settings, onAnalyze, onClose }) {
   return (
     <div className="space-y-4">
       {/* AI config status — same as other AI modules */}
-      <AIConfigPanel settings={settings} localKey={localKey} setLocalKey={setLocalKey} />
+      <AIConfigPanel
+        settings={settings}
+        provider={provider}
+        setProvider={setProvider}
+        localKey={localKey}
+        setLocalKey={setLocalKey}
+      />
 
       {/* Mode tabs */}
       <div className="flex gap-1 p-1 bg-surface-100 rounded-lg w-fit">

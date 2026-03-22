@@ -19,9 +19,14 @@ const NOTIFICATION_TYPES = [
   { id: 'correspondence.received',category: 'instant',   label: 'Correspondencia recibida',      desc: 'Al ingresar nueva correspondencia al sistema',           default_recipients: 'project_team' },
   { id: 'payment.approved',       category: 'instant',   label: 'Pago aprobado',                 desc: 'Al aprobar un pago de proyecto',                         default_recipients: 'admins'       },
   // ── Scheduled ──
-  { id: 'commitment.reminder',    category: 'scheduled', label: 'Recordatorio de compromiso',    desc: 'Días antes del vencimiento de un compromiso',            default_recipients: 'project_team', default_lead_days: 3  },
-  { id: 'commitment.overdue',     category: 'scheduled', label: 'Alerta de compromisos vencidos',desc: 'Resumen diario de compromisos sin cumplir que ya vencieron', default_recipients: 'admins',    schedule: 'daily' },
-  { id: 'payment.due_reminder',   category: 'scheduled', label: 'Recordatorio de corte de pago', desc: 'Días antes del cierre de período de un pago',            default_recipients: 'admins',       default_lead_days: 5  },
+  { id: 'commitment.reminder',    category: 'scheduled', label: 'Recordatorio de compromiso',       desc: 'Días antes del vencimiento de un compromiso',                      default_recipients: 'project_team', default_lead_days: 3  },
+  { id: 'commitment.overdue',     category: 'scheduled', label: 'Alerta de compromisos vencidos',   desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',        default_recipients: 'admins',       schedule: 'daily'     },
+  { id: 'payment.due_reminder',   category: 'scheduled', label: 'Recordatorio de corte de pago',    desc: 'Días antes del cierre de período de un pago',                      default_recipients: 'admins',       default_lead_days: 5  },
+  // ── Vencimientos ──
+  { id: 'policy.expiring',        category: 'scheduled', label: 'Póliza próxima a vencer',          desc: 'Alerta cuando una póliza vence en los próximos días (30/15/7/1)',  default_recipients: 'project_team', default_lead_days: 30 },
+  { id: 'policy.expired',         category: 'scheduled', label: 'Póliza vencida',                   desc: 'Resumen diario de pólizas ya vencidas en proyectos activos',       default_recipients: 'admins',       schedule: 'daily'     },
+  { id: 'contract.ending',        category: 'scheduled', label: 'Contrato próximo a terminar',      desc: 'Alerta cuando el plazo de ejecución está por vencer (60/30/15d)',  default_recipients: 'project_team', default_lead_days: 60 },
+  { id: 'milestone.overdue',      category: 'scheduled', label: 'Hito vencido con entregables',     desc: 'Resumen diario de hitos cuya fecha pasó con entregables sin cerrar',default_recipients: 'project_team', schedule: 'daily'     },
 ];
 module.exports.NOTIFICATION_TYPES = NOTIFICATION_TYPES;
 
@@ -297,6 +302,106 @@ function buildTemplate(type, data) {
       };
     }
 
+    case 'policy.expiring': {
+      const days = data.days_until;
+      const urgency = days <= 1 ? '#dc2626' : days <= 7 ? '#b45309' : '#0f766e';
+      return {
+        subject: `[SGIP-IA] Póliza vence en ${days === 1 ? '1 día' : `${days} días`} — ${projLabel}`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:${urgency};font-size:18px">🛡️ Póliza próxima a vencer</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">La siguiente póliza vence en <strong>${days === 1 ? '1 día' : `${days} días`}</strong>.</p>
+          ${badge(`Vence en ${days}d`, urgency)}
+          <table style="width:100%;margin-top:18px;border-collapse:collapse">
+            ${row('Proyecto', projLabel)}
+            ${row('Tipo de póliza', data.policy_type || '')}
+            ${row('No. Póliza', data.policy_number || '')}
+            ${row('Aseguradora', data.insurer || '')}
+            ${row('Vencimiento', data.expiry_date ? new Date(data.expiry_date).toLocaleDateString('es-CO') : '')}
+          </table>
+          <div style="margin-top:18px;padding:12px 16px;background:#fef9c3;border-left:3px solid ${urgency};border-radius:4px">
+            <p style="margin:0;font-size:13px;color:#92400e">Gestione la renovación de la póliza antes de su vencimiento para evitar incumplimientos contractuales.</p>
+          </div>
+        `),
+      };
+    }
+
+    case 'policy.expired': {
+      const items = data.items || [];
+      const rows_html = items.map(p =>
+        `<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${p.project_code}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${p.policy_type}${p.policy_number ? ' — ' + p.policy_number : ''}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#64748b">${p.insurer || '—'}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#dc2626;font-weight:600">${p.days_overdue}d vencida</td>
+        </tr>`
+      ).join('');
+      return {
+        subject: `[SGIP-IA] Pólizas vencidas — ${items.length} póliza${items.length !== 1 ? 's' : ''} requieren atención`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:#dc2626;font-size:18px">⚠️ Pólizas vencidas</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">Las siguientes pólizas han superado su fecha de vencimiento y requieren renovación inmediata.</p>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#f8fafc">
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">PROYECTO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">PÓLIZA</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">ASEGURADORA</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">VENCIMIENTO</th>
+            </tr></thead>
+            <tbody>${rows_html}</tbody>
+          </table>
+        `),
+      };
+    }
+
+    case 'contract.ending': {
+      const days = data.days_until;
+      const urgency = days <= 15 ? '#dc2626' : days <= 30 ? '#b45309' : '#0f766e';
+      return {
+        subject: `[SGIP-IA] Contrato termina en ${days === 1 ? '1 día' : `${days} días`} — ${projLabel}`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:${urgency};font-size:18px">📋 Plazo de ejecución próximo a vencer</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">El plazo de ejecución del contrato finaliza en <strong>${days === 1 ? '1 día' : `${days} días`}</strong>.</p>
+          ${badge(`Termina en ${days}d`, urgency)}
+          <table style="width:100%;margin-top:18px;border-collapse:collapse">
+            ${row('Proyecto', projLabel)}
+            ${row('Fecha de terminación', data.end_date ? new Date(data.end_date).toLocaleDateString('es-CO') : '')}
+            ${row('Plazo total', data.execution_term ? `${data.execution_term} ${data.execution_term_unit || 'días'}` : '')}
+          </table>
+          <div style="margin-top:18px;padding:12px 16px;background:#fef9c3;border-left:3px solid ${urgency};border-radius:4px">
+            <p style="margin:0;font-size:13px;color:#92400e">Verifique el estado de avance y gestione una prórroga si es necesario antes del vencimiento del plazo.</p>
+          </div>
+        `),
+      };
+    }
+
+    case 'milestone.overdue': {
+      const items = data.items || [];
+      const rows_html = items.map(m =>
+        `<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${m.project_code}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${m.name}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#64748b">${m.done_del}/${m.total_del}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#dc2626;font-weight:600">${m.days_overdue}d</td>
+        </tr>`
+      ).join('');
+      return {
+        subject: `[SGIP-IA] Hitos vencidos — ${items.length} hito${items.length !== 1 ? 's' : ''} con entregables pendientes`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:#dc2626;font-size:18px">⚑ Hitos vencidos con entregables pendientes</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">Los siguientes hitos han superado su fecha de cierre y aún tienen entregables sin completar.</p>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#f8fafc">
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">PROYECTO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">HITO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">ENTREGABLES</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">VENCIDO</th>
+            </tr></thead>
+            <tbody>${rows_html}</tbody>
+          </table>
+        `),
+      };
+    }
+
     default:
       return { subject: `[SGIP-IA] Notificación: ${type}`, html: wrap(`<p>Evento: ${type}</p>`) };
   }
@@ -470,12 +575,148 @@ async function sendPaymentReminders() {
   }
 }
 
+// ── Policy expiry alerts ──────────────────────────────────────────────────────
+async function sendPolicyExpiryAlerts() {
+  try {
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled || !emailCfg?.provider_type) return;
+
+    // Lead-day reminders
+    const expiringCfg = (cfg.notifications || {})['policy.expiring'];
+    if (expiringCfg?.enabled) {
+      const leadDays = [30, 15, 7, 1];
+      for (const days of leadDays) {
+        const [rows] = await db.execute(`
+          SELECT pol.id, pol.policy_type, pol.policy_number, pol.expiry_date, pol.insurer,
+                 p.id AS project_id, p.code AS project_code, p.name AS project_name,
+                 DATEDIFF(pol.expiry_date, CURDATE()) AS days_until
+          FROM policies pol
+          JOIN projects p ON p.id = pol.project_id
+          WHERE pol.expiry_date = DATE_ADD(CURDATE(), INTERVAL ? DAY)
+            AND pol.status NOT IN ('inactiva', 'cancelada')
+            AND p.status NOT IN ('cerrado', 'liquidado')
+        `, [days]);
+
+        for (const item of rows) {
+          if (await wasAlreadySent('policy.expiring', 'policy', item.id)) continue;
+          const recipients = await getRecipients(expiringCfg.recipients || 'project_team', expiringCfg.custom_emails, item.project_id);
+          if (!recipients.length) { await markSent('policy.expiring', 'policy', item.id); continue; }
+          const { subject, html } = buildTemplate('policy.expiring', {
+            ...item, project_name: item.project_name, project_code: item.project_code,
+          });
+          for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+          await markSent('policy.expiring', 'policy', item.id);
+        }
+      }
+    }
+
+    // Expired digest
+    const expiredCfg = (cfg.notifications || {})['policy.expired'];
+    if (expiredCfg?.enabled) {
+      if (await wasAlreadySent('policy.expired', 'digest', 0)) return;
+      const [expired] = await db.execute(`
+        SELECT pol.id, pol.policy_type, pol.policy_number, pol.insurer,
+               p.code AS project_code, DATEDIFF(CURDATE(), pol.expiry_date) AS days_overdue
+        FROM policies pol
+        JOIN projects p ON p.id = pol.project_id
+        WHERE pol.expiry_date < CURDATE()
+          AND pol.status NOT IN ('inactiva', 'cancelada')
+          AND p.status NOT IN ('cerrado', 'liquidado')
+        ORDER BY pol.expiry_date ASC LIMIT 30
+      `);
+      if (expired.length) {
+        const recipients = await getRecipients(expiredCfg.recipients || 'admins', expiredCfg.custom_emails, null);
+        const { subject, html } = buildTemplate('policy.expired', { items: expired });
+        for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+        await markSent('policy.expired', 'digest', 0);
+        console.log(`[notifier] policy.expired digest: ${expired.length} pólizas`);
+      }
+    }
+  } catch (e) { console.warn('[notifier] sendPolicyExpiryAlerts:', e.message); }
+}
+
+// ── Contract ending alerts ────────────────────────────────────────────────────
+async function sendContractEndingAlerts() {
+  try {
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled || !emailCfg?.provider_type) return;
+
+    const typeCfg = (cfg.notifications || {})['contract.ending'];
+    if (!typeCfg?.enabled) return;
+
+    for (const days of [60, 30, 15]) {
+      const [rows] = await db.execute(`
+        SELECT p.id, p.name, p.code, p.execution_term, p.execution_term_unit,
+               CASE
+                 WHEN p.execution_term_unit = 'dias'  THEN DATE_ADD(p.start_date, INTERVAL p.execution_term DAY)
+                 WHEN p.execution_term_unit = 'meses' THEN DATE_ADD(p.start_date, INTERVAL p.execution_term MONTH)
+                 WHEN p.execution_term_unit = 'años'  THEN DATE_ADD(p.start_date, INTERVAL p.execution_term YEAR)
+                 ELSE DATE_ADD(p.start_date, INTERVAL p.execution_term DAY)
+               END AS end_date
+        FROM projects p
+        WHERE p.status IN ('en_ejecucion', 'adjudicado')
+          AND p.start_date IS NOT NULL AND p.execution_term IS NOT NULL
+        HAVING DATEDIFF(end_date, CURDATE()) = ?
+      `, [days]);
+
+      for (const item of rows) {
+        if (await wasAlreadySent('contract.ending', 'project', item.id)) continue;
+        const recipients = await getRecipients(typeCfg.recipients || 'project_team', typeCfg.custom_emails, item.id);
+        if (!recipients.length) { await markSent('contract.ending', 'project', item.id); continue; }
+        const { subject, html } = buildTemplate('contract.ending', {
+          ...item, project_name: item.name, project_code: item.code, days_until: days,
+        });
+        for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+        await markSent('contract.ending', 'project', item.id);
+      }
+    }
+  } catch (e) { console.warn('[notifier] sendContractEndingAlerts:', e.message); }
+}
+
+// ── Milestone overdue digest ──────────────────────────────────────────────────
+async function sendMilestoneOverdueAlerts() {
+  try {
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled || !emailCfg?.provider_type) return;
+
+    const typeCfg = (cfg.notifications || {})['milestone.overdue'];
+    if (!typeCfg?.enabled) return;
+    if (await wasAlreadySent('milestone.overdue', 'digest', 0)) return;
+
+    const [milestones] = await db.execute(`
+      SELECT m.id, m.name, p.code AS project_code, p.id AS project_id,
+             DATEDIFF(CURDATE(), m.end_date) AS days_overdue,
+             COUNT(d.id) AS total_del,
+             SUM(CASE WHEN d.status = 'completado' THEN 1 ELSE 0 END) AS done_del
+      FROM milestones m
+      JOIN projects p ON p.id = m.project_id
+      LEFT JOIN deliverables d ON d.milestone_id = m.id AND d.status != 'cancelado'
+      WHERE m.end_date < CURDATE()
+        AND m.status NOT IN ('completado', 'cancelado')
+        AND p.status NOT IN ('cerrado', 'liquidado')
+      GROUP BY m.id
+      HAVING total_del > 0 AND done_del < total_del
+      ORDER BY m.end_date ASC LIMIT 30
+    `);
+
+    if (!milestones.length) return;
+    const recipients = await getRecipients(typeCfg.recipients || 'project_team', typeCfg.custom_emails, null);
+    const { subject, html } = buildTemplate('milestone.overdue', { items: milestones });
+    for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+    await markSent('milestone.overdue', 'digest', 0);
+    console.log(`[notifier] milestone.overdue digest: ${milestones.length} hitos`);
+  } catch (e) { console.warn('[notifier] sendMilestoneOverdueAlerts:', e.message); }
+}
+
 // Run all scheduled checks
 async function runScheduledChecks() {
   await Promise.allSettled([
     sendCommitmentReminders(),
     sendPaymentReminders(),
     sendOverdueDigest(),
+    sendPolicyExpiryAlerts(),
+    sendContractEndingAlerts(),
+    sendMilestoneOverdueAlerts(),
   ]);
 }
 

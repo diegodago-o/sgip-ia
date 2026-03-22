@@ -4,6 +4,7 @@ import {
   Bell, Search, HelpCircle, X, AlertTriangle, CreditCard,
   ChevronRight, Loader2, CheckCircle2, FolderOpen, Clock,
   Keyboard, BookOpen, MessageCircle, ExternalLink, Zap,
+  Shield, FileText, Flag,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -196,8 +197,11 @@ function NotificationsPanel({ onClose }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const commitments = items.filter(i => i.type === 'commitment_overdue');
-  const payments    = items.filter(i => i.type === 'payment_pending');
+  const commitments     = items.filter(i => i.type === 'commitment_overdue');
+  const payments        = items.filter(i => i.type === 'payment_pending');
+  const policiesExp     = items.filter(i => i.type === 'policy_expiring' || i.type === 'policy_expired');
+  const contracts       = items.filter(i => i.type === 'contract_ending' || i.type === 'contract_overdue');
+  const milestonesOver  = items.filter(i => i.type === 'milestone_overdue');
 
   const goProject = (id) => { navigate(`/adjudicacion/${id}`); onClose(); };
 
@@ -297,6 +301,108 @@ function NotificationsPanel({ onClose }) {
                       {item.net_value > 0 && (
                         <p className="text-[10px] text-surface-500 mt-0.5">{COP.format(item.net_value)}</p>
                       )}
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Policies expiring / expired */}
+            {policiesExp.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-orange-50 flex items-center gap-1.5">
+                  <Shield className="w-3 h-3 text-orange-600" />
+                  <span className="text-[10px] font-semibold text-orange-700 uppercase tracking-wide">
+                    Pólizas por vencer ({policiesExp.length})
+                  </span>
+                </div>
+                {policiesExp.map(item => {
+                  const expired = item.type === 'policy_expired';
+                  const urgent  = !expired && item.days_until <= 7;
+                  return (
+                    <button key={item.id} onClick={() => goProject(item.project_id)}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors text-left group">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${expired ? 'bg-red-100' : urgent ? 'bg-orange-100' : 'bg-amber-50'}`}>
+                        <Shield className={`w-3.5 h-3.5 ${expired ? 'text-red-500' : urgent ? 'text-orange-600' : 'text-amber-500'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-brand-900 line-clamp-1">{item.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-surface-400 truncate">{item.project_code}</span>
+                          <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
+                          <span className={`text-[10px] font-medium flex-shrink-0 flex items-center gap-0.5 ${expired ? 'text-red-500' : 'text-orange-600'}`}>
+                            <Clock className="w-2.5 h-2.5" />
+                            {expired ? `Vencida` : item.days_until === 1 ? 'Vence mañana' : `Vence en ${item.days_until}d`}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Contracts ending */}
+            {contracts.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-blue-50 flex items-center gap-1.5">
+                  <FileText className="w-3 h-3 text-blue-600" />
+                  <span className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">
+                    Contratos por terminar ({contracts.length})
+                  </span>
+                </div>
+                {contracts.map(item => {
+                  const overdue = item.type === 'contract_overdue';
+                  return (
+                    <button key={item.id} onClick={() => goProject(item.project_id)}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors text-left group">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${overdue ? 'bg-red-100' : 'bg-blue-100'}`}>
+                        <FileText className={`w-3.5 h-3.5 ${overdue ? 'text-red-500' : 'text-blue-600'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-brand-900 line-clamp-1">{item.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-surface-400 truncate">{item.project_code}</span>
+                          <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
+                          <span className={`text-[10px] font-medium flex-shrink-0 flex items-center gap-0.5 ${overdue ? 'text-red-500' : 'text-blue-600'}`}>
+                            <Clock className="w-2.5 h-2.5" />
+                            {overdue ? `Plazo vencido` : item.days_until === 1 ? 'Termina mañana' : `Termina en ${item.days_until}d`}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Milestones overdue */}
+            {milestonesOver.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-violet-50 flex items-center gap-1.5">
+                  <Flag className="w-3 h-3 text-violet-600" />
+                  <span className="text-[10px] font-semibold text-violet-700 uppercase tracking-wide">
+                    Hitos vencidos ({milestonesOver.length})
+                  </span>
+                </div>
+                {milestonesOver.map(item => (
+                  <button key={item.id} onClick={() => goProject(item.project_id)}
+                    className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors text-left group">
+                    <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Flag className="w-3.5 h-3.5 text-violet-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-brand-900 line-clamp-1">{item.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-surface-400 truncate">{item.project_code}</span>
+                        <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
+                        <span className="text-[10px] font-medium text-violet-600 flex-shrink-0">
+                          {item.done_del}/{item.total_del} entregables · {item.days_overdue}d vencido
+                        </span>
+                      </div>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
                   </button>

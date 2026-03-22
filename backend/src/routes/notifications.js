@@ -112,6 +112,115 @@ router.get('/', authenticate, async (req, res) => {
       if (process.env.NODE_ENV !== 'production') console.warn('[notifications] payments query:', e.message);
     }
 
+    // ── 3. Expiring / expired policies ─────────────────────────────────────
+    try {
+      const [policies] = await db.execute(
+        `SELECT pol.id, pol.policy_type, pol.policy_number, pol.expiry_date, pol.insurer,
+                p.id AS project_id, p.code AS project_code, p.name AS project_name,
+                DATEDIFF(pol.expiry_date, CURDATE()) AS days_until
+         FROM policies pol
+         JOIN projects p ON p.id = pol.project_id
+         WHERE pol.status NOT IN ('inactiva', 'cancelada')
+           AND p.status NOT IN ('cerrado', 'liquidado')
+           AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+           ${projectFilter}
+         ORDER BY pol.expiry_date ASC
+         LIMIT 20`,
+        projectArgs
+      );
+      for (const r of policies) {
+        const isExpired = r.days_until < 0;
+        items.push({
+          type:         isExpired ? 'policy_expired' : 'policy_expiring',
+          id:           `pol_${r.id}`,
+          title:        `Póliza ${r.policy_type}${r.policy_number ? ' No. ' + r.policy_number : ''}${r.insurer ? ' — ' + r.insurer : ''}`,
+          project_code: r.project_code,
+          project_name: r.project_name,
+          project_id:   r.project_id,
+          days_until:   r.days_until,
+          expiry_date:  r.expiry_date,
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[notifications] policies query:', e.message);
+    }
+
+    // ── 4. Contracts ending soon (≤60 days) or overdue ──────────────────────
+    try {
+      const [contracts] = await db.execute(
+        `SELECT p.id, p.name, p.code, p.execution_term, p.execution_term_unit,
+                CASE
+                  WHEN p.execution_term_unit = 'dias'  THEN DATE_ADD(p.start_date, INTERVAL p.execution_term DAY)
+                  WHEN p.execution_term_unit = 'meses' THEN DATE_ADD(p.start_date, INTERVAL p.execution_term MONTH)
+                  WHEN p.execution_term_unit = 'años'  THEN DATE_ADD(p.start_date, INTERVAL p.execution_term YEAR)
+                  ELSE DATE_ADD(p.start_date, INTERVAL p.execution_term DAY)
+                END AS end_date
+         FROM projects p
+         WHERE p.status IN ('en_ejecucion', 'adjudicado')
+           AND p.start_date IS NOT NULL AND p.execution_term IS NOT NULL
+           ${projectFilter}
+         HAVING DATEDIFF(end_date, CURDATE()) BETWEEN -30 AND 60
+         ORDER BY end_date ASC
+         LIMIT 10`,
+        projectArgs
+      );
+      for (const r of contracts) {
+        const daysUntil = r.days_until !== undefined ? r.days_until
+          : Math.round((new Date(r.end_date) - new Date()) / 86400000);
+        items.push({
+          type:         daysUntil < 0 ? 'contract_overdue' : 'contract_ending',
+          id:           `proj_end_${r.id}`,
+          title:        r.name,
+          project_code: r.code,
+          project_name: r.name,
+          project_id:   r.id,
+          days_until:   daysUntil,
+          end_date:     r.end_date,
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[notifications] contracts query:', e.message);
+    }
+
+    // ── 5. Overdue milestones with incomplete deliverables ──────────────────
+    try {
+      const [milestones] = await db.execute(
+        `SELECT m.id, m.name, m.end_date,
+                p.id AS project_id, p.code AS project_code, p.name AS project_name,
+                DATEDIFF(CURDATE(), m.end_date) AS days_overdue,
+                COUNT(d.id) AS total_del,
+                SUM(CASE WHEN d.status = 'completado' THEN 1 ELSE 0 END) AS done_del
+         FROM milestones m
+         JOIN projects p ON p.id = m.project_id
+         LEFT JOIN deliverables d ON d.milestone_id = m.id AND d.status != 'cancelado'
+         WHERE m.end_date < CURDATE()
+           AND m.status NOT IN ('completado', 'cancelado')
+           AND p.status NOT IN ('cerrado', 'liquidado')
+           ${projectFilter}
+         GROUP BY m.id
+         HAVING total_del > 0 AND done_del < total_del
+         ORDER BY m.end_date ASC
+         LIMIT 10`,
+        projectArgs
+      );
+      for (const r of milestones) {
+        items.push({
+          type:         'milestone_overdue',
+          id:           `m_${r.id}`,
+          title:        r.name,
+          project_code: r.project_code,
+          project_name: r.project_name,
+          project_id:   r.project_id,
+          days_overdue: r.days_overdue,
+          done_del:     Number(r.done_del),
+          total_del:    Number(r.total_del),
+          end_date:     r.end_date,
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[notifications] milestones query:', e.message);
+    }
+
     res.json({
       success: true,
       total:   items.length,

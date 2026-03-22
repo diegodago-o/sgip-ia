@@ -85,7 +85,7 @@ export default function ProjectFormPage() {
       .then(r => setSpDrives(r.data?.data || []))
       .catch(() => setSpDrives([]))
       .finally(() => setSpDrivesLoading(false));
-  }, [form.sharepoint_connection_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form.sharepoint_connection_id]);
 
   useEffect(() => {
     projectsAPI.directors().then(({ data }) => setDirectors(data.data)).catch(() => {});

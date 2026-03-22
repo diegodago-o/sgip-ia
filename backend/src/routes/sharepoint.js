@@ -207,4 +207,48 @@ router.get('/projects/:id/preview/:itemId', [param('id').isInt()], async (req, r
   }
 });
 
+// ─────────────────────────────────────────────
+// GET /api/sharepoint/projects/:id/coverage
+// Returns document coverage stats for a project — reads DB only (no Graph calls)
+// ─────────────────────────────────────────────
+router.get('/projects/:id/coverage', [param('id').isInt()], async (req, res) => {
+  if (!validate(req, res)) return;
+  try {
+    const pid = req.params.id;
+    const [[deliverables], [policies], [minutes]] = await Promise.all([
+      pool.execute(`
+        SELECT d.id, d.name, d.sp_item_id
+        FROM deliverables d
+        JOIN milestones m ON d.milestone_id = m.id
+        WHERE m.project_id = ? AND COALESCE(d.status,'') NOT IN ('cancelado')
+      `, [pid]),
+      pool.execute(`
+        SELECT id,
+          CONCAT(policy_type, IFNULL(CONCAT(' — No. ', policy_number), '')) AS name,
+          sp_item_id
+        FROM policies WHERE project_id = ?
+      `, [pid]),
+      pool.execute(`
+        SELECT id, title AS name, sp_item_id
+        FROM meeting_minutes
+        WHERE project_id = ? AND COALESCE(status,'') != 'archivada'
+      `, [pid]),
+    ]);
+
+    const summarize = rows => ({
+      total:   rows.length,
+      linked:  rows.filter(r => r.sp_item_id).length,
+      missing: rows.filter(r => !r.sp_item_id).map(r => ({ id: r.id, name: r.name || 'Sin nombre' })),
+    });
+
+    res.json({
+      deliverables: summarize(deliverables),
+      policies:     summarize(policies),
+      minutes:      summarize(minutes),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -5,6 +5,7 @@ import {
   Clock, Loader2, Save, AlertTriangle, CheckCircle2, FileText, FolderKanban,
 } from 'lucide-react';
 import SharePointPicker from '../sharepoint/SharePointPicker';
+import SPUploadButton   from '../sharepoint/SPUploadButton';
 
 const POLICY_TYPES = [
   { value: 'cumplimiento',         label: 'Cumplimiento' },
@@ -188,25 +189,20 @@ function PolicyModal({ policy, projectId, spFolder, documents, onClose, onSaved 
 
           {/* SharePoint link */}
           {spFolder && (
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-brand-800 mb-1">Documento en SharePoint</label>
-              <div className="flex items-center gap-2">
-                {spLink ? (
-                  <>
-                    <a href={spLink.url} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline flex-1 min-w-0 truncate">
-                      <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" /> {spLink.name}
-                    </a>
-                    <button type="button" onClick={() => setSpLink(null)}
-                      className="text-xs text-red-400 hover:text-red-600">Quitar</button>
-                  </>
-                ) : (
-                  <button type="button" onClick={() => setPickerOpen(true)}
-                    className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
-                    <FolderKanban className="w-3.5 h-3.5" /> Vincular archivo de SharePoint
-                  </button>
-                )}
-              </div>
+            <div className="col-span-2 space-y-2">
+              <label className="block text-sm font-medium text-brand-800">Documento en SharePoint</label>
+              <SPUploadButton
+                projectId={projectId}
+                value={spLink}
+                onChange={setSpLink}
+                destFolder="Polizas"
+              />
+              {!spLink && (
+                <button type="button" onClick={() => setPickerOpen(true)}
+                  className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
+                  <FolderKanban className="w-3.5 h-3.5" /> Seleccionar archivo existente en SP
+                </button>
+              )}
             </div>
           )}
 

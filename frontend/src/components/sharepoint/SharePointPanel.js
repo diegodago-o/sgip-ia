@@ -16,6 +16,7 @@ import {
   RefreshCw, File,
 } from 'lucide-react';
 import { sharepointAPI } from '../../services/api';
+import SPCoveragePanel from './SPCoveragePanel';
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -290,6 +291,9 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
   // ─────────────────────────────────────────────
   return (
     <div className="space-y-4">
+
+      {/* Coverage panel — only in explorer mode (not picker) */}
+      {!pickerMode && <SPCoveragePanel projectId={projectId} />}
 
       {/* Quick-access folders */}
       {!currentPath && quickFolders.length > 0 && (

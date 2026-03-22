@@ -391,6 +391,9 @@ export const sharepointAPI = {
   // Get preview URL for an item
   preview: (projectId, itemId) =>
     api.get(`/sharepoint/projects/${projectId}/preview/${itemId}`),
+  // Document coverage stats (DB only, no Graph calls)
+  coverage: (projectId) =>
+    api.get(`/sharepoint/projects/${projectId}/coverage`),
 };
 
 export default api;

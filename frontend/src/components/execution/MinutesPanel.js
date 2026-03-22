@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { minutesAPI, exportsAPI, signaturesAPI } from '../../services/api';
 import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown, PenLine, Shield, UserPlus, AlertTriangle, FolderKanban } from 'lucide-react';
 import SharePointPicker from '../sharepoint/SharePointPicker';
+import SPUploadButton   from '../sharepoint/SPUploadButton';
 
 const MT = { comite_obra: 'Comité de obra', comite_seguimiento: 'Comité seguimiento', reunion_tecnica: 'Reunión técnica', reunion_financiera: 'Reunión financiera', otro: 'Otro' };
 const MS = { borrador: { l: 'Borrador', bg: 'bg-amber-100', t: 'text-amber-700' }, firmada: { l: 'Firmada', bg: 'bg-emerald-100', t: 'text-emerald-700' }, archivada: { l: 'Archivada', bg: 'bg-slate-100', t: 'text-slate-600' } };
@@ -117,24 +118,20 @@ function MinuteModal({ item, prefill, projectId, spFolder, onClose, onSaved }) {
 
           {/* SharePoint link */}
           {spFolder && (
-            <div>
-              <label className="block text-xs font-medium text-brand-800 mb-1">Acta en SharePoint</label>
-              <div className="flex items-center gap-2">
-                {spLink ? (
-                  <>
-                    <a href={spLink.url} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline flex-1 min-w-0 truncate">
-                      <FolderKanban className="w-3.5 h-3.5 flex-shrink-0"/> {spLink.name}
-                    </a>
-                    <button type="button" onClick={() => setSpLink(null)} className="text-xs text-red-400 hover:text-red-600">Quitar</button>
-                  </>
-                ) : (
-                  <button type="button" onClick={() => setPickerOpen(true)}
-                    className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
-                    <FolderKanban className="w-3.5 h-3.5"/> Vincular documento del acta en SharePoint
-                  </button>
-                )}
-              </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-brand-800">Acta en SharePoint</label>
+              <SPUploadButton
+                projectId={projectId}
+                value={spLink}
+                onChange={setSpLink}
+                destFolder="Actas"
+              />
+              {!spLink && (
+                <button type="button" onClick={() => setPickerOpen(true)}
+                  className="flex items-center gap-1.5 text-xs text-surface-500 hover:text-brand-600 border border-dashed border-surface-300 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
+                  <FolderKanban className="w-3.5 h-3.5"/> Seleccionar archivo existente en SP
+                </button>
+              )}
             </div>
           )}
 

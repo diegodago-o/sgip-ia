@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { projectsAPI } from '../../services/api';
 import {
   Plus, Search, Filter, ChevronLeft, ChevronRight,
-  Eye, Edit2, Trash2, X,
+  Eye, Edit2, Trash2, X, Sparkles,
 } from 'lucide-react';
+import AIProjectCreatorModal from '../ai/AIProjectCreatorModal';
 
 const TYPE_LABELS = {
   obra_civil: 'Obra Civil', ti: 'TI', consultoria: 'Consultoría',
@@ -45,6 +46,7 @@ export default function ProjectListPage() {
   const [filters, setFilters] = useState({ status: '', sector: '', project_type: '', priority: '' });
   const [showFilters, setShowFilters] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [showAICreator, setShowAICreator] = useState(false);
 
   const load = useCallback(async (page = 1) => {
     setLoading(true);
@@ -84,6 +86,7 @@ export default function ProjectListPage() {
   const hasFilters = Object.values(filters).some(v => v) || search;
 
   return (
+    <>
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -91,9 +94,17 @@ export default function ProjectListPage() {
           <h2 className="text-xl font-display font-bold text-brand-900">Proyectos</h2>
           <p className="text-sm text-surface-400">{pagination.total} proyecto{pagination.total !== 1 ? 's' : ''} registrado{pagination.total !== 1 ? 's' : ''}</p>
         </div>
-        <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Nuevo Proyecto
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAICreator(true)}
+            className="btn-secondary flex items-center gap-2 text-sm border-brand-200 text-brand-600 hover:bg-brand-50"
+          >
+            <Sparkles className="w-4 h-4" /> Crear con IA
+          </button>
+          <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Nuevo Proyecto
+          </button>
+        </div>
       </div>
 
       {/* Search & Filters */}
@@ -260,5 +271,10 @@ export default function ProjectListPage() {
         )}
       </div>
     </div>
+
+    {showAICreator && (
+      <AIProjectCreatorModal onClose={() => setShowAICreator(false)} />
+    )}
+    </>
   );
 }

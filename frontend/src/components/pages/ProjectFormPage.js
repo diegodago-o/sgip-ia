@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { projectsAPI, sharepointConnectionsAPI } from '../../services/api';
-import { Save, ArrowLeft, Loader2, FolderKanban } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, FolderKanban, Sparkles, X } from 'lucide-react';
 
 const TYPE_OPTIONS = [
   { value: 'obra_civil', label: 'Obra Civil' },
@@ -57,8 +57,23 @@ export default function ProjectFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [form, setForm] = useState(EMPTY_FORM);
+  // AI pre-filled data coming from AIProjectCreatorModal
+  const aiPrefilled = !isEdit ? (location.state?.aiPrefilled || null) : null;
+
+  const [form, setForm] = useState(() => {
+    if (aiPrefilled) {
+      // Merge AI data over empty form (convert nulls to empty strings for controlled inputs)
+      const merged = { ...EMPTY_FORM };
+      Object.entries(aiPrefilled).forEach(([k, v]) => {
+        if (k in merged && v != null) merged[k] = v;
+      });
+      return merged;
+    }
+    return EMPTY_FORM;
+  });
+  const [aiBannerVisible, setAiBannerVisible] = useState(!!aiPrefilled);
   const [directors, setDirectors] = useState([]);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
@@ -194,6 +209,26 @@ export default function ProjectFormPage() {
           </p>
         </div>
       </div>
+
+      {/* IA pre-filled banner */}
+      {aiBannerVisible && (
+        <div className="mb-4 p-3 rounded-lg bg-brand-50 border border-brand-200 flex items-start justify-between gap-3 animate-slide-up">
+          <div className="flex items-start gap-2">
+            <Sparkles className="w-4 h-4 text-brand-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-brand-800">Datos extraídos del contrato por IA</p>
+              <p className="text-xs text-brand-600 mt-0.5">Revisa cada campo antes de guardar — la IA puede cometer errores.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAiBannerVisible(false)}
+            className="text-brand-400 hover:text-brand-600 flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm animate-slide-up">

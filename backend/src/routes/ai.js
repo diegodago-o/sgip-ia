@@ -325,4 +325,110 @@ router.get('/settings', async (req, res) => {
   } catch { res.json({ data: { anthropic_configured: false, openai_configured: false } }); }
 });
 
+// ═══════════════════════════════════════════════════════
+// 6. EXTRACT PROJECT FROM CONTRACT — pre-fill project form
+// ═══════════════════════════════════════════════════════
+router.post('/extract-project', upload.single('file'), async (req, res) => {
+  try {
+    const { provider, apiKey, model } = await getAIConfig(req);
+    let text = req.body.text || '';
+    let method = 'manual-text';
+    let base64Data = null;
+    let mimeType = null;
+
+    if (req.file) {
+      const result = await extractTextFromFile(req.file.path, req.file.originalname);
+      try { fs.unlinkSync(req.file.path); } catch {}
+      if (result.method === 'vision') {
+        base64Data = result.base64;
+        mimeType   = result.mimeType;
+        method     = 'vision';
+      } else {
+        text   = result.text;
+        method = result.method;
+      }
+    }
+
+    const SCHEMA = `{
+  "name": "Nombre corto del proyecto (máx 80 chars, basado en el objeto del contrato)",
+  "project_type": "obra_civil | ti | consultoria | interventoria | asesoria | mixto | otro",
+  "sector": "publico | privado",
+  "client_name": "Nombre del contratante / entidad",
+  "client_nit": "NIT del contratante (solo dígitos y guión)",
+  "contract_number": "Número o referencia del contrato",
+  "contract_object": "Objeto completo del contrato",
+  "contract_value": 0,
+  "sign_date": "YYYY-MM-DD o null",
+  "start_date": "YYYY-MM-DD o null",
+  "execution_term": 0,
+  "execution_term_unit": "dias_calendario | dias_habiles | meses | anos",
+  "supervisor": "Nombre del supervisor o null",
+  "location": "Municipio o departamento o null",
+  "selection_process": "licitacion | concurso_meritos | minima_cuantia | contratacion_directa | otro | null",
+  "secop_number": "Número SECOP o null",
+  "cdp_number": "Número CDP o null",
+  "rp_number": "Número RP o null",
+  "confidence": 85,
+  "missing_fields": ["campo1", "campo2"]
+}`;
+
+    const systemPrompt = 'Eres un experto en contratación pública y privada colombiana. Extraes datos de contratos en JSON estricto.';
+
+    const buildPrompt = (docContent) =>
+      `Analiza el siguiente documento contractual y extrae los datos del proyecto.\n\nDOCUMENTO:\n${docContent}\n\n` +
+      `Devuelve ÚNICAMENTE el siguiente JSON (sin markdown, sin texto adicional):\n${SCHEMA}\n\n` +
+      `REGLAS:\n` +
+      `- Responde SOLO con el JSON\n` +
+      `- Si no encuentras un campo usa null\n` +
+      `- Fechas en formato YYYY-MM-DD\n` +
+      `- contract_value: número entero o float (sin puntos de miles, sin símbolo $)\n` +
+      `- execution_term: número entero\n` +
+      `- sector "publico" si el contratante es entidad estatal (alcaldía, gobernación, ministerio, empresa del estado)\n` +
+      `- project_type según palabras clave: obra_civil=construcción/infraestructura, ti=software/sistemas, consultoria=estudios/consulta, interventoria=supervisión/control, asesoria=asesoramiento`;
+
+    let content;
+    if (method === 'vision') {
+      content = await callVisionAPI(provider, apiKey, model, base64Data, mimeType, buildPrompt('[ver documento adjunto]'));
+    } else {
+      if (!text || text.trim().length < 30) {
+        return res.status(400).json({ error: 'Texto insuficiente. Suba un PDF, DOCX o pegue el contenido del contrato.' });
+      }
+      const safeText = aiEngine.truncateText(text, (aiEngine.MAX_INPUT_TOKENS[provider] || 15000) - 2000);
+      content = await aiEngine.callLLM(provider, apiKey, model, systemPrompt, buildPrompt(safeText), { temperature: 0.1, maxTokens: 2048 });
+    }
+
+    // Parse JSON from AI response
+    let extracted = {};
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) extracted = JSON.parse(jsonMatch[0]);
+      else throw new Error('no JSON found');
+    } catch {
+      return res.status(422).json({ error: 'No se pudo interpretar la respuesta. Intente nuevamente.' });
+    }
+
+    // Normalize numeric types
+    if (extracted.contract_value != null) {
+      const n = typeof extracted.contract_value === 'string'
+        ? parseFloat(extracted.contract_value.replace(/[^0-9.]/g, ''))
+        : Number(extracted.contract_value);
+      extracted.contract_value = isNaN(n) ? null : n;
+    }
+    if (extracted.execution_term != null) {
+      extracted.execution_term = parseInt(extracted.execution_term) || null;
+    }
+
+    await pool.execute(
+      'INSERT INTO audit_log (user_id,action,entity_type,entity_id,details) VALUES (?,?,?,?,?)',
+      [req.user.id, 'ai_extract_project', 'project', 0,
+        JSON.stringify({ provider, model, method, chars: text.length, confidence: extracted.confidence })]
+    );
+
+    res.json({ data: extracted, provider, model, meta: { method, chars: text.length } });
+  } catch (err) {
+    console.error('AI Extract-Project error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

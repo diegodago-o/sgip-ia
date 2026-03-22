@@ -241,6 +241,11 @@ export const aiAPI = {
   generate: (pid, data) => api.post(`/ai/${pid}/generate`, data),
   analyze: (pid, data) => api.post(`/ai/${pid}/analyze`, data || {}),
   chat: (pid, data) => api.post(`/ai/${pid}/chat`, data),
+  // Extract project data from contract document
+  extractProject: (formData) => api.post('/ai/extract-project', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 90000,
+  }),
   // Auto-populate
   autoAnalyze: (pid, data) => api.post(`/ai-populate/${pid}/analyze`, data, { timeout: 120000 }),
   autoApply: (pid, data) => api.post(`/ai-populate/${pid}/apply`, data),

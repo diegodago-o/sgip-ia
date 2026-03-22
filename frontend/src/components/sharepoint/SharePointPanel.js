@@ -64,18 +64,42 @@ async function openDownload(projectId, itemId) {
 
 // ─────────────────────────────────────────────
 // Preview Modal
+// SharePoint blocks direct iframe embed (X-Frame-Options).
+// Strategy:
+//   • Office files  → Office Online Viewer (embed.aspx?src=downloadUrl)
+//   • PDF           → embed download URL directly in <iframe>
+//   • Others        → show actions only (open in SP + download)
 // ─────────────────────────────────────────────
+const OFFICE_EXTS = ['doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp'];
+
+function getPreviewStrategy(filename) {
+  const ext = (filename || '').split('.').pop().toLowerCase();
+  if (OFFICE_EXTS.includes(ext)) return 'office';
+  if (ext === 'pdf') return 'pdf';
+  return 'none';
+}
+
 function PreviewModal({ item, projectId, onClose }) {
-  const [previewUrl, setPreviewUrl] = useState(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [iframeError, setIframeError] = useState(false);
+
+  const strategy = getPreviewStrategy(item.name);
 
   useEffect(() => {
-    sharepointAPI.preview(projectId, item.id)
-      .then(r => setPreviewUrl(r.data))
-      .catch(() => setError('No se puede previsualizar este archivo'))
+    sharepointAPI.getDownloadUrl(projectId, item.id)
+      .then(r => setDownloadUrl(r.data?.url || r.data))
+      .catch(() => setDownloadUrl(null))
       .finally(() => setLoading(false));
   }, [projectId, item.id]);
+
+  // Office Online embed URL (uses pre-authenticated download URL as source)
+  const officeEmbedUrl = downloadUrl
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}`
+    : null;
+
+  const showIframe = !iframeError && !loading && downloadUrl && (strategy === 'office' || strategy === 'pdf');
+  const iframeSrc  = strategy === 'office' ? officeEmbedUrl : downloadUrl;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -87,12 +111,10 @@ function PreviewModal({ item, projectId, onClose }) {
             <span className="font-medium text-brand-900 truncate text-sm">{item.name}</span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {previewUrl?.url && (
-              <a href={previewUrl.url} target="_blank" rel="noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors">
-                <ExternalLink className="w-3.5 h-3.5" /> Abrir en SharePoint
-              </a>
-            )}
+            <a href={item.webUrl} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors">
+              <ExternalLink className="w-3.5 h-3.5" /> Abrir en SharePoint
+            </a>
             <button onClick={() => openDownload(projectId, item.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
               <Download className="w-3.5 h-3.5" /> Descargar
@@ -104,30 +126,44 @@ function PreviewModal({ item, projectId, onClose }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden bg-surface-50">
+        <div className="flex-1 overflow-hidden bg-surface-50 relative">
           {loading && (
             <div className="flex items-center justify-center h-full gap-2 text-surface-400">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span className="text-sm">Cargando vista previa...</span>
             </div>
           )}
-          {error && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-surface-400">
-              <AlertTriangle className="w-8 h-8 text-amber-400" />
-              <p className="text-sm">{error}</p>
-              <button onClick={() => openDownload(projectId, item.id)}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">
-                <Download className="w-4 h-4" /> Descargar archivo
-              </button>
-            </div>
-          )}
-          {previewUrl && !error && (
+
+          {/* Office Online / PDF embed */}
+          {showIframe && (
             <iframe
-              src={previewUrl.url}
+              key={iframeSrc}
+              src={iframeSrc}
               title={item.name}
               className="w-full h-full border-0"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              onError={() => setIframeError(true)}
             />
+          )}
+
+          {/* No preview available */}
+          {!loading && (strategy === 'none' || iframeError || !downloadUrl) && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-surface-400">
+              <File className="w-12 h-12 text-surface-300" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-surface-600">Vista previa no disponible</p>
+                <p className="text-xs text-surface-400 mt-1">Usa los botones de arriba para abrir o descargar el archivo</p>
+              </div>
+              <div className="flex gap-3">
+                <a href={item.webUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-brand-600 border border-brand-200 rounded-xl hover:bg-brand-50 transition-colors">
+                  <ExternalLink className="w-4 h-4" /> Abrir en SharePoint
+                </a>
+                <button onClick={() => openDownload(projectId, item.id)}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">
+                  <Download className="w-4 h-4" /> Descargar
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

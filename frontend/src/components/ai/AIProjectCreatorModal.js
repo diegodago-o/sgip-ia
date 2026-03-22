@@ -5,14 +5,18 @@
  *   1. Subir contrato (PDF / DOCX) o pegar texto
  *   2. IA extrae los campos → preview editable
  *   3. Navegar a ProjectFormPage con datos pre-llenados
+ *
+ * Detecta la configuración de IA igual que los demás módulos del sistema:
+ *   - Si hay API key en DB/env → la usa automáticamente
+ *   - Si no → permite ingresar una clave temporal por sesión
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   X, Sparkles, Upload, FileText, Loader2,
   CheckCircle2, AlertCircle, ChevronRight,
-  ArrowLeft, ClipboardPaste,
+  ArrowLeft, ClipboardPaste, Key, Settings,
 } from 'lucide-react';
 import { aiAPI } from '../../services/api';
 
@@ -61,16 +65,56 @@ function fmtValue(key, val) {
   return String(val);
 }
 
+// ── AI Config Panel — igual que otros módulos ─────────────────────────────────
+function AIConfigPanel({ settings, localKey, setLocalKey }) {
+  const isConfigured = settings?.anthropic_configured || settings?.openai_configured;
+  if (isConfigured) {
+    const provider = settings.default_provider || (settings.anthropic_configured ? 'anthropic' : 'openai');
+    const model    = provider === 'anthropic' ? settings.anthropic_model : settings.openai_model;
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+        <span>Motor de IA configurado · <span className="font-medium capitalize">{provider}</span> — {model}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+        <span>
+          Motor de IA no configurado. Configure la API key en{' '}
+          <strong>Configuración → Integraciones → Motor de IA</strong>, o ingresa tu clave de Anthropic aquí:
+        </span>
+      </div>
+      <div className="relative">
+        <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-400" />
+        <input
+          type="password"
+          value={localKey}
+          onChange={e => setLocalKey(e.target.value)}
+          placeholder="sk-ant-..."
+          className="input-field pl-9 text-sm py-2"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Step 1: Upload ────────────────────────────────────────────────────────────
-function StepUpload({ onAnalyze, onClose }) {
-  const [mode, setMode]       = useState('file'); // 'file' | 'text'
+function StepUpload({ settings, onAnalyze, onClose }) {
+  const [mode, setMode]       = useState('file');
   const [file, setFile]       = useState(null);
   const [text, setText]       = useState('');
+  const [localKey, setLocalKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const inputRef = useRef(null);
 
-  const canSubmit = mode === 'file' ? !!file : text.trim().length > 50;
+  const isConfigured = settings?.anthropic_configured || settings?.openai_configured;
+  const canSubmit    = (mode === 'file' ? !!file : text.trim().length > 50)
+                     && (isConfigured || localKey.trim().length > 10);
 
   const handleSubmit = async () => {
     setError('');
@@ -82,6 +126,11 @@ function StepUpload({ onAnalyze, onClose }) {
       } else {
         fd.append('text', text.trim());
       }
+      // Pass local key if system is not configured
+      if (!isConfigured && localKey.trim()) {
+        fd.append('anthropic_api_key', localKey.trim());
+        fd.append('provider', 'anthropic');
+      }
       const { data } = await aiAPI.extractProject(fd);
       onAnalyze(data.data);
     } catch (err) {
@@ -92,7 +141,10 @@ function StepUpload({ onAnalyze, onClose }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* AI config status — same as other AI modules */}
+      <AIConfigPanel settings={settings} localKey={localKey} setLocalKey={setLocalKey} />
+
       {/* Mode tabs */}
       <div className="flex gap-1 p-1 bg-surface-100 rounded-lg w-fit">
         <button
@@ -161,7 +213,7 @@ function StepUpload({ onAnalyze, onClose }) {
             value={text}
             onChange={e => setText(e.target.value)}
             placeholder="Pegue aquí el texto del contrato o la minuta..."
-            className="input-field w-full h-48 text-sm resize-none"
+            className="input-field w-full h-40 text-sm resize-none"
           />
           <p className="text-xs text-surface-400 mt-1">{text.length} caracteres</p>
         </div>
@@ -170,11 +222,11 @@ function StepUpload({ onAnalyze, onClose }) {
       {error && (
         <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-          {error}
+          <span>{error}</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex items-center justify-between pt-1">
         <button type="button" onClick={onClose} className="btn-secondary text-sm">
           Cancelar
         </button>
@@ -230,7 +282,7 @@ function StepPreview({ extracted, onBack, onConfirm }) {
         )}
       </div>
 
-      {/* Contract object (wide) */}
+      {/* Contract object */}
       {extracted.contract_object && (
         <div className="p-3 bg-surface-50 border border-surface-200 rounded-lg">
           <p className="text-xs font-semibold text-surface-500 mb-1">OBJETO DEL CONTRATO</p>
@@ -286,8 +338,18 @@ function StepPreview({ extracted, onBack, onConfirm }) {
 // ── Main modal ────────────────────────────────────────────────────────────────
 export default function AIProjectCreatorModal({ onClose }) {
   const navigate = useNavigate();
-  const [step, setStep]           = useState(1); // 1 | 2
-  const [extracted, setExtracted] = useState(null);
+  const [step, setStep]             = useState(1);
+  const [extracted, setExtracted]   = useState(null);
+  const [settings, setSettings]     = useState(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+
+  // Load AI settings on mount — same pattern as all other AI modules
+  useEffect(() => {
+    aiAPI.settings()
+      .then(r => setSettings(r.data?.data || r.data || {}))
+      .catch(() => setSettings({}))
+      .finally(() => setSettingsLoading(false));
+  }, []);
 
   const handleAnalyzed = (data) => {
     setExtracted(data);
@@ -295,7 +357,6 @@ export default function AIProjectCreatorModal({ onClose }) {
   };
 
   const handleConfirm = (data) => {
-    // Strip meta-fields before passing to form
     const { confidence, missing_fields, ...formData } = data; // eslint-disable-line no-unused-vars
     navigate('/adjudicacion/nuevo', { state: { aiPrefilled: formData } });
     onClose();
@@ -345,16 +406,20 @@ export default function AIProjectCreatorModal({ onClose }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {step === 1 && (
-            <StepUpload onAnalyze={handleAnalyzed} onClose={onClose} />
-          )}
-          {step === 2 && extracted && (
+          {settingsLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-surface-400">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">Verificando configuración de IA...</span>
+            </div>
+          ) : step === 1 ? (
+            <StepUpload settings={settings} onAnalyze={handleAnalyzed} onClose={onClose} />
+          ) : extracted ? (
             <StepPreview
               extracted={extracted}
               onBack={() => setStep(1)}
               onConfirm={handleConfirm}
             />
-          )}
+          ) : null}
         </div>
       </div>
     </div>

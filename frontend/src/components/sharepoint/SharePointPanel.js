@@ -81,25 +81,54 @@ function getPreviewStrategy(filename) {
 
 function PreviewModal({ item, projectId, onClose }) {
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [blobUrl,     setBlobUrl]     = useState(null);  // for PDF blob rendering
   const [loading, setLoading]         = useState(true);
   const [iframeError, setIframeError] = useState(false);
+  const blobRef = useRef(null);
 
   const strategy = getPreviewStrategy(item.name);
 
+  // Step 1: get the pre-authenticated download URL from backend
   useEffect(() => {
     sharepointAPI.getDownloadUrl(projectId, item.id)
       .then(r => setDownloadUrl(r.data?.url || r.data))
-      .catch(() => setDownloadUrl(null))
-      .finally(() => setLoading(false));
+      .catch(() => setDownloadUrl(null));
   }, [projectId, item.id]);
 
-  // Office Online embed URL (uses pre-authenticated download URL as source)
+  // Step 2: for PDFs, fetch the file as a blob and create a local object URL
+  // (iframes can't embed pre-auth URLs directly due to CORS/redirect restrictions)
+  useEffect(() => {
+    if (strategy !== 'pdf' || !downloadUrl) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    fetch(downloadUrl)
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        blobRef.current = url;
+        setBlobUrl(url);
+      })
+      .catch(() => setIframeError(true))
+      .finally(() => setLoading(false));
+    return () => {
+      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    };
+  }, [downloadUrl, strategy]);
+
+  // For Office files, mark loading done once downloadUrl is ready
+  useEffect(() => {
+    if (strategy === 'office' && downloadUrl !== null) setLoading(false);
+  }, [downloadUrl, strategy]);
+
+  // Office Online embed URL
   const officeEmbedUrl = downloadUrl
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}`
     : null;
 
-  const showIframe = !iframeError && !loading && downloadUrl && (strategy === 'office' || strategy === 'pdf');
-  const iframeSrc  = strategy === 'office' ? officeEmbedUrl : downloadUrl;
+  const iframeSrc = strategy === 'office' ? officeEmbedUrl : blobUrl;
+  const showIframe = !iframeError && !loading && !!iframeSrc;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

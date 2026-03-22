@@ -358,6 +358,16 @@ export const corrSignaturesAPI = {
   },
 };
 
+// ═══ SHAREPOINT CONNECTIONS (admin CRUD) ═══
+export const sharepointConnectionsAPI = {
+  list:       ()        => api.get('/sharepoint-connections'),
+  create:     (data)    => api.post('/sharepoint-connections', data),
+  update:     (id, data)=> api.put(`/sharepoint-connections/${id}`, data),
+  remove:     (id)      => api.delete(`/sharepoint-connections/${id}`),
+  test:       (id)      => api.post(`/sharepoint-connections/${id}/test`),
+  listDrives: (id)      => api.get(`/sharepoint-connections/${id}/drives`),
+};
+
 // ═══ SHAREPOINT ═══
 export const sharepointAPI = {
   // Test connection (admin only)

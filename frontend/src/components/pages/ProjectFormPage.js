@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { projectsAPI } from '../../services/api';
+import { projectsAPI, sharepointConnectionsAPI } from '../../services/api';
 import { Save, ArrowLeft, Loader2, FolderKanban } from 'lucide-react';
 
 const TYPE_OPTIONS = [
@@ -36,8 +36,9 @@ const EMPTY_FORM = {
   execution_term: '', execution_term_unit: 'meses',
   supervisor: '', director_id: '', location: '', priority: 'media',
   selection_process: '', secop_number: '', cdp_number: '', rp_number: '',
-  sharepoint_folder:   '',
-  sharepoint_site_url: '',
+  sharepoint_connection_id: '',
+  sharepoint_drive_id:      '',
+  sharepoint_folder:        '',
   tags: [],
 };
 
@@ -63,6 +64,28 @@ export default function ProjectFormPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [tagInput, setTagInput] = useState('');
+
+  // SharePoint connection/drive state
+  const [spConnections,   setSpConnections]   = useState([]);
+  const [spDrives,        setSpDrives]        = useState([]);
+  const [spDrivesLoading, setSpDrivesLoading] = useState(false);
+
+  // Load SP connections once
+  useEffect(() => {
+    sharepointConnectionsAPI.list()
+      .then(r => setSpConnections(r.data?.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Load drives when connection changes
+  useEffect(() => {
+    if (!form.sharepoint_connection_id) { setSpDrives([]); return; }
+    setSpDrivesLoading(true);
+    sharepointConnectionsAPI.listDrives(form.sharepoint_connection_id)
+      .then(r => setSpDrives(r.data?.data || []))
+      .catch(() => setSpDrives([]))
+      .finally(() => setSpDrivesLoading(false));
+  }, [form.sharepoint_connection_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     projectsAPI.directors().then(({ data }) => setDirectors(data.data)).catch(() => {});
@@ -91,8 +114,9 @@ export default function ProjectFormPage() {
             secop_number: p.secop_number || '',
             cdp_number: p.cdp_number || '',
             rp_number: p.rp_number || '',
-            sharepoint_folder:   p.sharepoint_folder   || '',
-            sharepoint_site_url: p.sharepoint_site_url || '',
+            sharepoint_connection_id: p.sharepoint_connection_id ? String(p.sharepoint_connection_id) : '',
+            sharepoint_drive_id:      p.sharepoint_drive_id      || '',
+            sharepoint_folder:        p.sharepoint_folder        || '',
             tags: p.tags || [],
           });
         })
@@ -309,32 +333,52 @@ export default function ProjectFormPage() {
             <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">Opcional</span>
           </div>
           <div className="grid grid-cols-1 gap-4">
-            <Field label="URL del sitio SharePoint">
-              <input
-                type="url"
-                value={form.sharepoint_site_url}
-                onChange={set('sharepoint_site_url')}
-                className="input-field"
-                placeholder="ej: https://empresa.sharepoint.com/sites/proyectos"
-              />
+            <Field label="Conexión SharePoint">
+              <select value={form.sharepoint_connection_id} onChange={set('sharepoint_connection_id')} className="input-field">
+                <option value="">— Sin integración SharePoint —</option>
+                {spConnections.map(c => (
+                  <option key={c.id} value={String(c.id)}>{c.name} · {c.site_url}</option>
+                ))}
+              </select>
               <p className="text-[11px] text-surface-400 mt-1">
-                URL completa del sitio SharePoint de este proyecto. Si se deja en blanco se usa
-                el sitio global configurado en el servidor (SP_SITE_URL).
+                Selecciona la conexión configurada en Configuración → SharePoint. Sin conexión, el tab de SharePoint no aparece en el proyecto.
               </p>
             </Field>
-            <Field label="Carpeta del proyecto en SharePoint">
-              <input
-                type="text"
-                value={form.sharepoint_folder}
-                onChange={set('sharepoint_folder')}
-                className="input-field"
-                placeholder="ej: Proyectos/TI-2026-001"
-              />
-              <p className="text-[11px] text-surface-400 mt-1">
-                Ruta relativa dentro del sitio (sin barra inicial). Deja en blanco
-                para no integrar este proyecto con SharePoint.
-              </p>
-            </Field>
+
+            {form.sharepoint_connection_id && (
+              <Field label="Biblioteca de documentos">
+                {spDrivesLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-surface-400 py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando bibliotecas...
+                  </div>
+                ) : (
+                  <select value={form.sharepoint_drive_id} onChange={set('sharepoint_drive_id')} className="input-field">
+                    <option value="">— Biblioteca "Documentos" (por defecto) —</option>
+                    {spDrives.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}{d.description ? ` — ${d.description}` : ''}</option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-[11px] text-surface-400 mt-1">
+                  Biblioteca de documentos que se mostrará en el tab SharePoint del proyecto.
+                </p>
+              </Field>
+            )}
+
+            {form.sharepoint_connection_id && (
+              <Field label="Subcarpeta inicial (opcional)">
+                <input
+                  type="text"
+                  value={form.sharepoint_folder}
+                  onChange={set('sharepoint_folder')}
+                  className="input-field"
+                  placeholder="ej: Proyectos/TI-2026-001"
+                />
+                <p className="text-[11px] text-surface-400 mt-1">
+                  Si se configura, el explorador abrirá directamente esta subcarpeta dentro de la biblioteca. Dejar vacío para mostrar la raíz.
+                </p>
+              </Field>
+            )}
           </div>
         </section>
 

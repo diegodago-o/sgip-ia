@@ -326,8 +326,9 @@ export default function ProjectDetailPage() {
   const pr = PRIO_C[project.priority] || {};
   const c = project.counts || {};
 
-  // Only show SharePoint tab if project has a folder configured
-  const TABS = ALL_TABS.filter(tab => !tab.spOnly || !!project.sharepoint_folder);
+  // Show SharePoint tab if project has a connection or a folder configured
+  const spEnabled = !!(project.sharepoint_connection_id || project.sharepoint_folder);
+  const TABS = ALL_TABS.filter(tab => !tab.spOnly || spEnabled);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -449,13 +450,13 @@ export default function ProjectDetailPage() {
                 </div>
               )}
 
-              {project.sharepoint_folder && (
+              {spEnabled && (
                 <div className="flex items-center gap-2 py-2 px-3 bg-brand-50 rounded-lg border border-brand-100">
                   <FolderKanban className="w-4 h-4 text-brand-500 flex-shrink-0" />
                   <span className="text-xs text-brand-700 font-medium">SharePoint:</span>
                   <button onClick={() => setActiveTab('sharepoint')}
                     className="text-xs text-brand-600 hover:underline truncate">
-                    {project.sharepoint_folder}
+                    {project.sharepoint_folder || 'Biblioteca configurada'}
                   </button>
                 </div>
               )}
@@ -472,14 +473,14 @@ export default function ProjectDetailPage() {
 
           {activeTab === 'documents' && <div className="animate-fade-in"><DocumentsPanel projectId={parseInt(id)} perms={perms} onUpdate={loadProject} /></div>}
           {activeTab === 'obligations' && <div className="animate-fade-in"><ObligationsPanel projectId={parseInt(id)} perms={perms} /></div>}
-          {activeTab === 'milestones' && <div className="animate-fade-in"><MilestonesPanel projectId={parseInt(id)} spFolder={project.sharepoint_folder || null} perms={perms} /></div>}
-          {activeTab === 'policies' && <div className="animate-fade-in"><PoliciesPanel projectId={parseInt(id)} spFolder={project.sharepoint_folder || null} perms={perms} /></div>}
+          {activeTab === 'milestones' && <div className="animate-fade-in"><MilestonesPanel projectId={parseInt(id)} spFolder={spEnabled || null} perms={perms} /></div>}
+          {activeTab === 'policies' && <div className="animate-fade-in"><PoliciesPanel projectId={parseInt(id)} spFolder={spEnabled || null} perms={perms} /></div>}
           {activeTab === 'budget' && <div className="animate-fade-in"><BudgetPanel projectId={parseInt(id)} perms={perms} /></div>}
           {activeTab === 'team' && <div className="animate-fade-in"><TeamPanel projectId={parseInt(id)} perms={perms} /></div>}
           {activeTab === 'assignments' && <div className="animate-fade-in"><ProjectAssignmentsPanel projectId={parseInt(id)} /></div>}
-          {activeTab === 'sharepoint'  && project.sharepoint_folder && (
+          {activeTab === 'sharepoint' && spEnabled && (
             <div className="animate-fade-in">
-              <SharePointPanel projectId={parseInt(id)} folderPath={project.sharepoint_folder} />
+              <SharePointPanel projectId={parseInt(id)} folderPath={project.sharepoint_folder || ''} />
             </div>
           )}
         </div>

@@ -1,61 +1,55 @@
 /**
  * SharePoint Online — Microsoft Graph API Service
- * Auth: Client Credentials (app-only, no user interaction)
- * Token cached for 55 min (tokens last 60 min)
- *
- * Multi-site support:
- *   SP_SITE_URL in .env is the DEFAULT site.
- *   Each public function accepts an optional `siteUrl` param; if omitted,
- *   the env default is used. Site IDs are cached per URL in a Map.
+ * Multi-tenant: accepts a connection object { tenant_id, client_id, client_secret, site_url }
+ * Token cached per tenant+client pair; site ID cached per site URL; both in Maps.
  */
 
 const axios = require('axios');
 
-let _tokenCache = null;             // { token, expiresAt }
-const _siteIdCache = new Map();     // url → siteId
+// token cache: key = `${tenant_id}|${client_id}` → { token, expiresAt }
+const _tokenCache = new Map();
+// site ID cache: key = site_url → siteId
+const _siteIdCache = new Map();
 
 // ─────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────
 
-async function getToken() {
-  if (_tokenCache && _tokenCache.expiresAt > Date.now()) return _tokenCache.token;
-
-  const { SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET } = process.env;
-  if (!SP_TENANT_ID || !SP_CLIENT_ID || !SP_CLIENT_SECRET) {
-    throw new Error('SharePoint no configurado: faltan variables SP_TENANT_ID / SP_CLIENT_ID / SP_CLIENT_SECRET');
-  }
+async function getToken(conn) {
+  const key    = `${conn.tenant_id}|${conn.client_id}`;
+  const cached = _tokenCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.token;
 
   const res = await axios.post(
-    `https://login.microsoftonline.com/${SP_TENANT_ID}/oauth2/v2.0/token`,
+    `https://login.microsoftonline.com/${conn.tenant_id}/oauth2/v2.0/token`,
     new URLSearchParams({
       grant_type:    'client_credentials',
-      client_id:     SP_CLIENT_ID,
-      client_secret: SP_CLIENT_SECRET,
+      client_id:     conn.client_id,
+      client_secret: conn.client_secret,
       scope:         'https://graph.microsoft.com/.default',
     }),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
   );
 
-  _tokenCache = {
+  _tokenCache.set(key, {
     token:     res.data.access_token,
-    expiresAt: Date.now() + 55 * 60 * 1000, // 55 min
-  };
-  return _tokenCache.token;
+    expiresAt: Date.now() + 55 * 60 * 1000,
+  });
+  return res.data.access_token;
 }
 
-async function graphGet(path, params = {}) {
-  const token = await getToken();
-  const res = await axios.get(`https://graph.microsoft.com/v1.0${path}`, {
+async function graphGet(conn, path, params = {}) {
+  const token = await getToken(conn);
+  const res   = await axios.get(`https://graph.microsoft.com/v1.0${path}`, {
     headers: { Authorization: `Bearer ${token}` },
     params,
   });
   return res.data;
 }
 
-async function graphPost(path, body) {
-  const token = await getToken();
-  const res = await axios.post(`https://graph.microsoft.com/v1.0${path}`, body, {
+async function graphPost(conn, path, body) {
+  const token = await getToken(conn);
+  const res   = await axios.post(`https://graph.microsoft.com/v1.0${path}`, body, {
     headers: {
       Authorization:  `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -64,9 +58,9 @@ async function graphPost(path, body) {
   return res.data;
 }
 
-async function graphPut(path, buffer, contentType) {
-  const token = await getToken();
-  const res = await axios.put(`https://graph.microsoft.com/v1.0${path}`, buffer, {
+async function graphPut(conn, path, buffer, contentType) {
+  const token = await getToken(conn);
+  const res   = await axios.put(`https://graph.microsoft.com/v1.0${path}`, buffer, {
     headers: {
       Authorization:  `Bearer ${token}`,
       'Content-Type': contentType || 'application/octet-stream',
@@ -77,34 +71,25 @@ async function graphPut(path, buffer, contentType) {
   return res.data;
 }
 
-/**
- * Resolve and cache the Graph site ID for a given site URL.
- * @param {string} [siteUrl]  Full SharePoint site URL. Falls back to SP_SITE_URL env var.
- */
-async function getSiteId(siteUrl) {
-  const resolvedUrl = (siteUrl && siteUrl.trim()) || process.env.SP_SITE_URL;
-  if (!resolvedUrl) throw new Error('No se proporcionó URL de sitio SharePoint y SP_SITE_URL no está configurado.');
+async function getSiteId(conn) {
+  if (_siteIdCache.has(conn.site_url)) return _siteIdCache.get(conn.site_url);
 
-  if (_siteIdCache.has(resolvedUrl)) return _siteIdCache.get(resolvedUrl);
+  const url      = new URL(conn.site_url);
+  const hostname = url.hostname;
+  const sitePath = url.pathname;
 
-  const url      = new URL(resolvedUrl);
-  const hostname = url.hostname;   // e.g. empresa.sharepoint.com
-  const sitePath = url.pathname;   // e.g. /sites/proyectos
-
-  const data   = await graphGet(`/sites/${hostname}:${sitePath}`);
-  _siteIdCache.set(resolvedUrl, data.id);
+  const data = await graphGet(conn, `/sites/${hostname}:${sitePath}`);
+  _siteIdCache.set(conn.site_url, data.id);
   return data.id;
 }
 
-/**
- * Build a safe Graph path segment from a folder/file path.
- * Encodes each path segment individually; leaves "/" as separator.
- */
 function encodePath(rawPath) {
-  return rawPath
-    .split('/')
-    .map(seg => encodeURIComponent(seg))
-    .join('/');
+  return rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
+}
+
+/** Returns the base Graph path for the drive (default or specific library). */
+function drivePath(siteId, driveId) {
+  return driveId ? `/sites/${siteId}/drives/${driveId}` : `/sites/${siteId}/drive`;
 }
 
 // ─────────────────────────────────────────────
@@ -114,8 +99,8 @@ function encodePath(rawPath) {
 module.exports = {
 
   /**
-   * Returns true only if the 3 required auth env vars are set.
-   * SP_SITE_URL is optional globally (can be set per-project instead).
+   * Returns true only if the 3 required auth env vars are set
+   * (used as system-wide fallback check).
    */
   isConfigured() {
     const { SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET } = process.env;
@@ -123,29 +108,64 @@ module.exports = {
   },
 
   /**
-   * Test connection to a specific site (or the global default).
-   * @param {string} [siteUrl]
+   * Build a connection object from .env variables (fallback/legacy).
+   * @param {string|null} [siteUrlOverride]  Override SP_SITE_URL (e.g. from project.sharepoint_site_url)
    */
-  async testConnection(siteUrl) {
-    const siteId = await getSiteId(siteUrl);
-    const data   = await graphGet(`/sites/${siteId}`);
-    return { site: data.displayName || data.name, siteUrl: siteUrl || process.env.SP_SITE_URL, status: 'ok' };
+  connFromEnv(siteUrlOverride) {
+    return {
+      tenant_id:     process.env.SP_TENANT_ID,
+      client_id:     process.env.SP_CLIENT_ID,
+      client_secret: process.env.SP_CLIENT_SECRET,
+      site_url:      siteUrlOverride || process.env.SP_SITE_URL,
+    };
   },
 
   /**
-   * List items inside a folder path (relative to the SP site drive root).
-   * @param {string} folderPath  e.g. "Proyectos/TI-2026-001"
-   * @param {string} [siteUrl]   Override site URL (falls back to SP_SITE_URL)
-   * @returns {Array} items — normalised to { id, name, size, type, lastModified, webUrl, createdBy }
+   * Test connection — returns { site, siteUrl, status: 'ok' } or throws.
+   * @param {object} conn  Connection object { tenant_id, client_id, client_secret, site_url }
    */
-  async listFolder(folderPath, siteUrl) {
-    const siteId  = await getSiteId(siteUrl);
-    const encoded = encodePath(folderPath.replace(/^\/+/, ''));
-    const data    = await graphGet(
-      `/sites/${siteId}/drive/root:/${encoded}:/children`,
-      { $select: 'id,name,size,lastModifiedDateTime,file,folder,webUrl,createdBy' }
-    );
+  async testConnection(conn) {
+    const siteId = await getSiteId(conn);
+    const data   = await graphGet(conn, `/sites/${siteId}`);
+    return { site: data.displayName || data.name, siteUrl: conn.site_url, status: 'ok' };
+  },
 
+  /**
+   * List document libraries (drives) available in the site.
+   * @param {object} conn
+   * @returns {Array} drives — { id, name, description, webUrl, driveType }
+   */
+  async listDrives(conn) {
+    const siteId = await getSiteId(conn);
+    const data   = await graphGet(conn, `/sites/${siteId}/drives`, {
+      $select: 'id,name,description,webUrl,driveType',
+    });
+    return (data.value || []).map(d => ({
+      id:          d.id,
+      name:        d.name,
+      description: d.description || null,
+      webUrl:      d.webUrl,
+      driveType:   d.driveType,
+    }));
+  },
+
+  /**
+   * List items inside a folder path.
+   * @param {object} conn
+   * @param {string} folderPath  relative to library root ('' = root)
+   * @param {string|null} driveId  specific document library ID (null = default "Documentos")
+   */
+  async listFolder(conn, folderPath, driveId) {
+    const siteId   = await getSiteId(conn);
+    const base     = drivePath(siteId, driveId);
+    const clean    = (folderPath || '').replace(/^\/+/, '');
+    const endpoint = clean
+      ? `${base}/root:/${encodePath(clean)}:/children`
+      : `${base}/root/children`;
+
+    const data = await graphGet(conn, endpoint, {
+      $select: 'id,name,size,lastModifiedDateTime,file,folder,webUrl,createdBy',
+    });
     return (data.value || []).map(item => ({
       id:           item.id,
       name:         item.name,
@@ -161,45 +181,40 @@ module.exports = {
   /**
    * Upload a file buffer to SharePoint.
    * Uses simple PUT for files ≤ 4 MB; upload session for larger files.
-   * @param {string} folderPath  destination folder (relative to site root)
+   * @param {object} conn
+   * @param {string} folderPath  destination folder (relative to library root)
    * @param {string} fileName
    * @param {Buffer} buffer
    * @param {string} mimeType
-   * @param {string} [siteUrl]   Override site URL
-   * @returns uploaded item { id, name, webUrl }
+   * @param {string|null} driveId
    */
-  async uploadFile(folderPath, fileName, buffer, mimeType, siteUrl) {
-    const siteId         = await getSiteId(siteUrl);
-    const cleanFolder    = folderPath.replace(/^\/+/, '').replace(/\/+$/, '');
-    const encodedFolder  = encodePath(cleanFolder);
-    const encodedName    = encodeURIComponent(fileName);
+  async uploadFile(conn, folderPath, fileName, buffer, mimeType, driveId) {
+    const siteId       = await getSiteId(conn);
+    const base         = drivePath(siteId, driveId);
+    const cleanFolder  = (folderPath || '').replace(/^\/+/, '').replace(/\/+$/, '');
+    const encodedName  = encodeURIComponent(fileName);
+    const itemPath     = cleanFolder
+      ? `${base}/root:/${encodePath(cleanFolder)}/${encodedName}:`
+      : `${base}/root:/${encodedName}:`;
 
     if (buffer.length <= 4 * 1024 * 1024) {
-      // Simple upload
-      const data = await graphPut(
-        `/sites/${siteId}/drive/root:/${encodedFolder}/${encodedName}:/content`,
-        buffer,
-        mimeType
-      );
+      const data = await graphPut(conn, `${itemPath}/content`, buffer, mimeType);
       return { id: data.id, name: data.name, webUrl: data.webUrl };
     }
 
-    // Large file: upload session (chunked)
-    const sessionData = await graphPost(
-      `/sites/${siteId}/drive/root:/${encodedFolder}/${encodedName}:/createUploadSession`,
-      { item: { '@microsoft.graph.conflictBehavior': 'rename' } }
-    );
+    // Large file: chunked upload session
+    const sessionData = await graphPost(conn, `${itemPath}/createUploadSession`, {
+      item: { '@microsoft.graph.conflictBehavior': 'rename' },
+    });
     const uploadUrl = sessionData.uploadUrl;
-
-    const chunkSize = 3 * 1024 * 1024; // 3 MB chunks
-    let start = 0;
+    const chunkSize = 3 * 1024 * 1024;
+    let start  = 0;
     let result = null;
 
     while (start < buffer.length) {
       const end   = Math.min(start + chunkSize, buffer.length);
       const chunk = buffer.slice(start, end);
-
-      const token = await getToken();
+      const token = await getToken(conn);
       const resp  = await axios.put(uploadUrl, chunk, {
         headers: {
           Authorization:    `Bearer ${token}`,
@@ -209,44 +224,43 @@ module.exports = {
         maxContentLength: Infinity,
         maxBodyLength:    Infinity,
       });
-
-      if (resp.data && resp.data.id) result = resp.data; // Final response
+      if (resp.data && resp.data.id) result = resp.data;
       start = end;
     }
-
     return { id: result.id, name: result.name, webUrl: result.webUrl };
   },
 
   /**
    * Get a temporary download URL (~1 hour) for a Drive item.
-   * @param {string} itemId   SP item ID
-   * @param {string} [siteUrl]
-   * @returns {string} download URL
+   * @param {object} conn
+   * @param {string} itemId
+   * @param {string|null} driveId
    */
-  async getDownloadUrl(itemId, siteUrl) {
-    const siteId = await getSiteId(siteUrl);
-    const data   = await graphGet(`/sites/${siteId}/drive/items/${itemId}`);
+  async getDownloadUrl(conn, itemId, driveId) {
+    const siteId = await getSiteId(conn);
+    const base   = drivePath(siteId, driveId);
+    const data   = await graphGet(conn, `${base}/items/${itemId}`);
     return data['@microsoft.graph.downloadUrl'] || data.webUrl;
   },
 
   /**
    * Get an embed preview URL for a Drive item.
    * Falls back gracefully if the file type doesn't support preview.
-   * @param {string} itemId   SP item ID
-   * @param {string} [siteUrl]
+   * @param {object} conn
+   * @param {string} itemId
+   * @param {string|null} driveId
    * @returns {{ url: string, type: 'embed'|'web' }}
    */
-  async getPreviewUrl(itemId, siteUrl) {
-    const siteId = await getSiteId(siteUrl);
+  async getPreviewUrl(conn, itemId, driveId) {
+    const siteId = await getSiteId(conn);
+    const base   = drivePath(siteId, driveId);
     try {
-      const data = await graphPost(
-        `/sites/${siteId}/drive/items/${itemId}/createLink`,
-        { type: 'embed', scope: 'organization' }
-      );
+      const data = await graphPost(conn, `${base}/items/${itemId}/createLink`, {
+        type: 'embed', scope: 'organization',
+      });
       return { url: data.link?.webUrl || data.webUrl, type: 'embed' };
     } catch {
-      // Not all file types support embed links → fall back to direct web URL
-      const data = await graphGet(`/sites/${siteId}/drive/items/${itemId}`);
+      const data = await graphGet(conn, `${base}/items/${itemId}`);
       return { url: data.webUrl, type: 'web' };
     }
   },

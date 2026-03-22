@@ -42,6 +42,7 @@ const { signaturesRouter, firmaRouter } = require('./routes/signatures');
 const { corrSigRouter, corrSigPublicRouter } = require('./routes/corrSignatures');
 const oauthRoutes          = require('./routes/oauth');
 const sharepointRoutes     = require('./routes/sharepoint');
+const sharepointConnRoutes = require('./routes/sharepoint-connections');
 const { startScheduler }   = require('./jobs/notificationScheduler');
 
 const app = express();
@@ -186,6 +187,7 @@ app.use('/api/firma', firmaRouter);
 app.use('/api/exec/:projectId/correspondence/:correspondenceId/firma', corrSigRouter);
 app.use('/api/firma/corr', corrSigPublicRouter);
 app.use('/api/sharepoint', sharepointRoutes);
+app.use('/api/sharepoint-connections', sharepointConnRoutes);
 
 // ══════════════════════════════════════════════
 // HEALTH CHECK
@@ -248,11 +250,30 @@ async function runMigrations() {
   await run('users uq_oauth index',
     'ALTER TABLE users ADD UNIQUE KEY uq_oauth (oauth_provider, oauth_provider_id)');
 
+  // ── SharePoint connections table ─────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS sharepoint_connections (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      name           VARCHAR(100)  NOT NULL,
+      tenant_id      VARCHAR(200)  NOT NULL,
+      client_id      VARCHAR(200)  NOT NULL,
+      client_secret  VARCHAR(500)  NOT NULL,
+      site_url       VARCHAR(500)  NOT NULL,
+      description    VARCHAR(500)  NULL,
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // ── SharePoint integration columns ──────────────────────────────
   await run('projects.sharepoint_folder',
     'ALTER TABLE projects ADD COLUMN sharepoint_folder VARCHAR(500) NULL');
   await run('projects.sharepoint_site_url',
     'ALTER TABLE projects ADD COLUMN sharepoint_site_url VARCHAR(500) NULL');
+  await run('projects.sharepoint_connection_id',
+    'ALTER TABLE projects ADD COLUMN sharepoint_connection_id INT NULL DEFAULT NULL');
+  await run('projects.sharepoint_drive_id',
+    'ALTER TABLE projects ADD COLUMN sharepoint_drive_id VARCHAR(200) NULL DEFAULT NULL');
   await run('policies.sp_item_id',
     'ALTER TABLE policies ADD COLUMN sp_item_id VARCHAR(200) NULL');
   await run('policies.sp_file_url',

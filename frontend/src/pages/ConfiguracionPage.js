@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Mail, Save, Send, Eye, EyeOff, CheckCircle2, XCircle,
   Loader2, Shield, Server, User, Lock, Settings, ChevronRight,
-  AlertTriangle, Info, Zap, Key, Plus, Trash2, Copy, RefreshCw,
+  AlertTriangle, Info, Zap, Key, Plus, Trash2, Edit2, Copy, RefreshCw,
   ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell, LogIn,
-  FolderKanban,
+  FolderKanban, X,
 } from 'lucide-react';
 import api from '../services/api';
-import { sharepointAPI } from '../services/api';
+import { sharepointConnectionsAPI } from '../services/api';
 
 // ─── settingsAPI ─────────────────────────────────────────────────────────────
 const settingsAPI = {
@@ -1318,123 +1318,297 @@ function SSOSection() {
 // ══════════════════════════════════════════════════════════════════════════════
 // SHAREPOINT SECTION
 // ══════════════════════════════════════════════════════════════════════════════
-function SharePointSection() {
-  const [status,  setStatus]  = useState(null); // null | { ok: true, site } | { ok: false, error }
-  const [testing, setTesting] = useState(false);
+// ── Connection Form Modal ─────────────────────────────────────────────────────
+function ConnectionModal({ conn, onSave, onClose }) {
+  const isEdit = !!conn?.id;
+  const [form, setForm] = useState({
+    name:          conn?.name          || '',
+    tenant_id:     conn?.tenant_id     || '',
+    client_id:     conn?.client_id     || '',
+    client_secret: '',   // never pre-fill secret
+    site_url:      conn?.site_url      || '',
+    description:   conn?.description   || '',
+  });
+  const [saving, setSaving]     = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const handleTest = async () => {
-    setTesting(true);
-    setStatus(null);
+  const handle = async (e) => {
+    e.preventDefault();
+    setSaving(true);
     try {
-      const r = await sharepointAPI.test();
-      setStatus({ ok: true, site: r.data?.site || '(sitio sin nombre)' });
-    } catch (e) {
-      setStatus({ ok: false, error: e.response?.data?.error || e.message });
+      // On edit, skip empty client_secret (keep existing)
+      const payload = { ...form };
+      if (isEdit && !payload.client_secret) delete payload.client_secret;
+      await onSave(payload);
     } finally {
-      setTesting(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-
-      {/* Status banner */}
-      {status && (
-        <div className={`flex items-start gap-3 p-4 rounded-xl border ${
-          status.ok
-            ? 'bg-green-50 border-green-200 text-green-800'
-            : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
-          {status.ok
-            ? <CheckCircle2 className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
-            : <XCircle      className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-500" />}
-          <div>
-            {status.ok
-              ? <p className="text-sm font-semibold">Conexión exitosa — <span className="font-normal">{status.site}</span></p>
-              : <p className="text-sm font-semibold">Error de conexión</p>}
-            {!status.ok && <p className="text-xs mt-1">{status.error}</p>}
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg m-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-surface-100">
+          <h3 className="font-display font-bold text-brand-900">{isEdit ? 'Editar' : 'Nueva'} conexión SharePoint</h3>
+          <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
         </div>
-      )}
+        <form onSubmit={handle} className="p-5 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-brand-800 mb-1">Nombre *</label>
+            <input value={form.name} onChange={set('name')} required className="input-field text-sm" placeholder="ej: Tecnofactory Principal" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-brand-800 mb-1">URL del sitio SharePoint *</label>
+            <input value={form.site_url} onChange={set('site_url')} required type="url" className="input-field text-sm" placeholder="https://empresa.sharepoint.com/sites/proyectos" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-brand-800 mb-1">Tenant ID (Directory ID) *</label>
+              <input value={form.tenant_id} onChange={set('tenant_id')} required className="input-field text-sm font-mono text-xs" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-brand-800 mb-1">Client ID (Application ID) *</label>
+              <input value={form.client_id} onChange={set('client_id')} required className="input-field text-sm font-mono text-xs" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-brand-800 mb-1">
+              Client Secret {isEdit && <span className="font-normal text-surface-400">(dejar vacío para conservar el actual)</span>}
+            </label>
+            <div className="relative">
+              <input value={form.client_secret} onChange={set('client_secret')} required={!isEdit}
+                type={showSecret ? 'text' : 'password'} className="input-field text-sm pr-9" placeholder={isEdit ? '••••••••' : 'Client secret del app registration'} />
+              <button type="button" onClick={() => setShowSecret(s => !s)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-brand-600 transition-colors">
+                {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-brand-800 mb-1">Descripción</label>
+            <input value={form.description} onChange={set('description')} className="input-field text-sm" placeholder="ej: Sitio de proyectos TI" />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost text-sm">Cancelar</button>
+            <button type="submit" disabled={saving} className="btn-primary text-sm flex items-center gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {isEdit ? 'Guardar cambios' : 'Crear conexión'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── SharePoint Section ────────────────────────────────────────────────────────
+function SharePointSection() {
+  const [connections, setConnections] = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [modalConn,   setModalConn]   = useState(undefined); // undefined=closed, null=create, obj=edit
+  const [testResults, setTestResults] = useState({});        // id → { ok, site, error }
+  const [testingId,   setTestingId]   = useState(null);
+  const [drives,      setDrives]      = useState({});        // id → drives[]
+  const [drivesId,    setDrivesId]    = useState(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await sharepointConnectionsAPI.list();
+      setConnections(r.data?.data || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTest(id) {
+    setTestingId(id);
+    setTestResults(t => ({ ...t, [id]: null }));
+    try {
+      const r = await sharepointConnectionsAPI.test(id);
+      setTestResults(t => ({ ...t, [id]: { ok: true, site: r.data?.site } }));
+    } catch (e) {
+      setTestResults(t => ({ ...t, [id]: { ok: false, error: e.response?.data?.error || e.message } }));
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  async function handleLoadDrives(id) {
+    if (drivesId === id) { setDrivesId(null); return; } // toggle off
+    setDrivesId(id);
+    if (drives[id]) return; // already loaded
+    try {
+      const r = await sharepointConnectionsAPI.listDrives(id);
+      setDrives(d => ({ ...d, [id]: r.data?.data || [] }));
+    } catch (e) {
+      setDrives(d => ({ ...d, [id]: [] }));
+    }
+  }
+
+  async function handleSave(formData) {
+    try {
+      if (modalConn?.id) {
+        await sharepointConnectionsAPI.update(modalConn.id, formData);
+      } else {
+        await sharepointConnectionsAPI.create(formData);
+      }
+      setModalConn(undefined);
+      await load();
+    } catch (e) {
+      alert(e.response?.data?.error || e.message);
+    }
+  }
+
+  async function handleDelete(conn) {
+    if (!window.confirm(`¿Eliminar la conexión "${conn.name}"?`)) return;
+    try {
+      await sharepointConnectionsAPI.remove(conn.id);
+      await load();
+    } catch (e) {
+      alert(e.response?.data?.error || e.message);
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
 
       {/* Info card */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
         <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-blue-800 space-y-1.5">
-          <p className="font-semibold text-sm">Cómo funciona la integración SharePoint</p>
-          <p>SGIP-IA se conecta a SharePoint Online mediante la <strong>app registration de Azure AD</strong> existente (la misma usada para SSO). Solo es necesario agregar permisos de Graph API al app registration.</p>
-          <p>La integración es <strong>opcional por proyecto</strong>: cada proyecto puede tener configurada su propia URL de sitio SharePoint y carpeta. Si el proyecto no tiene carpeta, el tab de SharePoint no aparece.</p>
-          <p><strong>Multi-sitio:</strong> <code className="bg-blue-100 px-1 rounded">SP_SITE_URL</code> en el servidor es el sitio por defecto. Cada proyecto puede sobreescribirlo con su propia URL en el formulario de proyecto.</p>
+          <p className="font-semibold text-sm">Conexiones SharePoint — multi-tenant y multi-biblioteca</p>
+          <p>Cada conexión representa un <strong>tenant de Azure AD + app registration + sitio SharePoint</strong>. Puedes tener varias conexiones para proyectos de distintas organizaciones.</p>
+          <p>Al crear un proyecto, seleccionas la conexión y la <strong>biblioteca de documentos</strong> específica. La tab SharePoint del proyecto navega esa biblioteca completa.</p>
+          <p className="text-blue-600">Permisos requeridos en Azure AD → API permissions → Microsoft Graph → Application: <strong>Sites.ReadWrite.All</strong>, <strong>Files.ReadWrite.All</strong> — luego "Grant admin consent".</p>
         </div>
       </div>
 
-      {/* Azure AD permissions */}
-      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
+      {/* Connections list */}
+      <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
+          <h3 className="text-sm font-semibold text-brand-900">Conexiones configuradas</h3>
+          <button onClick={() => setModalConn(null)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Nueva conexión
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-surface-400 gap-2 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Cargando...
+          </div>
+        ) : connections.length === 0 ? (
+          <div className="py-10 text-center text-surface-400 text-sm">
+            No hay conexiones configuradas. Crea una para comenzar.
+          </div>
+        ) : (
+          <div className="divide-y divide-surface-100">
+            {connections.map(conn => (
+              <div key={conn.id} className="p-5 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-brand-900">{conn.name}</p>
+                    <p className="text-xs text-brand-600 truncate">{conn.site_url}</p>
+                    {conn.description && <p className="text-xs text-surface-400 mt-0.5">{conn.description}</p>}
+                    <p className="text-[10px] text-surface-300 mt-1 font-mono">Tenant: {conn.tenant_id?.substring(0, 8)}…</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button onClick={() => handleTest(conn.id)} disabled={testingId === conn.id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded-lg border border-emerald-200 transition-colors disabled:opacity-50">
+                      {testingId === conn.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                      Probar
+                    </button>
+                    <button onClick={() => handleLoadDrives(conn.id)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 text-[10px] font-semibold rounded-lg border border-violet-200 transition-colors">
+                      <FolderKanban className="w-3 h-3" />
+                      {drivesId === conn.id ? 'Ocultar' : 'Bibliotecas'}
+                    </button>
+                    <button onClick={() => setModalConn(conn)}
+                      className="p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-50 rounded-lg transition-colors">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => handleDelete(conn)}
+                      className="p-1.5 text-surface-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Test result */}
+                {testResults[conn.id] && (
+                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+                    testResults[conn.id].ok
+                      ? 'bg-green-50 text-green-800 border border-green-200'
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    {testResults[conn.id].ok
+                      ? <><CheckCircle2 className="w-3.5 h-3.5 text-green-600 flex-shrink-0" /> Conectado: <strong>{testResults[conn.id].site}</strong></>
+                      : <><XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" /> {testResults[conn.id].error}</>
+                    }
+                  </div>
+                )}
+
+                {/* Drives list */}
+                {drivesId === conn.id && (
+                  <div className="bg-surface-50 rounded-lg border border-surface-200 p-3">
+                    <p className="text-[10px] font-semibold text-surface-500 uppercase tracking-wide mb-2">Bibliotecas de documentos disponibles</p>
+                    {!drives[conn.id] ? (
+                      <div className="flex items-center gap-2 text-xs text-surface-400"><Loader2 className="w-3 h-3 animate-spin" /> Cargando...</div>
+                    ) : drives[conn.id].length === 0 ? (
+                      <p className="text-xs text-surface-400">No se encontraron bibliotecas (o error al cargar).</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {drives[conn.id].map(d => (
+                          <div key={d.id} className="flex items-center gap-2 text-xs">
+                            <FolderKanban className="w-3.5 h-3.5 text-brand-400 flex-shrink-0" />
+                            <span className="font-medium text-brand-900">{d.name}</span>
+                            {d.description && <span className="text-surface-400">— {d.description}</span>}
+                            <span className="ml-auto text-[10px] font-mono text-surface-300 truncate max-w-[200px]">{d.id}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Azure AD permissions reference */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
             <Shield className="w-4 h-4 text-violet-600" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-brand-900">Permisos Azure AD (configuración única)</h3>
-            <p className="text-[11px] text-surface-400">Agregar en el portal de Azure → App registrations → API permissions</p>
+            <h3 className="text-sm font-semibold text-brand-900">Permisos Azure AD (una vez por app registration)</h3>
+            <p className="text-[11px] text-surface-400">Azure Portal → App registrations → tu app → API permissions</p>
           </div>
         </div>
-
         <div className="bg-surface-50 rounded-lg border border-surface-200 p-3 font-mono text-xs space-y-1">
           <p className="text-surface-500">Microsoft Graph → Application permissions:</p>
           <p className="text-brand-700 font-semibold">Sites.ReadWrite.All</p>
           <p className="text-brand-700 font-semibold">Files.ReadWrite.All</p>
         </div>
-
         <p className="text-[11px] text-surface-500">
-          Después de agregar los permisos, haz clic en <strong>"Grant admin consent for [tenant]"</strong> para que sean efectivos.
+          Después de agregar los permisos, clic en <strong>"Grant admin consent for [tenant]"</strong>. El Tenant ID y Client ID de cada conexión deben corresponder al mismo app registration.
         </p>
       </div>
 
-      {/* Env vars reference */}
-      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-surface-100 flex items-center justify-center">
-            <Server className="w-4 h-4 text-surface-500" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-brand-900">Variables de entorno del servidor</h3>
-            <p className="text-[11px] text-surface-400">Configurar en el archivo <code className="bg-surface-100 px-1 rounded">backend/.env</code></p>
-          </div>
-        </div>
-
-        <div className="bg-surface-50 rounded-lg border border-surface-200 p-3 font-mono text-xs space-y-0.5">
-          <p><span className="text-violet-600">SP_TENANT_ID</span>=<span className="text-surface-400">  # Directory (tenant) ID</span></p>
-          <p><span className="text-violet-600">SP_CLIENT_ID</span>=<span className="text-surface-400">  # Application (client) ID</span></p>
-          <p><span className="text-violet-600">SP_CLIENT_SECRET</span>=<span className="text-surface-400">  # Client secret del app registration</span></p>
-          <p><span className="text-violet-600">SP_SITE_URL</span>=<span className="text-surface-400">  # Sitio por defecto (puede sobreescribirse por proyecto)</span></p>
-        </div>
-
-        <p className="text-[11px] text-surface-500">
-          Los valores del <code className="bg-surface-100 px-1 rounded">SP_TENANT_ID</code> y <code className="bg-surface-100 px-1 rounded">SP_CLIENT_ID</code> son los mismos del app registration de SSO.
-          Los valores no se muestran aquí por seguridad.
-        </p>
-      </div>
-
-      {/* Test connection */}
-      <div className="bg-white border border-surface-200 rounded-xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center">
-            <FolderKanban className="w-4 h-4 text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-brand-900">Probar conexión</h3>
-            <p className="text-[11px] text-surface-400">Verifica que las credenciales y permisos están correctamente configurados</p>
-          </div>
-        </div>
-
-        <button onClick={handleTest} disabled={testing}
-          className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-          {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderKanban className="w-4 h-4" />}
-          {testing ? 'Probando conexión...' : 'Probar conexión con SharePoint'}
-        </button>
-      </div>
-
+      {/* Connection modal */}
+      {modalConn !== undefined && (
+        <ConnectionModal
+          conn={modalConn}
+          onSave={handleSave}
+          onClose={() => setModalConn(undefined)}
+        />
+      )}
     </div>
   );
 }

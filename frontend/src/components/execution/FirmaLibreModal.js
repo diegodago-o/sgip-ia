@@ -17,25 +17,27 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
   const startDrag   = useRef(null);
   const startResize = useRef(null);
 
-  // Adds a transparent fullscreen capture layer so the iframe doesn't steal
-  // mouse events while dragging. Removed on mouseup.
-  const addCaptureLayer = (cursor = 'move') => {
-    const el = document.createElement('div');
-    el.id = `drag-capture-${idx}`;
-    el.style.cssText = `position:fixed;inset:0;z-index:9999;cursor:${cursor};`;
-    document.body.appendChild(el);
-    return el;
+  // iframes ALWAYS capture mouse events regardless of z-index.
+  // Solution: disable pointer-events on the iframe directly during drag,
+  // then restore it on mouseup. This allows normal PDF scroll when not dragging.
+  const lockIframe   = () => {
+    const iframe = containerRef.current?.querySelector('iframe');
+    if (iframe) iframe.style.pointerEvents = 'none';
   };
-  const removeCaptureLayer = () => {
-    const el = document.getElementById(`drag-capture-${idx}`);
-    if (el) el.remove();
+  const unlockIframe = () => {
+    const iframe = containerRef.current?.querySelector('iframe');
+    if (iframe) iframe.style.pointerEvents = '';
   };
 
   const handleMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
+    lockIframe();
     const rect = containerRef.current.getBoundingClientRect();
-    startDrag.current = { startX: e.clientX, startY: e.clientY, origX: pos.x_percent, origY: pos.y_percent, containerW: rect.width, containerH: rect.height };
-    addCaptureLayer('move');
+    startDrag.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: pos.x_percent, origY: pos.y_percent,
+      containerW: rect.width, containerH: rect.height,
+    };
     const onMove_ = (ev) => {
       if (!startDrag.current) return;
       const { startX, startY, origX, origY, containerW, containerH } = startDrag.current;
@@ -45,19 +47,23 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     };
     const onUp = () => {
       startDrag.current = null;
-      removeCaptureLayer();
+      unlockIframe();
       document.removeEventListener('mousemove', onMove_);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mouseup',   onUp);
     };
     document.addEventListener('mousemove', onMove_);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('mouseup',   onUp);
   };
 
   const handleResizeMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
+    lockIframe();
     const rect = containerRef.current.getBoundingClientRect();
-    startResize.current = { startX: e.clientX, startY: e.clientY, origW: pos.width_percent, origH: pos.height_percent, containerW: rect.width, containerH: rect.height };
-    addCaptureLayer('se-resize');
+    startResize.current = {
+      startX: e.clientX, startY: e.clientY,
+      origW: pos.width_percent, origH: pos.height_percent,
+      containerW: rect.width, containerH: rect.height,
+    };
     const onResize_ = (ev) => {
       if (!startResize.current) return;
       const { startX, startY, origW, origH, containerW, containerH } = startResize.current;
@@ -67,12 +73,12 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     };
     const onUp = () => {
       startResize.current = null;
-      removeCaptureLayer();
+      unlockIframe();
       document.removeEventListener('mousemove', onResize_);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mouseup',   onUp);
     };
     document.addEventListener('mousemove', onResize_);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('mouseup',   onUp);
   };
 
   return (

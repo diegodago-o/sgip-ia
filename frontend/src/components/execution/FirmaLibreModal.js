@@ -1,10 +1,63 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   X, Upload, UserPlus, Trash2, GripVertical, ArrowRight,
   FileText, Shield, AlertCircle, Loader2, CheckCircle,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { freeSignaturesAPI } from '../../services/api';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Point worker to bundled file
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
+
+// ── Canvas-based PDF page renderer ───────────────────────────────────────────
+// Uses pdfjs-dist (NOT an iframe) so absolutely-positioned elements on top
+// receive pointer events correctly — no OS-level PDF viewer interference.
+function PDFPageCanvas({ pdfUrl, pageNum, onTotalPages }) {
+  const canvasRef  = useRef(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!pdfUrl) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+        const pdf  = await loadingTask.promise;
+        if (cancelled) return;
+        onTotalPages?.(pdf.numPages);
+        const page = await pdf.getPage(Math.min(pageNum, pdf.numPages));
+        if (cancelled || !canvasRef.current) return;
+
+        const canvas    = canvasRef.current;
+        const container = canvas.parentElement;
+        const scale     = (container?.clientWidth || 700) / page.getViewport({ scale: 1 }).width;
+        const viewport  = page.getViewport({ scale });
+
+        canvas.width  = viewport.width;
+        canvas.height = viewport.height;
+
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        if (!cancelled) setLoading(false);
+      } catch (err) {
+        if (!cancelled) { console.error('PDF render error:', err); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pdfUrl, pageNum, onTotalPages]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      {loading && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', zIndex: 1 }}>
+          <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+        </div>
+      )}
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+    </div>
+  );
+}
 
 const FIELD_COLORS = [
   '#2E86AB', '#E84855', '#3BB273', '#F18F01',
@@ -113,8 +166,9 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }]);
   const [positions, setPositions] = useState([]); // one per signer
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
-  const [pdfPage, setPdfPage] = useState(1);
-  const [loading, setLoading] = useState(false);
+  const [pdfPage, setPdfPage]   = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading]   = useState(false);
   const [error, setError]   = useState('');
   const fileInputRef  = useRef(null);
   const containerRef  = useRef(null);
@@ -330,55 +384,38 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
 
               {/* PDF preview with draggable signature fields */}
               <div className="border border-surface-200 rounded-xl overflow-hidden bg-surface-50">
-                {/* Page navigation bar */}
+                {/* Page navigation */}
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-100 bg-white">
-                  <span className="text-xs text-surface-500">Página {pdfPage} — navega para posicionar campos en otras páginas</span>
+                  <span className="text-xs text-surface-500">
+                    Arrastra los campos sobre el PDF
+                  </span>
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPdfPage(p => Math.max(1, p - 1))}
+                    <button type="button" onClick={() => setPdfPage(p => Math.max(1, p - 1))}
                       disabled={pdfPage <= 1}
-                      className="p-1 rounded hover:bg-surface-100 disabled:opacity-30 transition-colors"
-                    >
+                      className="p-1 rounded hover:bg-surface-100 disabled:opacity-30 transition-colors">
                       <ChevronLeft className="w-4 h-4" />
                     </button>
-                    <span className="text-xs font-medium w-6 text-center">{pdfPage}</span>
-                    <button
-                      type="button"
-                      onClick={() => setPdfPage(p => p + 1)}
-                      className="p-1 rounded hover:bg-surface-100 transition-colors"
-                    >
+                    <span className="text-xs font-medium text-surface-600">{pdfPage} / {totalPages}</span>
+                    <button type="button" onClick={() => setPdfPage(p => Math.min(totalPages, p + 1))}
+                      disabled={pdfPage >= totalPages}
+                      className="p-1 rounded hover:bg-surface-100 disabled:opacity-30 transition-colors">
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
                 {pdfPreviewUrl ? (
-                  <div ref={containerRef} className="relative w-full" style={{ height: 460 }}>
-                    {/* PDF iframe — visible but events blocked by overlay below */}
-                    <iframe
-                      src={`${pdfPreviewUrl}#page=${pdfPage}`}
-                      className="w-full h-full"
-                      title="PDF Preview"
-                      style={{ display: 'block', border: 'none' }}
+                  /* containerRef wraps the canvas — position:relative so absolute children work */
+                  <div ref={containerRef} className="relative w-full overflow-auto" style={{ maxHeight: 480 }}>
+                    {/* Canvas render of the PDF page — normal DOM element, no iframe.
+                        Absolutely positioned signature boxes sit on top without
+                        any z-index / event-capture issues. */}
+                    <PDFPageCanvas
+                      pdfUrl={pdfPreviewUrl}
+                      pageNum={pdfPage}
+                      onTotalPages={setTotalPages}
                     />
-
-                    {/* ── Transparent overlay (zIndex 5) ───────────────────────────────
-                        This sits on top of the iframe and prevents the browser's native
-                        PDF viewer from capturing pointer events. Without this, Chrome's
-                        PDF plugin renders above the DOM and steals all mouse events,
-                        making the signature boxes un-draggable. The overlay is fully
-                        transparent so the PDF remains visible underneath.          ── */}
-                    <div
-                      style={{
-                        position: 'absolute', inset: 0,
-                        zIndex: 5,
-                        background: 'transparent',
-                        cursor: 'default',
-                      }}
-                    />
-
-                    {/* Signature field boxes — zIndex 10, above overlay */}
+                    {/* Signature field boxes */}
                     {positions.map((pos, i) =>
                       pos ? (
                         <SignatureFieldBox
@@ -401,7 +438,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
               </div>
 
               <p className="text-xs text-surface-400">
-                💡 El PDF está bloqueado para que puedas arrastrar los campos de firma. Usa los botones ‹ › para cambiar de página.
+                💡 Arrastra los campos de firma. Usa ‹ › para navegar páginas.
               </p>
             </div>
           )}

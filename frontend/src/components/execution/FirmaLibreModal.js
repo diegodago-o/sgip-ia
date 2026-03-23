@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import {
   X, Upload, UserPlus, Trash2, GripVertical, ArrowRight,
   FileText, Shield, AlertCircle, Loader2, CheckCircle,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { freeSignaturesAPI } from '../../services/api';
 
@@ -13,34 +14,23 @@ const FIELD_COLORS = [
 const EMPTY_SIGNER = { signer_name: '', signer_email: '', signer_role: '', page_num: 1 };
 
 // ── Draggable signature field box ────────────────────────────────────────────
+// NOTE: The overlay div (z-index 5) inside containerRef blocks the native PDF
+// viewer's OS-level window so pointer events reach these boxes (z-index 10).
 function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemove, onResize }) {
   const startDrag   = useRef(null);
   const startResize = useRef(null);
 
-  // iframes ALWAYS capture mouse events regardless of z-index.
-  // Solution: disable pointer-events on the iframe directly during drag,
-  // then restore it on mouseup. This allows normal PDF scroll when not dragging.
-  const lockIframe   = () => {
-    const iframe = containerRef.current?.querySelector('iframe');
-    if (iframe) iframe.style.pointerEvents = 'none';
-  };
-  const unlockIframe = () => {
-    const iframe = containerRef.current?.querySelector('iframe');
-    if (iframe) iframe.style.pointerEvents = '';
-  };
-
   const handleMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
-    lockIframe();
-    // Store the click offset WITHIN the box (so the box doesn't jump to top-left on drag)
     const rect = containerRef.current.getBoundingClientRect();
+    // Offset = where inside the box the user clicked (keeps box from jumping)
     const offsetX = (e.clientX - rect.left) / rect.width  - pos.x_percent;
     const offsetY = (e.clientY - rect.top)  / rect.height - pos.y_percent;
     startDrag.current = { offsetX, offsetY, w: pos.width_percent, h: pos.height_percent };
 
     const onMove_ = (ev) => {
       if (!startDrag.current) return;
-      const r   = containerRef.current.getBoundingClientRect();
+      const r = containerRef.current.getBoundingClientRect();
       const { offsetX: ox, offsetY: oy, w, h } = startDrag.current;
       const newX = Math.max(0, Math.min(1 - w, (ev.clientX - r.left) / r.width  - ox));
       const newY = Math.max(0, Math.min(1 - h, (ev.clientY - r.top)  / r.height - oy));
@@ -48,7 +38,6 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     };
     const onUp = () => {
       startDrag.current = null;
-      unlockIframe();
       document.removeEventListener('mousemove', onMove_);
       document.removeEventListener('mouseup',   onUp);
     };
@@ -58,9 +47,7 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
 
   const handleResizeMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
-    lockIframe();
     const rect = containerRef.current.getBoundingClientRect();
-    // Store start mouse position and original box dimensions
     startResize.current = {
       startX: e.clientX, startY: e.clientY,
       origW: pos.width_percent, origH: pos.height_percent,
@@ -75,7 +62,6 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     };
     const onUp = () => {
       startResize.current = null;
-      unlockIframe();
       document.removeEventListener('mousemove', onResize_);
       document.removeEventListener('mouseup',   onUp);
     };
@@ -127,6 +113,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
   const [signers, setSigners] = useState([{ ...EMPTY_SIGNER }]);
   const [positions, setPositions] = useState([]); // one per signer
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [pdfPage, setPdfPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   const fileInputRef  = useRef(null);
@@ -342,16 +329,56 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
               </div>
 
               {/* PDF preview with draggable signature fields */}
-              <div className="border border-surface-200 rounded-xl overflow-hidden bg-surface-50" style={{ height: 480 }}>
+              <div className="border border-surface-200 rounded-xl overflow-hidden bg-surface-50">
+                {/* Page navigation bar */}
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-100 bg-white">
+                  <span className="text-xs text-surface-500">Página {pdfPage} — navega para posicionar campos en otras páginas</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPdfPage(p => Math.max(1, p - 1))}
+                      disabled={pdfPage <= 1}
+                      className="p-1 rounded hover:bg-surface-100 disabled:opacity-30 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs font-medium w-6 text-center">{pdfPage}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPdfPage(p => p + 1)}
+                      className="p-1 rounded hover:bg-surface-100 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
                 {pdfPreviewUrl ? (
-                  <div ref={containerRef} className="relative w-full h-full">
-                    {/* iframe scrollable normally — drag capture layer takes over on mousedown */}
+                  <div ref={containerRef} className="relative w-full" style={{ height: 460 }}>
+                    {/* PDF iframe — visible but events blocked by overlay below */}
                     <iframe
-                      src={pdfPreviewUrl}
+                      src={`${pdfPreviewUrl}#page=${pdfPage}`}
                       className="w-full h-full"
                       title="PDF Preview"
+                      style={{ display: 'block', border: 'none' }}
                     />
-                    {/* Signature field boxes — pointer-events auto, sit on top */}
+
+                    {/* ── Transparent overlay (zIndex 5) ───────────────────────────────
+                        This sits on top of the iframe and prevents the browser's native
+                        PDF viewer from capturing pointer events. Without this, Chrome's
+                        PDF plugin renders above the DOM and steals all mouse events,
+                        making the signature boxes un-draggable. The overlay is fully
+                        transparent so the PDF remains visible underneath.          ── */}
+                    <div
+                      style={{
+                        position: 'absolute', inset: 0,
+                        zIndex: 5,
+                        background: 'transparent',
+                        cursor: 'default',
+                      }}
+                    />
+
+                    {/* Signature field boxes — zIndex 10, above overlay */}
                     {positions.map((pos, i) =>
                       pos ? (
                         <SignatureFieldBox
@@ -367,14 +394,14 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                     )}
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-surface-400 text-sm">
+                  <div className="flex items-center justify-center text-surface-400 text-sm" style={{ height: 460 }}>
                     Sin vista previa disponible
                   </div>
                 )}
               </div>
 
               <p className="text-xs text-surface-400">
-                💡 Los campos de firma se posicionan sobre la primera página del PDF como referencia. Las coordenadas se aplican en la página real seleccionada para cada firmante.
+                💡 El PDF está bloqueado para que puedas arrastrar los campos de firma. Usa los botones ‹ › para cambiar de página.
               </p>
             </div>
           )}

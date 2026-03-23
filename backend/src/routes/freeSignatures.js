@@ -594,10 +594,15 @@ publicRouter.post('/:token/firmar', express.json({ limit: '10mb' }), async (req,
       [signature_image, ip, ua, signer.id]
     );
 
-    await notifyNextSigner(signer.request_id);
+    // Respond immediately — don't block on PDF generation / email
     res.json({ message: '¡Firma registrada exitosamente!' });
+
+    // Notify next signer (or build final PDF) in background — errors don't affect the response
+    notifyNextSigner(signer.request_id).catch(e =>
+      console.error('[firmar] notifyNextSigner error:', e.message)
+    );
   } catch (e) {
-    console.error(e);
+    console.error('[firmar] error:', e);
     res.status(500).json({ error: 'Error al registrar firma' });
   }
 });

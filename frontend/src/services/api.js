@@ -363,6 +363,20 @@ export const corrSignaturesAPI = {
   },
 };
 
+// ═══ FREE SIGNATURES ═══
+export const freeSignaturesAPI = {
+  list:    (pid)      => api.get(`/exec/${pid}/firma-libre`),
+  get:     (pid, id)  => api.get(`/exec/${pid}/firma-libre/${id}`),
+  create:  (pid, fd)  => api.post(`/exec/${pid}/firma-libre`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  cancel:  (pid, id)  => api.delete(`/exec/${pid}/firma-libre/${id}`),
+  pdfUrl:  (pid, id)  => `${api.defaults.baseURL}/exec/${pid}/firma-libre/${id}/pdf`,
+  // Public (no auth)
+  getByToken:    token => api.get(`/firma/libre/${token}`),
+  pdfByToken:    token => `${api.defaults.baseURL}/firma/libre/${token}/pdf`,
+  sign:          (token, data) => api.post(`/firma/libre/${token}/firmar`, data),
+  reject:        (token, data) => api.post(`/firma/libre/${token}/rechazar`, data),
+};
+
 // ═══ SHAREPOINT CONNECTIONS (admin CRUD) ═══
 export const sharepointConnectionsAPI = {
   list:       ()        => api.get('/sharepoint-connections'),

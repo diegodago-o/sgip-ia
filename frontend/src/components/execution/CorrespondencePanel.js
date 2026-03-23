@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import api, { corrSignaturesAPI } from '../../services/api';
+import api, { corrSignaturesAPI, freeSignaturesAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
   CheckCircle, Send, Archive, RotateCcw, AlertCircle, PenLine,
+  Shield, Loader2, Ban,
 } from 'lucide-react';
 import CorrSignatureModal from './CorrSignatureModal';
+import FirmaLibreModal from './FirmaLibreModal';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const TYPES = [
@@ -518,6 +520,7 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
 
 // ─── Panel principal ─────────────────────────────────────────────────────────
 export default function CorrespondencePanel({ projectId, perms }) {
+  const [activeTab, setActiveTab]     = useState('correspondencia'); // 'correspondencia' | 'firmas'
   const [items, setItems]             = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -529,6 +532,10 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const [deleting, setDeleting]       = useState(null);
   const [sigModal, setSigModal]       = useState(null); // correspondence item | null
   const [corrSigStatuses, setCorrSigStatuses] = useState({}); // { corrId: requestObj }
+  // Free signatures tab
+  const [freeRequests, setFreeRequests]     = useState([]);
+  const [freeLoading, setFreeLoading]       = useState(false);
+  const [showFirmaModal, setShowFirmaModal] = useState(false);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -549,6 +556,18 @@ export default function CorrespondencePanel({ projectId, perms }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadFreeRequests = useCallback(async () => {
+    if (!projectId) return;
+    setFreeLoading(true);
+    try {
+      const r = await freeSignaturesAPI.list(projectId);
+      setFreeRequests(r.data || []);
+    } catch { setFreeRequests([]); }
+    finally { setFreeLoading(false); }
+  }, [projectId]);
+
+  useEffect(() => { if (activeTab === 'firmas') loadFreeRequests(); }, [activeTab, loadFreeRequests]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('¿Eliminar esta correspondencia?')) return;
@@ -583,6 +602,105 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
   return (
     <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-surface-100 rounded-xl w-fit">
+        {[
+          { id: 'correspondencia', label: 'Correspondencia', icon: Mail },
+          { id: 'firmas',          label: 'Firma de documentos', icon: Shield },
+        ].map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+              ${activeTab === id ? 'bg-white shadow-sm text-brand-700' : 'text-surface-500 hover:text-surface-700'}`}>
+            <Icon className="w-4 h-4" />{label}
+          </button>
+        ))}
+      </div>
+
+      {/* ═══ TAB: Firmas libres ═══ */}
+      {activeTab === 'firmas' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-brand-900 flex items-center gap-2">
+                <Shield className="w-5 h-5 text-brand-600" />Firma de documentos
+              </h3>
+              <p className="text-xs text-surface-400 mt-0.5">Firma cualquier PDF con proceso secuencial y validez jurídica</p>
+            </div>
+            {perms?.canEdit && (
+              <button onClick={() => setShowFirmaModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 shadow-sm transition-colors">
+                <Plus className="w-4 h-4" />Nuevo proceso
+              </button>
+            )}
+          </div>
+
+          {freeLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
+            </div>
+          ) : freeRequests.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-surface-400 gap-2">
+              <Shield className="w-10 h-10 text-surface-200" />
+              <p className="text-sm">No hay procesos de firma. Crea el primero.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {freeRequests.map(req => {
+                const statusCfg = {
+                  in_progress: { label: 'En proceso', cls: 'bg-blue-100 text-blue-700' },
+                  completed:   { label: 'Completado', cls: 'bg-emerald-100 text-emerald-700' },
+                  rejected:    { label: 'Rechazado',  cls: 'bg-red-100 text-red-700' },
+                  cancelled:   { label: 'Cancelado',  cls: 'bg-surface-100 text-surface-500' },
+                }[req.status] || { label: req.status, cls: 'bg-surface-100 text-surface-500' };
+
+                return (
+                  <div key={req.id} className="flex items-center gap-3 p-4 bg-white rounded-xl border border-surface-100 shadow-sm">
+                    <div className="w-9 h-9 bg-brand-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Shield className="w-4 h-4 text-brand-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-surface-900 text-sm truncate">{req.title}</p>
+                      <p className="text-xs text-surface-400 truncate">{req.file_name} · Por {req.created_by_name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusCfg.cls}`}>
+                          {statusCfg.label}
+                        </span>
+                        <span className="text-xs text-surface-400">
+                          {req.signed_count}/{req.total_signers} firmantes
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {req.status === 'completed' && (
+                        <a
+                          href={freeSignaturesAPI.pdfUrl(projectId, req.id)}
+                          target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium hover:bg-emerald-100 transition-colors">
+                          <Download className="w-3 h-3" />PDF firmado
+                        </a>
+                      )}
+                      {req.status === 'in_progress' && perms?.canEdit && (
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm('¿Cancelar este proceso de firma?')) return;
+                            await freeSignaturesAPI.cancel(projectId, req.id);
+                            loadFreeRequests();
+                          }}
+                          className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors">
+                          <Ban className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ TAB: Correspondencia ═══ */}
+      {activeTab === 'correspondencia' && <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -740,7 +858,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
         )
       }
 
-      {/* Modales */}
+      {/* Modales correspondencia */}
       {showForm && (
         <FormModal
           projectId={projectId}
@@ -763,6 +881,16 @@ export default function CorrespondencePanel({ projectId, perms }) {
           existingRequest={corrSigStatuses[sigModal.id] || null}
           onClose={() => setSigModal(null)}
           onChanged={() => { setSigModal(null); load(); }}
+        />
+      )}
+      </>}
+
+      {/* Modal firma libre */}
+      {showFirmaModal && (
+        <FirmaLibreModal
+          projectId={projectId}
+          onClose={() => setShowFirmaModal(false)}
+          onCreated={() => { setShowFirmaModal(false); loadFreeRequests(); }}
         />
       )}
     </div>

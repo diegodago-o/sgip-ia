@@ -40,6 +40,7 @@ const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
 const { signaturesRouter, firmaRouter } = require('./routes/signatures');
 const { corrSigRouter, corrSigPublicRouter } = require('./routes/corrSignatures');
+const { freeSignAuthRouter, freeSignPublicRouter } = require('./routes/freeSignatures');
 const oauthRoutes          = require('./routes/oauth');
 const sharepointRoutes     = require('./routes/sharepoint');
 const sharepointConnRoutes = require('./routes/sharepoint-connections');
@@ -186,6 +187,8 @@ app.use('/api/exec/:projectId/minutes/:minuteId/firma', signaturesRouter);
 app.use('/api/firma', firmaRouter);
 app.use('/api/exec/:projectId/correspondence/:correspondenceId/firma', corrSigRouter);
 app.use('/api/firma/corr', corrSigPublicRouter);
+app.use('/api/exec/:projectId/firma-libre', freeSignAuthRouter);
+app.use('/api/firma/libre', freeSignPublicRouter);
 app.use('/api/sharepoint', sharepointRoutes);
 app.use('/api/sharepoint-connections', sharepointConnRoutes);
 

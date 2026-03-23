@@ -24,6 +24,7 @@ import AdminUsersPage from './components/pages/AdminUsersPage';
 import CommitteeDashboard from './components/pages/CommitteeDashboard';
 import SigningPage from './components/pages/SigningPage';
 import CorrespondenceSigningPage from './components/pages/CorrespondenceSigningPage';
+import FirmaLibrePage from './components/pages/FirmaLibrePage';
 import OAuthCallbackPage from './components/auth/OAuthCallbackPage';
 import ConfiguracionPage from './pages/ConfiguracionPage';
 
@@ -87,9 +88,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* ✅ PUBLIC — completely outside AuthProvider, no auth context, no loading state */}
-        {/* /firma/corr/:token must come BEFORE /firma/:token to avoid route collision */}
-        <Route path="/firma/corr/:token" element={<CorrespondenceSigningPage />} />
-        <Route path="/firma/:token" element={<SigningPage />} />
+        {/* Order matters: more specific routes first */}
+        <Route path="/firma/corr/:token"  element={<CorrespondenceSigningPage />} />
+        <Route path="/firma/libre/:token" element={<FirmaLibrePage />} />
+        <Route path="/firma/:token"       element={<SigningPage />} />
 
         {/* Everything else goes through auth */}
         <Route path="*" element={<AuthenticatedApp />} />

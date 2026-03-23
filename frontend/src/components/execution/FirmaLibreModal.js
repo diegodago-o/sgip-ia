@@ -32,17 +32,18 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
   const handleMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
     lockIframe();
+    // Store the click offset WITHIN the box (so the box doesn't jump to top-left on drag)
     const rect = containerRef.current.getBoundingClientRect();
-    startDrag.current = {
-      startX: e.clientX, startY: e.clientY,
-      origX: pos.x_percent, origY: pos.y_percent,
-      containerW: rect.width, containerH: rect.height,
-    };
+    const offsetX = (e.clientX - rect.left) / rect.width  - pos.x_percent;
+    const offsetY = (e.clientY - rect.top)  / rect.height - pos.y_percent;
+    startDrag.current = { offsetX, offsetY, w: pos.width_percent, h: pos.height_percent };
+
     const onMove_ = (ev) => {
       if (!startDrag.current) return;
-      const { startX, startY, origX, origY, containerW, containerH } = startDrag.current;
-      const newX = Math.max(0, Math.min(1 - pos.width_percent,  origX + (ev.clientX - startX) / containerW));
-      const newY = Math.max(0, Math.min(1 - pos.height_percent, origY + (ev.clientY - startY) / containerH));
+      const r   = containerRef.current.getBoundingClientRect();
+      const { offsetX: ox, offsetY: oy, w, h } = startDrag.current;
+      const newX = Math.max(0, Math.min(1 - w, (ev.clientX - r.left) / r.width  - ox));
+      const newY = Math.max(0, Math.min(1 - h, (ev.clientY - r.top)  / r.height - oy));
       onMove(idx, newX, newY);
     };
     const onUp = () => {
@@ -59,6 +60,7 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     e.preventDefault(); e.stopPropagation();
     lockIframe();
     const rect = containerRef.current.getBoundingClientRect();
+    // Store start mouse position and original box dimensions
     startResize.current = {
       startX: e.clientX, startY: e.clientY,
       origW: pos.width_percent, origH: pos.height_percent,

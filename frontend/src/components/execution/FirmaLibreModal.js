@@ -17,10 +17,25 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
   const startDrag   = useRef(null);
   const startResize = useRef(null);
 
+  // Adds a transparent fullscreen capture layer so the iframe doesn't steal
+  // mouse events while dragging. Removed on mouseup.
+  const addCaptureLayer = (cursor = 'move') => {
+    const el = document.createElement('div');
+    el.id = `drag-capture-${idx}`;
+    el.style.cssText = `position:fixed;inset:0;z-index:9999;cursor:${cursor};`;
+    document.body.appendChild(el);
+    return el;
+  };
+  const removeCaptureLayer = () => {
+    const el = document.getElementById(`drag-capture-${idx}`);
+    if (el) el.remove();
+  };
+
   const handleMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
     const rect = containerRef.current.getBoundingClientRect();
     startDrag.current = { startX: e.clientX, startY: e.clientY, origX: pos.x_percent, origY: pos.y_percent, containerW: rect.width, containerH: rect.height };
+    addCaptureLayer('move');
     const onMove_ = (ev) => {
       if (!startDrag.current) return;
       const { startX, startY, origX, origY, containerW, containerH } = startDrag.current;
@@ -28,7 +43,12 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
       const newY = Math.max(0, Math.min(1 - pos.height_percent, origY + (ev.clientY - startY) / containerH));
       onMove(idx, newX, newY);
     };
-    const onUp = () => { startDrag.current = null; document.removeEventListener('mousemove', onMove_); document.removeEventListener('mouseup', onUp); };
+    const onUp = () => {
+      startDrag.current = null;
+      removeCaptureLayer();
+      document.removeEventListener('mousemove', onMove_);
+      document.removeEventListener('mouseup', onUp);
+    };
     document.addEventListener('mousemove', onMove_);
     document.addEventListener('mouseup', onUp);
   };
@@ -37,6 +57,7 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
     e.preventDefault(); e.stopPropagation();
     const rect = containerRef.current.getBoundingClientRect();
     startResize.current = { startX: e.clientX, startY: e.clientY, origW: pos.width_percent, origH: pos.height_percent, containerW: rect.width, containerH: rect.height };
+    addCaptureLayer('se-resize');
     const onResize_ = (ev) => {
       if (!startResize.current) return;
       const { startX, startY, origW, origH, containerW, containerH } = startResize.current;
@@ -44,7 +65,12 @@ function SignatureFieldBox({ idx, pos, name, color, containerRef, onMove, onRemo
       const newH = Math.max(0.03, Math.min(1 - pos.y_percent, origH + (ev.clientY - startY) / containerH));
       onResize(idx, newW, newH);
     };
-    const onUp = () => { startResize.current = null; document.removeEventListener('mousemove', onResize_); document.removeEventListener('mouseup', onUp); };
+    const onUp = () => {
+      startResize.current = null;
+      removeCaptureLayer();
+      document.removeEventListener('mousemove', onResize_);
+      document.removeEventListener('mouseup', onUp);
+    };
     document.addEventListener('mousemove', onResize_);
     document.addEventListener('mouseup', onUp);
   };
@@ -311,30 +337,26 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
               <div className="border border-surface-200 rounded-xl overflow-hidden bg-surface-50" style={{ height: 480 }}>
                 {pdfPreviewUrl ? (
                   <div ref={containerRef} className="relative w-full h-full">
+                    {/* iframe scrollable normally — drag capture layer takes over on mousedown */}
                     <iframe
                       src={pdfPreviewUrl}
                       className="w-full h-full"
                       title="PDF Preview"
-                      style={{ pointerEvents: 'none' }}
                     />
-                    {/* Overlay for drag events */}
-                    <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-                      {positions.map((pos, i) =>
-                        pos ? (
-                          <SignatureFieldBox
-                            key={i} idx={i} pos={pos}
-                            name={signers[i]?.signer_name || `Firmante ${i + 1}`}
-                            color={FIELD_COLORS[i % FIELD_COLORS.length]}
-                            containerRef={containerRef}
-                            onMove={movePos}
-                            onResize={resizePos}
-                            onRemove={removePos}
-                          />
-                        ) : null
-                      )}
-                    </div>
-                    {/* Enable pointer events only on the overlay divs */}
-                    <style>{`.relative > div[style*="position: absolute"] { pointer-events: auto !important; }`}</style>
+                    {/* Signature field boxes — pointer-events auto, sit on top */}
+                    {positions.map((pos, i) =>
+                      pos ? (
+                        <SignatureFieldBox
+                          key={i} idx={i} pos={pos}
+                          name={signers[i]?.signer_name || `Firmante ${i + 1}`}
+                          color={FIELD_COLORS[i % FIELD_COLORS.length]}
+                          containerRef={containerRef}
+                          onMove={movePos}
+                          onResize={resizePos}
+                          onRemove={removePos}
+                        />
+                      ) : null
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-surface-400 text-sm">

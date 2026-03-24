@@ -197,11 +197,17 @@ async function buildSignedPdf(request, project, signers) {
       try { sigImage = await pdfDoc.embedJpg(sigBuffer); } catch { continue; }
     }
 
-    const x  = (signer.x_percent || 0.05) * width;
+    // MySQL DECIMAL columns arrive as strings — parseFloat to avoid NaN
+    const xPct = parseFloat(signer.x_percent)  || 0.05;
+    const yPct = parseFloat(signer.y_percent)  || 0.80;
+    const wPct = parseFloat(signer.width_percent)  || 0.25;
+    const hPct = parseFloat(signer.height_percent) || 0.08;
+
+    const x  = xPct * width;
     // pdf-lib Y axis is from bottom — convert from top-origin percent
-    const y  = height - ((signer.y_percent || 0.8) + (signer.height_percent || 0.08)) * height;
-    const w  = (signer.width_percent  || 0.25) * width;
-    const h  = (signer.height_percent || 0.08) * height;
+    const y  = height - (yPct + hPct) * height;
+    const w  = wPct * width;
+    const h  = hPct * height;
 
     // Draw border box
     page.drawRectangle({ x, y, width: w, height: h, borderColor: rgb(0.11, 0.37, 0.67), borderWidth: 0.5 });

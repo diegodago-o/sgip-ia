@@ -468,12 +468,23 @@ authRouter.delete('/:id', authenticate, async (req, res) => {
 
 // GET /:id/pdf — download original or signed PDF
 // Accepts JWT via Authorization header OR ?token= query param (needed for direct browser navigation)
-authRouter.get('/:id/pdf', async (req, res, next) => {
-  if (!req.headers.authorization && req.query.token) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
+authRouter.get('/:id/pdf', async (req, res) => {
+  // Resolve token from header or query param
+  const jwt = require('jsonwebtoken');
+  let rawToken = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    rawToken = authHeader.split(' ')[1];
+  } else if (req.query.token) {
+    rawToken = req.query.token;
   }
-  return authenticate(req, res, next);
-}, async (req, res) => {
+  if (!rawToken) return res.status(401).json({ error: 'Token no proporcionado' });
+  try {
+    jwt.verify(rawToken, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+
   const { projectId, id } = req.params;
   try {
     const [reqs] = await pool.execute(

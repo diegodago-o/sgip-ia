@@ -467,7 +467,13 @@ authRouter.delete('/:id', authenticate, async (req, res) => {
 });
 
 // GET /:id/pdf — download original or signed PDF
-authRouter.get('/:id/pdf', authenticate, async (req, res) => {
+// Accepts JWT via Authorization header OR ?token= query param (needed for direct browser navigation)
+authRouter.get('/:id/pdf', async (req, res, next) => {
+  if (!req.headers.authorization && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  return authenticate(req, res, next);
+}, async (req, res) => {
   const { projectId, id } = req.params;
   try {
     const [reqs] = await pool.execute(

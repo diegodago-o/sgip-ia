@@ -369,11 +369,8 @@ export const freeSignaturesAPI = {
   get:     (pid, id)  => api.get(`/exec/${pid}/firma-libre/${id}`),
   create:  (pid, fd)  => api.post(`/exec/${pid}/firma-libre`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
   cancel:  (pid, id)  => api.delete(`/exec/${pid}/firma-libre/${id}`),
-  pdfUrl:  (pid, id)  => {
-    const token = localStorage.getItem('sgip_token');
-    const base = `${api.defaults.baseURL}/exec/${pid}/firma-libre/${id}/pdf`;
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
-  },
+  downloadPdf: (pid, id) =>
+    api.get(`/exec/${pid}/firma-libre/${id}/pdf`, { responseType: 'arraybuffer' }),
   // Public (no auth)
   getByToken:    token => api.get(`/firma/libre/${token}`),
   pdfByToken:    token => `${api.defaults.baseURL}/firma/libre/${token}/pdf`,

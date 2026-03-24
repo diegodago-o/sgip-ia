@@ -716,12 +716,20 @@ export default function CorrespondencePanel({ projectId, perms }) {
                         <Activity className="w-3 h-3" />Trazabilidad
                       </button>
                       {req.status === 'completed' && (
-                        <a
-                          href={freeSignaturesAPI.pdfUrl(projectId, req.id)}
-                          target="_blank" rel="noreferrer"
+                        <button
+                          onClick={async () => {
+                            try {
+                              const r = await freeSignaturesAPI.downloadPdf(projectId, req.id);
+                              const blob = new Blob([r.data], { type: 'application/pdf' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url; a.download = `firmado_${req.file_name || req.title}.pdf`;
+                              a.click(); URL.revokeObjectURL(url);
+                            } catch { alert('Error al descargar el PDF'); }
+                          }}
                           className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium hover:bg-emerald-100 transition-colors">
                           <Download className="w-3 h-3" />PDF firmado
-                        </a>
+                        </button>
                       )}
                       {req.status === 'in_progress' && perms?.canEdit && (
                         <button
@@ -1002,10 +1010,20 @@ export default function CorrespondencePanel({ projectId, perms }) {
               {/* Footer */}
               <div className="px-5 py-4 border-t border-surface-100 space-y-2">
                 {req.status === 'completed' && (
-                  <a href={freeSignaturesAPI.pdfUrl(projectId, req.id)} target="_blank" rel="noreferrer"
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await freeSignaturesAPI.downloadPdf(projectId, req.id);
+                        const blob = new Blob([r.data], { type: 'application/pdf' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `firmado_${req.file_name || req.title}.pdf`;
+                        a.click(); URL.revokeObjectURL(url);
+                      } catch { alert('Error al descargar el PDF'); }
+                    }}
                     className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors">
                     <Download className="w-4 h-4" />Descargar PDF firmado + auditoría
-                  </a>
+                  </button>
                 )}
                 <button onClick={() => setTraceReq(null)}
                   className="w-full px-4 py-2 text-sm text-surface-500 hover:bg-surface-50 rounded-xl transition-colors">

@@ -295,17 +295,28 @@ async function notifyNextSigner(requestId) {
       "UPDATE free_signature_requests SET status='completed', completed_at=NOW() WHERE id=?",
       [requestId]
     );
-    // Build signed PDF
-    const signedPdf = await buildSignedPdf(request, project, signers);
+    console.log(`[firma] Request ${requestId} completed — building signed PDF`);
+    // Build signed PDF (requires pdf-lib — install with: npm install pdf-lib)
+    let signedPdf = null;
+    try {
+      signedPdf = await buildSignedPdf(request, project, signers);
+      console.log(`[firma] Signed PDF built (${signedPdf.length} bytes)`);
+    } catch (pdfErr) {
+      console.error('[firma] buildSignedPdf failed — is pdf-lib installed?', pdfErr.message);
+    }
     // Send completion emails
     const emailCfg = await loadEmailConfig();
     const html = emailCompletedFree({ request, project, allSigners: signers, documentHash: request.file_hash });
     for (const s of signers) {
-      await trySendMail(emailCfg, {
+      const mailOpts = {
         to: s.signer_email, subject: `✅ Documento firmado — ${request.title}`, html,
-        attachments: [{ filename: `firmado_${request.file_name}`, content: signedPdf, contentType: 'application/pdf' }],
-      });
+      };
+      if (signedPdf) {
+        mailOpts.attachments = [{ filename: `firmado_${request.file_name}`, content: signedPdf, contentType: 'application/pdf' }];
+      }
+      await trySendMail(emailCfg, mailOpts);
     }
+    console.log(`[firma] Completion emails sent to ${signers.length} signer(s)`);
     return;
   }
 
@@ -597,10 +608,10 @@ publicRouter.post('/:token/firmar', express.json({ limit: '10mb' }), async (req,
     // Respond immediately — don't block on PDF generation / email
     res.json({ message: '¡Firma registrada exitosamente!' });
 
-    // Notify next signer (or build final PDF) in background — errors don't affect the response
-    notifyNextSigner(signer.request_id).catch(e =>
-      console.error('[firmar] notifyNextSigner error:', e.message)
-    );
+    // Notify next signer (or build final PDF) in background
+    notifyNextSigner(signer.request_id).catch(e => {
+      console.error('[firmar] notifyNextSigner error:', e.message, e.stack);
+    });
   } catch (e) {
     console.error('[firmar] error:', e);
     res.status(500).json({ error: 'Error al registrar firma' });

@@ -45,11 +45,18 @@ function SignaturePad({ onSigned, disabled }) {
     setHasStroke(true);
   }, [disabled]);
 
+  // Use ref to avoid stale closure — hasStroke captured at event registration time
+  // would be false on the very first stroke before React re-renders.
+  const hasStrokeRef = useRef(false);
+  useEffect(() => { hasStrokeRef.current = hasStroke; }, [hasStroke]);
+
   const endDraw = useCallback(() => {
     if (!drawing.current) return;
     drawing.current = false;
-    if (hasStroke && canvasRef.current) onSigned(canvasRef.current.toDataURL('image/png'));
-  }, [hasStroke, onSigned]);
+    if (hasStrokeRef.current && canvasRef.current) {
+      onSigned(canvasRef.current.toDataURL('image/png'));
+    }
+  }, [onSigned]);
 
   const clear = () => {
     const canvas = canvasRef.current;

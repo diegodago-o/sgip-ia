@@ -356,7 +356,7 @@ authRouter.get('/', authenticate, async (req, res) => {
   try {
     const [rows] = await pool.execute(`
       SELECT r.id, r.title, r.file_name, r.status, r.created_at, r.completed_at,
-             u.name AS created_by_name,
+             u.full_name AS created_by_name,
              (SELECT COUNT(*) FROM free_signature_signers WHERE request_id = r.id) AS total_signers,
              (SELECT COUNT(*) FROM free_signature_signers WHERE request_id = r.id AND status = 'signed') AS signed_count
       FROM free_signature_requests r

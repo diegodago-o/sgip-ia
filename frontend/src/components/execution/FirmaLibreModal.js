@@ -281,7 +281,8 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
       onCreated?.();
       onClose();
     } catch (e) {
-      setError(e.response?.data?.error || 'Error al crear la solicitud');
+      console.error('[FirmaLibreModal] create error:', e);
+      setError(e.response?.data?.error || e.message || 'Error al crear la solicitud');
     } finally {
       setLoading(false);
     }

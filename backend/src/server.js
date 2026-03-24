@@ -253,6 +253,45 @@ async function runMigrations() {
   await run('users uq_oauth index',
     'ALTER TABLE users ADD UNIQUE KEY uq_oauth (oauth_provider, oauth_provider_id)');
 
+  // ── Firma libre tables ───────────────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS free_signature_requests (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      project_id   INT NOT NULL,
+      title        VARCHAR(255) NOT NULL,
+      file_name    VARCHAR(255) NOT NULL,
+      file_data    LONGBLOB NOT NULL,
+      file_hash    VARCHAR(64),
+      status       ENUM('in_progress','completed','rejected','cancelled') DEFAULT 'in_progress',
+      created_by   INT NOT NULL,
+      created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS free_signature_signers (
+      id               INT AUTO_INCREMENT PRIMARY KEY,
+      request_id       INT NOT NULL,
+      signer_name      VARCHAR(255) NOT NULL,
+      signer_email     VARCHAR(255) NOT NULL,
+      signer_role      VARCHAR(100),
+      sign_order       INT DEFAULT 1,
+      token            VARCHAR(64) UNIQUE NOT NULL,
+      status           ENUM('pending','notified','viewed','signed','rejected') DEFAULT 'pending',
+      page_num         INT DEFAULT 1,
+      x_percent        DECIMAL(8,6),
+      y_percent        DECIMAL(8,6),
+      width_percent    DECIMAL(8,6),
+      height_percent   DECIMAL(8,6),
+      signature_image  LONGTEXT,
+      signed_at        TIMESTAMP NULL,
+      ip_address       VARCHAR(45),
+      user_agent       VARCHAR(500),
+      rejection_reason TEXT,
+      created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // ── SharePoint connections table ─────────────────────────────────
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS sharepoint_connections (

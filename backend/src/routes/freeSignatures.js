@@ -295,6 +295,14 @@ async function notifyNextSigner(requestId) {
       "UPDATE free_signature_requests SET status='completed', completed_at=NOW() WHERE id=?",
       [requestId]
     );
+    // Audit log completion
+    try {
+      await pool.execute(
+        'INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES (?,?,?,?,?)',
+        [null, 'complete', 'firma_libre', requestId,
+          JSON.stringify({ title: request.title, signers: signers.length })]
+      );
+    } catch (_) { /* audit_log opcional */ }
     console.log(`[firma] Request ${requestId} completed — building signed PDF`);
     // Build signed PDF (requires pdf-lib — install with: npm install pdf-lib)
     let signedPdf = null;
@@ -399,13 +407,23 @@ authRouter.post('/', authenticate, upload.single('file'), async (req, res) => {
     }
 
     await conn.commit();
+
+    // Audit log
+    try {
+      await pool.execute(
+        'INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES (?,?,?,?,?)',
+        [req.user.id, 'create', 'firma_libre', requestId,
+          JSON.stringify({ title: title.trim(), file: file.originalname, signers: signers.length, project_id: projectId })]
+      );
+    } catch (_) { /* audit_log opcional */ }
+
     // Notify first signer
     await notifyNextSigner(requestId);
     res.status(201).json({ id: requestId, message: 'Solicitud creada exitosamente' });
   } catch (e) {
     await conn.rollback();
-    console.error(e);
-    res.status(500).json({ error: 'Error al crear solicitud' });
+    console.error('[freeSignatures] create error:', e.message, e.stack);
+    res.status(500).json({ error: 'Error al crear solicitud: ' + e.message });
   } finally {
     conn.release();
   }
@@ -604,6 +622,15 @@ publicRouter.post('/:token/firmar', express.json({ limit: '10mb' }), async (req,
       "UPDATE free_signature_signers SET status='signed', signature_image=?, signed_at=NOW(), ip_address=?, user_agent=? WHERE id=?",
       [signature_image, ip, ua, signer.id]
     );
+
+    // Audit log for signing (no authenticated user — use signer name in details)
+    try {
+      await pool.execute(
+        'INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES (?,?,?,?,?)',
+        [null, 'sign', 'firma_libre', signer.request_id,
+          JSON.stringify({ signer_name: signer.signer_name, signer_email: signer.signer_email, ip })]
+      );
+    } catch (_) { /* audit_log opcional */ }
 
     // Respond immediately — don't block on PDF generation / email
     res.json({ message: '¡Firma registrada exitosamente!' });

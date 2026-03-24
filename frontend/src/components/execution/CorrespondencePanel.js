@@ -4,7 +4,7 @@ import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
   CheckCircle, Send, Archive, RotateCcw, AlertCircle, PenLine,
-  Shield, Loader2, Ban,
+  Shield, Loader2, Ban, Activity,
 } from 'lucide-react';
 import CorrSignatureModal from './CorrSignatureModal';
 import FirmaLibreModal from './FirmaLibreModal';
@@ -536,6 +536,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const [freeRequests, setFreeRequests]     = useState([]);
   const [freeLoading, setFreeLoading]       = useState(false);
   const [showFirmaModal, setShowFirmaModal] = useState(false);
+  const [traceReq, setTraceReq]             = useState(null); // { req, detail } for trazabilidad panel
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -671,6 +672,17 @@ export default function CorrespondencePanel({ projectId, perms }) {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Trazabilidad */}
+                      <button
+                        onClick={async () => {
+                          try {
+                            const r = await freeSignaturesAPI.get(projectId, req.id);
+                            setTraceReq({ req, detail: r.data });
+                          } catch { /* ignore */ }
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 bg-surface-50 text-surface-600 border border-surface-200 rounded-lg text-xs font-medium hover:bg-surface-100 transition-colors">
+                        <Activity className="w-3 h-3" />Trazabilidad
+                      </button>
                       {req.status === 'completed' && (
                         <a
                           href={freeSignaturesAPI.pdfUrl(projectId, req.id)}
@@ -884,6 +896,94 @@ export default function CorrespondencePanel({ projectId, perms }) {
         />
       )}
       </>}
+
+      {/* ── Panel trazabilidad firma libre ── */}
+      {traceReq && (() => {
+        const { req, detail } = traceReq;
+        const signers = detail?.signers || [];
+        const fmtDate = (d) => d ? new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+
+        // Build timeline
+        const events = [];
+        events.push({ icon: '🚀', label: 'Proceso de firmas iniciado', sub: `por ${detail?.created_by_name || 'Sistema'}`, time: fmtDate(detail?.created_at), color: 'blue' });
+        for (const s of signers) {
+          if (['notified','viewed','signed','rejected'].includes(s.status))
+            events.push({ icon: '✉️', label: `Correo enviado a ${s.signer_name}`, sub: s.signer_email, time: fmtDate(s.created_at), color: 'indigo' });
+          if (['viewed','signed','rejected'].includes(s.status))
+            events.push({ icon: '👁️', label: `Enlace abierto por ${s.signer_name}`, sub: null, time: null, color: 'yellow' });
+          if (s.status === 'signed')
+            events.push({ icon: '✍️', label: `Documento firmado por ${s.signer_name}`, sub: `${s.signer_email} · IP: ${s.ip_address || '—'}`, time: fmtDate(s.signed_at), color: 'green' });
+          if (s.status === 'rejected')
+            events.push({ icon: '✗', label: `Firma rechazada por ${s.signer_name}`, sub: s.rejection_reason || '—', time: fmtDate(s.signed_at), color: 'red' });
+        }
+        if (req.status === 'completed')
+          events.push({ icon: '✅', label: 'Proceso completado — todos firmaron', sub: null, time: fmtDate(detail?.completed_at), color: 'emerald' });
+
+        const colorMap = { blue:'bg-blue-100 text-blue-600', indigo:'bg-indigo-100 text-indigo-600', yellow:'bg-amber-100 text-amber-600', green:'bg-emerald-100 text-emerald-600', red:'bg-red-100 text-red-600', emerald:'bg-emerald-500 text-white' };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 border-b border-surface-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-brand-100 rounded-xl flex items-center justify-center">
+                    <Shield className="w-4 h-4 text-brand-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-surface-900 text-sm">Firmas Digitales</p>
+                    <p className="text-xs text-surface-400 truncate max-w-56">{req.title}</p>
+                  </div>
+                </div>
+                <button onClick={() => setTraceReq(null)} className="p-2 hover:bg-surface-100 rounded-lg transition-colors">
+                  <X className="w-4 h-4 text-surface-400" />
+                </button>
+              </div>
+              {/* Progress */}
+              <div className="px-5 pt-4">
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mb-3
+                  ${{ in_progress:'bg-blue-100 text-blue-700', completed:'bg-emerald-100 text-emerald-700', rejected:'bg-red-100 text-red-700', cancelled:'bg-surface-100 text-surface-500' }[req.status]}`}>
+                  {req.status === 'completed' ? '✓ Completado' : req.status === 'in_progress' ? '● En proceso' : req.status}
+                  <span className="ml-1 opacity-70">{req.signed_count}/{req.total_signers} firmantes</span>
+                </div>
+                {req.total_signers > 0 && (
+                  <div className="w-full h-1.5 bg-surface-100 rounded-full mb-1 overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${(req.signed_count / req.total_signers) * 100}%` }} />
+                  </div>
+                )}
+              </div>
+              {/* Timeline */}
+              <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+                {events.map((ev, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 mt-0.5 ${colorMap[ev.color] || 'bg-surface-100 text-surface-600'}`}>
+                      {ev.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-surface-800 leading-snug">{ev.label}</p>
+                      {ev.sub && <p className="text-xs text-surface-400 truncate mt-0.5">{ev.sub}</p>}
+                      {ev.time && <p className="text-xs text-surface-300 mt-0.5">{ev.time}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Footer */}
+              <div className="px-5 py-4 border-t border-surface-100 space-y-2">
+                {req.status === 'completed' && (
+                  <a href={freeSignaturesAPI.pdfUrl(projectId, req.id)} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors">
+                    <Download className="w-4 h-4" />Descargar PDF firmado + auditoría
+                  </a>
+                )}
+                <button onClick={() => setTraceReq(null)}
+                  className="w-full px-4 py-2 text-sm text-surface-500 hover:bg-surface-50 rounded-xl transition-colors">
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal firma libre */}
       {showFirmaModal && (

@@ -299,23 +299,35 @@ function projectMonths(p) {
   const term = parseFloat(p.execution_term) || 12;
   if (p.execution_term_unit === 'anos')  return term * 12;
   if (p.execution_term_unit === 'meses') return term;
-  return Math.max(1, term / 30); // dias → meses
+  return Math.max(1, term / 30);
 }
 
 /**
- * Newton-Raphson monthly IRR, returns annualised % or null
- * cashFlows[0] must be negative (initial outflow).
+ * Newton-Raphson monthly IRR — returns annualised % or null.
+ *
+ * Modelo: inversión total en período 0 (negativo), ingresos mensuales iguales
+ * en períodos 1..n (positivos si income > 0). Exactamente UN cambio de signo
+ * → convergencia única garantizada.
+ *
+ * Para proyectos rentables (income > costs): TIR > 0
+ * Para proyectos en pérdida  (income < costs): TIR < 0  (negativo válido)
  */
-function computeMonthlyIRR(cashFlows) {
-  if (!cashFlows || cashFlows.length < 2) return null;
-  if (!cashFlows.some(v => v > 0) || !cashFlows.some(v => v < 0)) return null;
-  let r = 0.01; // start at 1 % / month
-  for (let i = 0; i < 300; i++) {
+function computeTIR(income, costs, numMonths) {
+  const n = Math.max(2, Math.round(numMonths));
+  if (!costs || costs <= 0 || income <= 0) return null;
+
+  const monthlyInc = income / n;
+  // flows[0] = -costs (outflow), flows[1..n] = monthlyInc (inflow)
+  const flows = [-costs, ...Array(n).fill(monthlyInc)];
+
+  // Hay cambio de signo si income > 0 (siempre con este modelo)
+  let r = 0.01;
+  for (let i = 0; i < 500; i++) {
     let npv = 0, d = 0;
-    for (let t = 0; t < cashFlows.length; t++) {
+    for (let t = 0; t < flows.length; t++) {
       const denom = Math.pow(1 + r, t);
-      npv += cashFlows[t] / denom;
-      if (t > 0) d -= t * cashFlows[t] / (denom * (1 + r));
+      npv += flows[t] / denom;
+      if (t > 0) d -= t * flows[t] / (denom * (1 + r));
     }
     if (Math.abs(d) < 1e-14) break;
     const delta = npv / d;
@@ -324,87 +336,30 @@ function computeMonthlyIRR(cashFlows) {
     if (Math.abs(delta) < 1e-9) break;
   }
   if (!isFinite(r) || r <= -1) return null;
-  // Annualise
   const annual = (Math.pow(1 + r, 12) - 1) * 100;
-  return (annual > -99 && annual < 5000) ? Math.round(annual * 10) / 10 : null;
+  return (annual > -9999 && annual < 99999) ? Math.round(annual * 10) / 10 : null;
 }
 
 /**
- * VPN at 10 % annual (monthly equivalent) for a monthly cash-flow array.
+ * VPN al 10 % anual (tasa mensual equivalente).
+ * Mismo modelo de flujos que computeTIR.
  */
-function computeMonthlyVPN(cashFlows) {
-  const mr = Math.pow(1.10, 1 / 12) - 1; // monthly discount ≈ 0.797 %
-  return Math.round(cashFlows.reduce((s, cf, t) => s + cf / Math.pow(1 + mr, t), 0));
+function computeVPN(income, costs, numMonths) {
+  const n  = Math.max(2, Math.round(numMonths));
+  if (!costs || costs <= 0) return 0;
+  const mr = Math.pow(1.10, 1 / 12) - 1; // ≈ 0.797 % mensual
+  const monthlyInc = income / n;
+  const flows = [-costs, ...Array(n).fill(monthlyInc)];
+  return Math.round(flows.reduce((s, cf, t) => s + cf / Math.pow(1 + mr, t), 0));
 }
 
-/**
- * Build monthly cash flows.
- * – incomeSchedule: [{mes, valor}] from budget_income_schedule (grouped by mes)
- * – totalCost: planned costs spread evenly across months
- * – numMonths: project duration in months
- *
- * Period 0 = initial working-capital outflow (first month's cost).
- * Costs are assumed to occur BEFORE income each month (conservative model).
- */
-function buildMonthlyFlows(incomeSchedule, totalCost, numMonths) {
-  const n = Math.max(2, Math.round(numMonths));
-  const monthlyCost = totalCost / n;
-
-  // If we have a real schedule, use it; otherwise distribute evenly
-  let incByMonth;
-  if (incomeSchedule && incomeSchedule.length >= 2) {
-    incByMonth = {};
-    incomeSchedule.forEach(r => { incByMonth[r.mes] = parseFloat(r.valor) || 0; });
-  } else {
-    // Even distribution
-    incByMonth = {};
-    const monthlyInc = totalCost > 0 ? (totalCost + totalCost * 0.40) / n : 0; // placeholder; caller overrides
-    for (let m = 1; m <= n; m++) incByMonth[m] = monthlyInc;
-  }
-
-  // Rebuild with actual total income so the schedule sums correctly
-  const totalInc = Object.values(incByMonth).reduce((s, v) => s + v, 0);
-  const flows = [];
-  // Period 0: negative outflow = first month working capital
-  flows.push(-monthlyCost);
-  for (let m = 1; m <= n; m++) {
-    const inc = incByMonth[m] || 0;
-    const cost = monthlyCost;
-    flows.push(inc - cost);
-  }
-  return { flows, totalInc };
-}
-
-/**
- * Compute all PMO indicators for a given income / cost pair.
- * incomeSchedule: [{mes, valor}] — monthly distribution of income (may be empty)
- * numMonths: project duration in months
- */
-function pmoIndicators(income, costs, incomeSchedule, numMonths) {
+/** Compute all PMO indicators. numMonths = horizon used for TIR/VPN. */
+function pmoIndicators(income, costs, numMonths) {
   if (!income && !costs) return { income: 0, costs: 0, rentabilidad: null, margen: null, tir: null, vpn: null };
-
   const rentabilidad = costs > 0 ? Math.round((income - costs) / costs * 100 * 10) / 10 : null;
   const margen       = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : null;
-
-  // Build monthly flows using the income schedule (or even distribution)
-  let sched = incomeSchedule;
-  if (!sched || !sched.length) {
-    // Construct synthetic even schedule from income total
-    const n = Math.max(2, Math.round(numMonths));
-    const monthlyInc = income / n;
-    sched = Array.from({ length: n }, (_, i) => ({ mes: i + 1, valor: monthlyInc }));
-  }
-
-  const { flows } = buildMonthlyFlows(sched, costs, numMonths);
-
-  // Scale flows so that income totals equal the declared income
-  const rawInc = flows.slice(1).reduce((s, v) => s + v, 0) + costs; // recover income from flows
-  const scale  = rawInc > 0 ? income / rawInc : 1;
-  const scaledFlows = flows.map((v, t) => t === 0 ? v : v * scale);
-
-  const tir = computeMonthlyIRR(scaledFlows);
-  const vpn = computeMonthlyVPN(scaledFlows);
-
+  const tir = computeTIR(income, costs, numMonths);
+  const vpn = computeVPN(income, costs, numMonths);
   return { income, costs, rentabilidad, margen, tir, vpn };
 }
 

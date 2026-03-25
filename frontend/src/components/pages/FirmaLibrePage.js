@@ -336,10 +336,9 @@ function PDFSignerViewer({ pdfUrl, signerPage, xPct, yPct, wPct, hPct, done, onF
       setTimeout(() => fieldRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
   }, [loading]);
 
-  // Convert total-doc y_percent → per-page fraction for the signing page
-  const perPageY = numPgs > 0
-    ? Math.max(0, Math.min(1 - hPct, yPct * numPgs - (signerPage - 1)))
-    : yPct;
+  // y_percent ya es fracción dentro de la página asignada (resolvePagePosition lo convirtió al guardar)
+  // NO hay que hacer conversión — usar directamente como top %
+  const perPageY = Math.max(0, Math.min(1 - hPct, yPct));
 
   return (
     <div>

@@ -263,17 +263,18 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('title', title.trim());
+      const pages = pdfInfo?.totalPages || 1;
       const signersWithPos = signers.map((s, i) => {
-        const pos    = positions[i] || { x_percent: 0.1, y_percent: 0.85, width_percent: 0.27, height_percent: 0.04 };
-        const paged  = resolvePagePosition(pos);
+        const pos   = positions[i] || { x_percent: 0.1, y_percent: 0.85, width_percent: 0.30, height_percent: 0.08 / pages };
+        const paged = resolvePagePosition(pos);
         return {
           ...s,
           sign_order:     i + 1,
           page_num:       paged.page_num,
           x_percent:      pos.x_percent,
-          y_percent:      paged.y_percent,  // per-page y
+          y_percent:      paged.y_percent,          // per-page y (0–1)
           width_percent:  pos.width_percent,
-          height_percent: pos.height_percent,
+          height_percent: pos.height_percent * pages, // convert total-doc → per-page fraction
         };
       });
       fd.append('signers', JSON.stringify(signersWithPos));
@@ -463,7 +464,6 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                     }}
                     onClick={(e) => {
                       if (activeSigner === null) return;
-                      // Only place if this signer doesn't have a position yet, or replace it
                       const rect = containerRef.current.getBoundingClientRect();
                       const scrollTop  = scrollRef.current?.scrollTop || 0;
                       const scrollLeft = scrollRef.current?.scrollLeft || 0;
@@ -471,7 +471,10 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                       const absY = e.clientY - rect.top  + scrollTop;
                       const w = containerRef.current.scrollWidth  || containerRef.current.offsetWidth;
                       const h = containerRef.current.scrollHeight || containerRef.current.offsetHeight;
-                      const W = 0.25, H = 0.04;
+                      // W is fraction of page width; H is fraction of TOTAL doc height (= ~8% of one page)
+                      const pages = pdfInfo?.totalPages || 1;
+                      const W = 0.30;
+                      const H = 0.08 / pages; // 8% of one page, expressed as fraction of total doc
                       const newX = Math.max(0, Math.min(1 - W, absX / w - W / 2));
                       const newY = Math.max(0, Math.min(1 - H, absY / h - H / 2));
                       setPositions(prev => prev.map((p, idx) =>

@@ -190,11 +190,25 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, tot
       >
         <X size={9} color="white" />
       </button>
+      {/* Resize handle — tamaño generoso para facilitar agarre */}
       <div
         onMouseDown={handleResizeMouseDown}
         onClick={stopClick}
-        style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, cursor: 'se-resize', background: color, borderRadius: '2px 0 3px 0', opacity: 0.8 }}
-      />
+        title="Redimensionar"
+        style={{
+          position: 'absolute', bottom: 0, right: 0,
+          width: 18, height: 18,
+          cursor: 'se-resize', background: color,
+          borderRadius: '3px 0 3px 0', opacity: 0.9,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {/* Líneas diagonales indicadoras de resize */}
+        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" style={{ pointerEvents: 'none' }}>
+          <line x1="2" y1="8" x2="8" y2="2" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="5" y1="8" x2="8" y2="5" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      </div>
     </div>
   );
 }
@@ -208,7 +222,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
   // positions[i]: { x_percent, y_percent, width_percent, height_percent }
   // coordinates relative to total stacked document (all pages)
   const [positions, setPositions]       = useState([]);
-  const [activeSigner, setActiveSigner] = useState(0); // index of signer whose field user is placing
+  const [dragSigner, setDragSigner]     = useState(null); // índice del firmante que se está arrastrando
   const [pdfUrl, setPdfUrl]     = useState(null);
   const [pdfInfo, setPdfInfo]   = useState(null); // { totalPages, pageHeights }
   const [loading, setLoading]   = useState(false);
@@ -237,7 +251,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
   // Step 2 → 3: start with ALL positions null — user must click to place each one
   const goToPositions = () => {
     setPositions(signers.map(() => null));
-    setActiveSigner(0); // first signer is active by default
+    setDragSigner(null);
     setStep(3);
   };
 
@@ -413,96 +427,117 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
             </div>
           )}
 
-          {/* ── Step 3: Posiciones */}
+          {/* ── Step 3: Posiciones — Drag & Drop ── */}
           {step === 3 && (
-            <div className="space-y-3">
-              <p className="text-sm text-surface-500">
-                Selecciona un firmante y haz clic en el documento para colocar su campo de firma.
-                Luego arrastra para ajustar la posición. La esquina inferior derecha redimensiona.
-              </p>
+            <div className="flex gap-3" style={{ height: 520 }}>
 
-              {/* Signer chips — click to set active */}
-              <div className="flex gap-2 flex-wrap">
-                {signers.map((s, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setActiveSigner(i)}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-all"
-                    style={{
-                      borderColor: FIELD_COLORS[i % FIELD_COLORS.length],
-                      color:       activeSigner === i ? 'white' : FIELD_COLORS[i % FIELD_COLORS.length],
-                      background:  activeSigner === i ? FIELD_COLORS[i % FIELD_COLORS.length] : `${FIELD_COLORS[i % FIELD_COLORS.length]}15`,
-                      boxShadow:   activeSigner === i ? `0 0 0 2px ${FIELD_COLORS[i % FIELD_COLORS.length]}55` : 'none',
-                    }}
-                  >
-                    {i + 1}. {s.signer_name}
-                    {positions[i] ? ' ✓' : ' — clic para colocar'}
-                  </button>
-                ))}
+              {/* ── Panel izquierdo: cards de firmantes arrastrables ── */}
+              <div className="w-48 flex-shrink-0 flex flex-col gap-2 overflow-y-auto py-0.5 pr-1">
+                <p className="text-[11px] font-semibold text-surface-400 uppercase tracking-wide">
+                  Firmantes
+                </p>
+
+                {signers.map((s, i) => {
+                  const color  = FIELD_COLORS[i % FIELD_COLORS.length];
+                  const placed = !!positions[i];
+                  return (
+                    <div
+                      key={i}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragSigner(i);
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData('text/plain', String(i));
+                      }}
+                      onDragEnd={() => setDragSigner(null)}
+                      style={{
+                        borderColor: color,
+                        background:  placed ? `${color}10` : `${color}08`,
+                        cursor: 'grab',
+                      }}
+                      className={`border-2 rounded-xl p-2.5 select-none transition-all
+                        ${placed ? '' : 'hover:shadow-md hover:scale-[1.01]'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                          style={{ background: color }}
+                        >{i + 1}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold truncate" style={{ color }}>
+                            {s.signer_name || `Firmante ${i + 1}`}
+                          </div>
+                          <div className="text-[10px] text-surface-400 truncate">
+                            {s.signer_role || '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {placed ? (
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <span className="text-[10px] text-emerald-600 font-medium">✓ Colocado</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removePos(i); }}
+                            className="text-[10px] text-red-400 hover:text-red-600 transition-colors font-medium"
+                          >Quitar</button>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 flex items-center gap-1 text-[10px] text-surface-400">
+                          <GripVertical size={10} className="flex-shrink-0" />
+                          Arrastra al documento
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <p className="text-[10px] text-surface-400 leading-relaxed mt-1">
+                  Arrastra un firmante sobre el PDF para colocar su campo.
+                  Luego muévelo o redimensiona arrastrando la esquina.
+                </p>
               </div>
 
-              {/* Instruction banner */}
-              {activeSigner !== null && !positions[activeSigner] && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium"
-                  style={{ background: `${FIELD_COLORS[activeSigner % FIELD_COLORS.length]}15`, color: FIELD_COLORS[activeSigner % FIELD_COLORS.length], border: `1px solid ${FIELD_COLORS[activeSigner % FIELD_COLORS.length]}44` }}>
-                  👆 Haz clic en el documento para colocar la firma de <strong className="ml-1">{signers[activeSigner]?.signer_name}</strong>
-                </div>
-              )}
-              {activeSigner !== null && positions[activeSigner] && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
-                  ✓ Campo colocado — arrastra para ajustar posición o haz clic en otro firmante
-                </div>
-              )}
-
-              {/* PDF viewer + draggable fields */}
-              <div className="border border-surface-200 rounded-xl overflow-hidden bg-surface-50">
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-100 bg-white">
+              {/* ── Panel derecho: PDF + zona de drop ── */}
+              <div className="flex-1 flex flex-col border border-surface-200 rounded-xl overflow-hidden bg-surface-50 min-w-0">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-100 bg-white flex-shrink-0">
                   <span className="text-xs text-surface-500">
                     {pdfInfo ? `${pdfInfo.totalPages} páginas` : 'Cargando...'}
                   </span>
-                  <span className="text-xs text-surface-400">Scroll para navegar · Clic para colocar campo</span>
+                  <span className="text-xs text-surface-400">
+                    Arrastra firmante · Mueve · Redimensiona esquina
+                  </span>
                 </div>
 
-                {/* scrollRef: outer scrollable container */}
-                <div ref={scrollRef} style={{ maxHeight: 500, overflowY: 'auto', position: 'relative' }}>
-                  {/* containerRef: inner div — click places field for active signer */}
-                  <div
-                    ref={containerRef}
-                    style={{
-                      position: 'relative',
-                      cursor: activeSigner !== null && !positions[activeSigner] ? 'crosshair' : 'default',
-                    }}
-                    onClick={(e) => {
-                      if (activeSigner === null) return;
-                      // Use scrollRef rect (fixed in viewport) — containerRef rect changes with scroll
-                      const scrollRect = scrollRef.current.getBoundingClientRect();
-                      const scrollTop  = scrollRef.current?.scrollTop || 0;
-                      const scrollLeft = scrollRef.current?.scrollLeft || 0;
-                      const absX = e.clientX - scrollRect.left + scrollLeft;
-                      const absY = e.clientY - scrollRect.top  + scrollTop;
-                      const w = containerRef.current.scrollWidth  || containerRef.current.offsetWidth;
-                      const h = containerRef.current.scrollHeight || containerRef.current.offsetHeight;
-                      // W is fraction of page width; H is fraction of TOTAL doc height (= ~5% of one page)
-                      const pages = pdfInfo?.totalPages || 1;
-                      const W = 0.25;
-                      const H = 0.05 / pages; // 5% of one page — más compacto, adaptable a tablas
-                      const newX = Math.max(0, Math.min(1 - W, absX / w - W / 2));
-                      const newY = Math.max(0, Math.min(1 - H, absY / h - H / 2));
-                      setPositions(prev => prev.map((p, idx) =>
-                        idx === activeSigner
-                          ? { x_percent: newX, y_percent: newY, width_percent: W, height_percent: H }
-                          : p
-                      ));
-                      // Auto-advance to next unplaced signer
-                      const nextUnplaced = signers.findIndex((_, idx) =>
-                        idx !== activeSigner && !positions[idx]
-                      );
-                      if (nextUnplaced !== -1) setActiveSigner(nextUnplaced);
-                    }}
-                  >
+                {/* scrollRef: outer scrollable, también es la drop zone */}
+                <div
+                  ref={scrollRef}
+                  className="flex-1 overflow-y-auto relative"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragSigner === null) return;
+                    const scrollRect = scrollRef.current.getBoundingClientRect();
+                    const scrollTop  = scrollRef.current.scrollTop;
+                    const absX = e.clientX - scrollRect.left;
+                    const absY = e.clientY - scrollRect.top + scrollTop;
+                    const w = containerRef.current.scrollWidth  || containerRef.current.offsetWidth;
+                    const h = containerRef.current.scrollHeight || containerRef.current.offsetHeight;
+                    const pages = pdfInfo?.totalPages || 1;
+                    const W = 0.25;
+                    const H = 0.05 / pages;
+                    const newX = Math.max(0, Math.min(1 - W, absX / w - W / 2));
+                    const newY = Math.max(0, Math.min(1 - H, absY / h - H / 2));
+                    setPositions(prev => prev.map((p, idx) =>
+                      idx === dragSigner
+                        ? { x_percent: newX, y_percent: newY, width_percent: W, height_percent: H }
+                        : p
+                    ));
+                    setDragSigner(null);
+                  }}
+                >
+                  {/* containerRef: dimensiones reales del documento */}
+                  <div ref={containerRef} style={{ position: 'relative' }}>
                     <PDFAllPages pdfUrl={pdfUrl} onReady={setPdfInfo} />
-                    {/* Signature fields */}
                     {positions.map((pos, i) =>
                       pos ? (
                         <SignatureFieldBox
@@ -514,7 +549,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                           totalPages={pdfInfo?.totalPages || 1}
                           onMove={movePos}
                           onResize={resizePos}
-                          onRemove={(idx) => { removePos(idx); setActiveSigner(idx); }}
+                          onRemove={removePos}
                         />
                       ) : null
                     )}
@@ -522,9 +557,6 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                 </div>
               </div>
 
-              <p className="text-xs text-surface-400">
-                💡 Los campos se posicionan exactamente donde hagas clic. La firma quedará en esa posición en el PDF.
-              </p>
             </div>
           )}
         </div>

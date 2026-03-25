@@ -167,6 +167,14 @@ function emailCompletedFree({ request, project, allSigners, documentHash }) {
 </body></html>`;
 }
 
+// Helvetica (WinAnsi) sólo soporta Latin-1. Normaliza tildes/ñ → ASCII seguro.
+function toWinAnsi(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // quita diacríticos (á→a, ó→o, ñ→n, etc.)
+    .replace(/[^\x00-\xFF]/g, '?');  // cualquier carácter fuera de Latin-1 → ?
+}
+
 // ── buildSignedPdf — embebe firmas en el PDF original con pdf-lib ─────────────
 async function buildSignedPdf(request, project, signers) {
   const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
@@ -214,7 +222,7 @@ async function buildSignedPdf(request, project, signers) {
     // Draw signature image
     page.drawImage(sigImage, { x: x + 2, y: y + 2, width: w - 4, height: h - 4 });
     // Label below
-    page.drawText(`${signer.signer_name} · ${signer.signer_role || 'Firmante'}`, {
+    page.drawText(toWinAnsi(`${signer.signer_name} - ${signer.signer_role || 'Firmante'}`), {
       x, y: y - 10, size: 6, font, color: rgb(0.4, 0.4, 0.4),
     });
   }
@@ -226,20 +234,20 @@ async function buildSignedPdf(request, project, signers) {
   const lh = 16;
 
   const drawText = (text, opts = {}) => {
-    auditPage.drawText(text, { x: opts.x || 50, y: cy, size: opts.size || 9, font: opts.bold ? fontB : font, color: opts.color || rgb(0.22, 0.22, 0.22), ...opts });
+    auditPage.drawText(toWinAnsi(text), { x: opts.x || 50, y: cy, size: opts.size || 9, font: opts.bold ? fontB : font, color: opts.color || rgb(0.22, 0.22, 0.22), ...opts });
     if (opts.advance !== false) cy -= (opts.lh || lh);
   };
 
   // Header bar
   auditPage.drawRectangle({ x: 0, y: ah - 70, width: aw, height: 70, color: rgb(0.11, 0.37, 0.67) });
-  auditPage.drawText('REGISTRO DE FIRMAS ELECTRÓNICAS', { x: 50, y: ah - 30, size: 14, font: fontB, color: rgb(1,1,1) });
-  auditPage.drawText('SGIP-IA · Sistema de Gestión Integral de Proyectos', { x: 50, y: ah - 48, size: 8, font, color: rgb(0.58, 0.78, 0.97) });
+  auditPage.drawText('REGISTRO DE FIRMAS ELECTRONICAS', { x: 50, y: ah - 30, size: 14, font: fontB, color: rgb(1,1,1) });
+  auditPage.drawText('SGIP-IA - Sistema de Gestion Integral de Proyectos', { x: 50, y: ah - 48, size: 8, font, color: rgb(0.58, 0.78, 0.97) });
   cy = ah - 90;
 
   drawText(`Proyecto: ${project.name} (${project.code || ''})`, { bold: true, size: 10 });
   drawText(`Documento: ${request.title}`, { bold: true, size: 10 });
   drawText(`Archivo: ${request.file_name}`, { size: 8, color: rgb(0.4,0.4,0.4) });
-  drawText(`Hash del documento original: ${request.file_hash || '—'}`, { size: 7, color: rgb(0.5,0.5,0.5) });
+  drawText(`Hash del documento original: ${request.file_hash || '-'}`, { size: 7, color: rgb(0.5,0.5,0.5) });
   cy -= 10;
 
   // Separator
@@ -250,21 +258,21 @@ async function buildSignedPdf(request, project, signers) {
   cy -= 5;
 
   for (const [i, s] of signers.entries()) {
-    const statusLabel = s.status === 'signed' ? '✓ Firmado' : s.status === 'rejected' ? '✗ Rechazado' : '○ Pendiente';
+    const statusLabel = s.status === 'signed' ? 'Firmado' : s.status === 'rejected' ? 'Rechazado' : 'Pendiente';
     const statusColor = s.status === 'signed' ? rgb(0.02, 0.59, 0.41) : s.status === 'rejected' ? rgb(0.86, 0.15, 0.15) : rgb(0.5,0.5,0.5);
 
     auditPage.drawRectangle({ x: 50, y: cy - 48, width: aw - 100, height: 52, color: rgb(0.97,0.98,0.99), borderColor: rgb(0.88,0.91,0.95), borderWidth: 0.5 });
 
-    auditPage.drawText(`${i + 1}. ${s.signer_name}`, { x: 60, y: cy - 10, size: 9, font: fontB, color: rgb(0.11,0.37,0.67) });
-    auditPage.drawText(`Rol: ${s.signer_role || '—'} · Orden: ${s.sign_order}`, { x: 60, y: cy - 22, size: 8, font, color: rgb(0.4,0.4,0.4) });
-    auditPage.drawText(statusLabel, { x: aw - 130, y: cy - 10, size: 8, font: fontB, color: statusColor });
+    auditPage.drawText(toWinAnsi(`${i + 1}. ${s.signer_name}`), { x: 60, y: cy - 10, size: 9, font: fontB, color: rgb(0.11,0.37,0.67) });
+    auditPage.drawText(toWinAnsi(`Rol: ${s.signer_role || '-'} - Orden: ${s.sign_order}`), { x: 60, y: cy - 22, size: 8, font, color: rgb(0.4,0.4,0.4) });
+    auditPage.drawText(toWinAnsi(statusLabel), { x: aw - 130, y: cy - 10, size: 8, font: fontB, color: statusColor });
 
     if (s.status === 'signed' && s.signed_at) {
-      auditPage.drawText(`Fecha: ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`, { x: 60, y: cy - 34, size: 8, font, color: rgb(0.3,0.3,0.3) });
-      auditPage.drawText(`IP: ${s.ip_address || '—'}`, { x: 300, y: cy - 34, size: 7, font, color: rgb(0.5,0.5,0.5) });
+      auditPage.drawText(toWinAnsi(`Fecha: ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`), { x: 60, y: cy - 34, size: 8, font, color: rgb(0.3,0.3,0.3) });
+      auditPage.drawText(toWinAnsi(`IP: ${s.ip_address || '-'}`), { x: 300, y: cy - 34, size: 7, font, color: rgb(0.5,0.5,0.5) });
     }
     if (s.status === 'rejected' && s.rejection_reason) {
-      auditPage.drawText(`Motivo: ${s.rejection_reason.slice(0, 80)}`, { x: 60, y: cy - 34, size: 7, font, color: rgb(0.6,0.2,0.2) });
+      auditPage.drawText(toWinAnsi(`Motivo: ${s.rejection_reason.slice(0, 80)}`), { x: 60, y: cy - 34, size: 7, font, color: rgb(0.6,0.2,0.2) });
     }
     cy -= 62;
     if (cy < 80) break;
@@ -273,8 +281,8 @@ async function buildSignedPdf(request, project, signers) {
   // Footer legal
   cy = 40;
   auditPage.drawLine({ start: { x: 50, y: cy + 16 }, end: { x: aw - 50, y: cy + 16 }, thickness: 0.3, color: rgb(0.8,0.8,0.8) });
-  auditPage.drawText('Documento firmado electrónicamente con validez jurídica según Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).', { x: 50, y: cy + 4, size: 6, font, color: rgb(0.6,0.6,0.6) });
-  auditPage.drawText(`Generado: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })} · SGIP-IA`, { x: 50, y: cy - 6, size: 6, font, color: rgb(0.7,0.7,0.7) });
+  auditPage.drawText('Documento firmado electronicamente con validez juridica segun Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).', { x: 50, y: cy + 4, size: 6, font, color: rgb(0.6,0.6,0.6) });
+  auditPage.drawText(toWinAnsi(`Generado: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })} - SGIP-IA`), { x: 50, y: cy - 6, size: 6, font, color: rgb(0.7,0.7,0.7) });
 
   return Buffer.from(await pdfDoc.save());
 }

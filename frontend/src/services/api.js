@@ -369,6 +369,7 @@ export const freeSignaturesAPI = {
   get:     (pid, id)  => api.get(`/exec/${pid}/firma-libre/${id}`),
   create:  (pid, fd)  => api.post(`/exec/${pid}/firma-libre`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
   cancel:  (pid, id)  => api.delete(`/exec/${pid}/firma-libre/${id}`),
+  eliminate: (pid, id) => api.delete(`/exec/${pid}/firma-libre/${id}/eliminar`),
   downloadPdf: (pid, id) =>
     api.get(`/exec/${pid}/firma-libre/${id}/pdf`, { responseType: 'arraybuffer' }),
   // Public (no auth)

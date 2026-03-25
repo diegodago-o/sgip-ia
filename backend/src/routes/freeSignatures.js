@@ -580,6 +580,24 @@ authRouter.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
+// DELETE /:id/eliminar — hard delete (all statuses)
+authRouter.delete('/:id/eliminar', authenticate, async (req, res) => {
+  const { projectId, id } = req.params;
+  try {
+    const [reqs] = await pool.execute(
+      'SELECT id FROM free_signature_requests WHERE id=? AND project_id=?',
+      [id, projectId]
+    );
+    if (!reqs.length) return res.status(404).json({ error: 'No encontrado' });
+    await pool.execute('DELETE FROM free_signature_signers WHERE request_id=?', [id]);
+    await pool.execute('DELETE FROM free_signature_requests WHERE id=?', [id]);
+    res.json({ message: 'Eliminado' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al eliminar' });
+  }
+});
+
 // GET /:id/pdf — download original or signed PDF
 authRouter.get('/:id/pdf', authenticate, async (req, res) => {
   const { projectId, id } = req.params;

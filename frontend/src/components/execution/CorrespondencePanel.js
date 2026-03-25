@@ -733,6 +733,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
                       )}
                       {req.status === 'in_progress' && perms?.canEdit && (
                         <button
+                          title="Cancelar firma"
                           onClick={async () => {
                             if (!window.confirm('¿Cancelar este proceso de firma?')) return;
                             await freeSignaturesAPI.cancel(projectId, req.id);
@@ -740,6 +741,20 @@ export default function CorrespondencePanel({ projectId, perms }) {
                           }}
                           className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors">
                           <Ban className="w-4 h-4" />
+                        </button>
+                      )}
+                      {perms?.canEdit && (
+                        <button
+                          title="Eliminar permanentemente"
+                          onClick={async () => {
+                            if (!window.confirm('¿Eliminar permanentemente este proceso de firma? Esta acción no se puede deshacer.')) return;
+                            try {
+                              await freeSignaturesAPI.eliminate(projectId, req.id);
+                              loadFreeRequests();
+                            } catch { alert('Error al eliminar'); }
+                          }}
+                          className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-600 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>

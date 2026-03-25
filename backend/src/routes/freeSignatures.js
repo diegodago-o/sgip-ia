@@ -190,7 +190,8 @@ function toWinAnsi(str) {
 }
 
 // ── buildSignedPdf — embebe firmas en el PDF original con pdf-lib ─────────────
-async function buildSignedPdf(request, project, signers) {
+// auditPage=false → solo incrusta firmas, sin página de auditoría (usado en preview parcial)
+async function buildSignedPdf(request, project, signers, { auditPage = true } = {}) {
   const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
   // Load original PDF
@@ -298,64 +299,66 @@ async function buildSignedPdf(request, project, signers) {
     });
   }
 
-  // ── Audit page ────────────────────────────────────────────────────────────
-  const auditPage = pdfDoc.addPage([595.28, 841.89]); // A4
-  const { width: aw, height: ah } = auditPage.getSize();
-  let cy = ah - 50;
-  const lh = 16;
+  // ── Audit page (solo en PDF final, no en preview parcial) ────────────────
+  if (auditPage) {
+    const auditPg = pdfDoc.addPage([595.28, 841.89]); // A4
+    const { width: aw, height: ah } = auditPg.getSize();
+    let cy = ah - 50;
+    const lh = 16;
 
-  const drawText = (text, opts = {}) => {
-    auditPage.drawText(toWinAnsi(text), { x: opts.x || 50, y: cy, size: opts.size || 9, font: opts.bold ? fontB : font, color: opts.color || rgb(0.22, 0.22, 0.22), ...opts });
-    if (opts.advance !== false) cy -= (opts.lh || lh);
-  };
+    const drawText = (text, opts = {}) => {
+      auditPg.drawText(toWinAnsi(text), { x: opts.x || 50, y: cy, size: opts.size || 9, font: opts.bold ? fontB : font, color: opts.color || rgb(0.22, 0.22, 0.22), ...opts });
+      if (opts.advance !== false) cy -= (opts.lh || lh);
+    };
 
-  // Header bar
-  auditPage.drawRectangle({ x: 0, y: ah - 70, width: aw, height: 70, color: rgb(0.11, 0.37, 0.67) });
-  auditPage.drawText('REGISTRO DE FIRMAS ELECTRONICAS', { x: 50, y: ah - 30, size: 14, font: fontB, color: rgb(1,1,1) });
-  auditPage.drawText('SGIP-IA - Sistema de Gestion Integral de Proyectos', { x: 50, y: ah - 48, size: 8, font, color: rgb(0.58, 0.78, 0.97) });
-  cy = ah - 90;
+    // Header bar
+    auditPg.drawRectangle({ x: 0, y: ah - 70, width: aw, height: 70, color: rgb(0.11, 0.37, 0.67) });
+    auditPg.drawText('REGISTRO DE FIRMAS ELECTRONICAS', { x: 50, y: ah - 30, size: 14, font: fontB, color: rgb(1,1,1) });
+    auditPg.drawText('SGIP-IA - Sistema de Gestion Integral de Proyectos', { x: 50, y: ah - 48, size: 8, font, color: rgb(0.58, 0.78, 0.97) });
+    cy = ah - 90;
 
-  drawText(`Proyecto: ${project.name} (${project.code || ''})`, { bold: true, size: 10 });
-  drawText(`Documento: ${request.title}`, { bold: true, size: 10 });
-  drawText(`Archivo: ${request.file_name}`, { size: 8, color: rgb(0.4,0.4,0.4) });
-  drawText(`Hash del documento original: ${request.file_hash || '-'}`, { size: 7, color: rgb(0.5,0.5,0.5) });
-  cy -= 10;
+    drawText(`Proyecto: ${project.name} (${project.code || ''})`, { bold: true, size: 10 });
+    drawText(`Documento: ${request.title}`, { bold: true, size: 10 });
+    drawText(`Archivo: ${request.file_name}`, { size: 8, color: rgb(0.4,0.4,0.4) });
+    drawText(`Hash del documento original: ${request.file_hash || '-'}`, { size: 7, color: rgb(0.5,0.5,0.5) });
+    cy -= 10;
 
-  // Separator
-  auditPage.drawLine({ start: { x: 50, y: cy }, end: { x: aw - 50, y: cy }, thickness: 0.5, color: rgb(0.8,0.8,0.8) });
-  cy -= 20;
+    // Separator
+    auditPg.drawLine({ start: { x: 50, y: cy }, end: { x: aw - 50, y: cy }, thickness: 0.5, color: rgb(0.8,0.8,0.8) });
+    cy -= 20;
 
-  drawText('FIRMANTES', { bold: true, size: 9, color: rgb(0.11, 0.37, 0.67) });
-  cy -= 5;
+    drawText('FIRMANTES', { bold: true, size: 9, color: rgb(0.11, 0.37, 0.67) });
+    cy -= 5;
 
-  for (const [i, s] of signers.entries()) {
-    const statusLabel = s.status === 'signed' ? 'Firmado' : s.status === 'rejected' ? 'Rechazado' : 'Pendiente';
-    const statusColor = s.status === 'signed' ? rgb(0.02, 0.59, 0.41) : s.status === 'rejected' ? rgb(0.86, 0.15, 0.15) : rgb(0.5,0.5,0.5);
+    for (const [i, s] of signers.entries()) {
+      const statusLabel = s.status === 'signed' ? 'Firmado' : s.status === 'rejected' ? 'Rechazado' : 'Pendiente';
+      const statusColor = s.status === 'signed' ? rgb(0.02, 0.59, 0.41) : s.status === 'rejected' ? rgb(0.86, 0.15, 0.15) : rgb(0.5,0.5,0.5);
 
-    auditPage.drawRectangle({ x: 50, y: cy - 48, width: aw - 100, height: 52, color: rgb(0.97,0.98,0.99), borderColor: rgb(0.88,0.91,0.95), borderWidth: 0.5 });
+      auditPg.drawRectangle({ x: 50, y: cy - 48, width: aw - 100, height: 52, color: rgb(0.97,0.98,0.99), borderColor: rgb(0.88,0.91,0.95), borderWidth: 0.5 });
 
-    const sigTypeLabel = { draw: 'Manuscrita', type: 'Tipografica', image: 'Imagen/Sello' }[s.signature_type] || 'Electronica';
-    auditPage.drawText(toWinAnsi(`${i + 1}. ${s.signer_name}`), { x: 60, y: cy - 10, size: 9, font: fontB, color: rgb(0.11,0.37,0.67) });
-    auditPage.drawText(toWinAnsi(`Rol: ${s.signer_role || '-'} - Orden: ${s.sign_order}`), { x: 60, y: cy - 22, size: 8, font, color: rgb(0.4,0.4,0.4) });
-    auditPage.drawText(toWinAnsi(statusLabel), { x: aw - 130, y: cy - 10, size: 8, font: fontB, color: statusColor });
-    auditPage.drawText(toWinAnsi(`Tipo: ${sigTypeLabel}`), { x: aw - 130, y: cy - 22, size: 7, font, color: rgb(0.55,0.60,0.68) });
+      const sigTypeLabel = { draw: 'Manuscrita', type: 'Tipografica', image: 'Imagen/Sello' }[s.signature_type] || 'Electronica';
+      auditPg.drawText(toWinAnsi(`${i + 1}. ${s.signer_name}`), { x: 60, y: cy - 10, size: 9, font: fontB, color: rgb(0.11,0.37,0.67) });
+      auditPg.drawText(toWinAnsi(`Rol: ${s.signer_role || '-'} - Orden: ${s.sign_order}`), { x: 60, y: cy - 22, size: 8, font, color: rgb(0.4,0.4,0.4) });
+      auditPg.drawText(toWinAnsi(statusLabel), { x: aw - 130, y: cy - 10, size: 8, font: fontB, color: statusColor });
+      auditPg.drawText(toWinAnsi(`Tipo: ${sigTypeLabel}`), { x: aw - 130, y: cy - 22, size: 7, font, color: rgb(0.55,0.60,0.68) });
 
-    if (s.status === 'signed' && s.signed_at) {
-      auditPage.drawText(toWinAnsi(`Fecha: ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`), { x: 60, y: cy - 34, size: 8, font, color: rgb(0.3,0.3,0.3) });
-      auditPage.drawText(toWinAnsi(`IP: ${s.ip_address || '-'}`), { x: 300, y: cy - 34, size: 7, font, color: rgb(0.5,0.5,0.5) });
+      if (s.status === 'signed' && s.signed_at) {
+        auditPg.drawText(toWinAnsi(`Fecha: ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`), { x: 60, y: cy - 34, size: 8, font, color: rgb(0.3,0.3,0.3) });
+        auditPg.drawText(toWinAnsi(`IP: ${s.ip_address || '-'}`), { x: 300, y: cy - 34, size: 7, font, color: rgb(0.5,0.5,0.5) });
+      }
+      if (s.status === 'rejected' && s.rejection_reason) {
+        auditPg.drawText(toWinAnsi(`Motivo: ${s.rejection_reason.slice(0, 80)}`), { x: 60, y: cy - 34, size: 7, font, color: rgb(0.6,0.2,0.2) });
+      }
+      cy -= 62;
+      if (cy < 80) break;
     }
-    if (s.status === 'rejected' && s.rejection_reason) {
-      auditPage.drawText(toWinAnsi(`Motivo: ${s.rejection_reason.slice(0, 80)}`), { x: 60, y: cy - 34, size: 7, font, color: rgb(0.6,0.2,0.2) });
-    }
-    cy -= 62;
-    if (cy < 80) break;
+
+    // Footer legal
+    cy = 40;
+    auditPg.drawLine({ start: { x: 50, y: cy + 16 }, end: { x: aw - 50, y: cy + 16 }, thickness: 0.3, color: rgb(0.8,0.8,0.8) });
+    auditPg.drawText('Documento firmado electronicamente con validez juridica segun Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).', { x: 50, y: cy + 4, size: 6, font, color: rgb(0.6,0.6,0.6) });
+    auditPg.drawText(toWinAnsi(`Generado: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })} - SGIP-IA`), { x: 50, y: cy - 6, size: 6, font, color: rgb(0.7,0.7,0.7) });
   }
-
-  // Footer legal
-  cy = 40;
-  auditPage.drawLine({ start: { x: 50, y: cy + 16 }, end: { x: aw - 50, y: cy + 16 }, thickness: 0.3, color: rgb(0.8,0.8,0.8) });
-  auditPage.drawText('Documento firmado electronicamente con validez juridica segun Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia).', { x: 50, y: cy + 4, size: 6, font, color: rgb(0.6,0.6,0.6) });
-  auditPage.drawText(toWinAnsi(`Generado: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })} - SGIP-IA`), { x: 50, y: cy - 6, size: 6, font, color: rgb(0.7,0.7,0.7) });
 
   return Buffer.from(await pdfDoc.save());
 }
@@ -653,19 +656,55 @@ publicRouter.get('/:token', async (req, res) => {
   }
 });
 
-// GET /:token/pdf — get PDF for signing (public, no auth)
+// GET /:token/pdf — PDF de vista previa para el firmante actual
+// Incluye las firmas de firmantes anteriores ya completados (contexto visual del flujo)
 publicRouter.get('/:token/pdf', async (req, res) => {
   try {
-    const [signers] = await pool.execute(
-      'SELECT request_id FROM free_signature_signers WHERE token=?', [req.params.token]
+    const [signerRows] = await pool.execute(
+      'SELECT * FROM free_signature_signers WHERE token=?', [req.params.token]
     );
-    if (!signers.length) return res.status(404).json({ error: 'Token inválido' });
+    if (!signerRows.length) return res.status(404).json({ error: 'Token inválido' });
+    const currentSigner = signerRows[0];
+
     const [reqs] = await pool.execute(
-      'SELECT file_data, file_name, status FROM free_signature_requests WHERE id=?', [signers[0].request_id]
+      'SELECT * FROM free_signature_requests WHERE id=?', [currentSigner.request_id]
     );
     if (!reqs.length || reqs[0].status === 'cancelled') return res.status(404).json({ error: 'No disponible' });
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${reqs[0].file_name}"` });
-    res.send(reqs[0].file_data);
+    const request = reqs[0];
+
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${request.file_name}"` });
+
+    // Obtener todos los firmantes del proceso
+    const [allSigners] = await pool.execute(
+      'SELECT * FROM free_signature_signers WHERE request_id=? ORDER BY sign_order',
+      [currentSigner.request_id]
+    );
+
+    // Firmas anteriores ya completadas (con imagen y posición)
+    const prevSigned = allSigners.filter(s =>
+      s.status === 'signed' &&
+      s.sign_order < currentSigner.sign_order &&
+      s.signature_image
+    );
+
+    if (!prevSigned.length) {
+      // Firmante 1 o nadie firmó aún — devuelve PDF original
+      return res.send(request.file_data);
+    }
+
+    // Construir PDF parcial con firmas anteriores incrustadas (sin página de auditoría)
+    try {
+      const partialPdf = await buildSignedPdf(
+        request,
+        null,          // project no necesario sin página de auditoría
+        prevSigned,
+        { auditPage: false }
+      );
+      return res.send(partialPdf);
+    } catch (pdfErr) {
+      console.error('[firma/preview] buildSignedPdf parcial falló:', pdfErr.message);
+      return res.send(request.file_data); // fallback al PDF original
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error al obtener PDF' });

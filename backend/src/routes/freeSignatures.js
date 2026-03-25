@@ -242,10 +242,16 @@ async function buildSignedPdf(request, project, signers, { auditPage = true } = 
     const h  = hPct * height;
 
     // ── Structured signature container (Adobe Sign style) ───────────
-    const pad     = Math.max(3, w * 0.03);        // ~3% padding
-    const accentH = Math.max(3, h * 0.06);        // top accent bar height
-    const textH   = Math.min(22, h * 0.30);       // bottom text area (name + date)
-    const sigAreaH = h - accentH - textH - pad;   // usable height for image
+    const pad     = Math.max(3, w * 0.03);   // ~3% lateral padding
+    const accentH = Math.max(3, h * 0.06);  // top accent bar height
+
+    // Fuentes — tamaños definitivos calculados aquí para dimensionar textH
+    const nameSize_ = Math.min(7.5, Math.max(5, w / 22));
+    const subSize_  = Math.max(4.5, nameSize_ - 1.5);
+    // Área de texto: espacio mínimo para 2 líneas separadas + margen
+    const twoLineMin = nameSize_ + subSize_ + 5;   // espacio real para 2 líneas
+    const textH = Math.max(twoLineMin, Math.min(28, h * 0.35));
+    const sigAreaH = h - accentH - textH - pad;    // usable height for image
 
     // Background fill
     page.drawRectangle({ x, y, width: w, height: h,
@@ -279,16 +285,16 @@ async function buildSignedPdf(request, project, signers, { auditPage = true } = 
     // ── Helper: trunca texto para que quepa en un ancho sin usar maxWidth
     //    (maxWidth en pdf-lib envuelve el texto y la 2ª línea cae fuera del contenedor)
     const fitText = (text, availW, fontSize) => {
-      const avgCharW = fontSize * 0.52; // Helvetica ≈ 0.52× el tamaño de fuente
+      const avgCharW = fontSize * 0.52; // Helvetica ≈ 0.52× tamaño de fuente
       const maxChars = Math.max(4, Math.floor(availW / avgCharW));
       return text.length <= maxChars ? text : text.slice(0, maxChars - 2) + '..';
     };
 
     const availW   = w - pad * 2;
-    const nameSize = Math.min(7.5, Math.max(5, w / 22));
-    const subSize  = Math.max(4.5, nameSize - 1.5);
+    const nameSize = nameSize_;   // ya calculado arriba para dimensionar textH
+    const subSize  = subSize_;
 
-    // Formato de fecha compacto (24 h, mes numérico) para no exceder el ancho
+    // Formato de fecha compacto 24h (DD/MM/YYYY HH:mm) para no exceder ancho
     const dateStr = signer.signed_at
       ? new Date(signer.signed_at).toLocaleString('es-CO', {
           timeZone: 'America/Bogota',
@@ -297,16 +303,22 @@ async function buildSignedPdf(request, project, signers, { auditPage = true } = 
         })
       : '';
 
-    // Nombre en negrita — truncado si es muy largo
+    // Posicionamiento desde el FONDO del área de texto (garantiza separación)
+    // Línea 2 (fecha, inferior): 2.5pt desde el borde inferior del contenedor
+    const dateY = y + 2.5;
+    // Línea 1 (nombre, superior): encima de la fecha con 1.5pt de separación
+    const nameY = dateY + subSize + 1.5;
+
+    // Nombre — negrita, truncado
     page.drawText(toWinAnsi(fitText(signer.signer_name, availW, nameSize)), {
-      x: x + pad, y: y + textH - nameSize - 1,
+      x: x + pad, y: nameY,
       size: nameSize, font: fontB, color: rgb(0.11, 0.22, 0.45),
     });
 
-    // Rol · fecha — en UNA línea, truncado para no desbordar
+    // Rol · fecha — UNA línea gris, truncada
     const roleDate = [signer.signer_role, dateStr].filter(Boolean).join(' · ');
     page.drawText(toWinAnsi(fitText(roleDate, availW, subSize)), {
-      x: x + pad, y: y + 2.5,
+      x: x + pad, y: dateY,
       size: subSize, font, color: rgb(0.45, 0.50, 0.58),
     });
   }

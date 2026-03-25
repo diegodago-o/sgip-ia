@@ -276,26 +276,38 @@ async function buildSignedPdf(request, project, signers, { auditPage = true } = 
       thickness: 0.4, color: rgb(0.75, 0.82, 0.92),
     });
 
-    // Name (bold, proportional size)
+    // ── Helper: trunca texto para que quepa en un ancho sin usar maxWidth
+    //    (maxWidth en pdf-lib envuelve el texto y la 2ª línea cae fuera del contenedor)
+    const fitText = (text, availW, fontSize) => {
+      const avgCharW = fontSize * 0.52; // Helvetica ≈ 0.52× el tamaño de fuente
+      const maxChars = Math.max(4, Math.floor(availW / avgCharW));
+      return text.length <= maxChars ? text : text.slice(0, maxChars - 2) + '..';
+    };
+
+    const availW   = w - pad * 2;
     const nameSize = Math.min(7.5, Math.max(5, w / 22));
-    const dateStr  = signer.signed_at
+    const subSize  = Math.max(4.5, nameSize - 1.5);
+
+    // Formato de fecha compacto (24 h, mes numérico) para no exceder el ancho
+    const dateStr = signer.signed_at
       ? new Date(signer.signed_at).toLocaleString('es-CO', {
-          timeZone: 'America/Bogota', day: '2-digit', month: 'short',
-          year: 'numeric', hour: '2-digit', minute: '2-digit',
+          timeZone: 'America/Bogota',
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: false,
         })
       : '';
-    page.drawText(toWinAnsi(signer.signer_name), {
+
+    // Nombre en negrita — truncado si es muy largo
+    page.drawText(toWinAnsi(fitText(signer.signer_name, availW, nameSize)), {
       x: x + pad, y: y + textH - nameSize - 1,
       size: nameSize, font: fontB, color: rgb(0.11, 0.22, 0.45),
-      maxWidth: w - pad * 2,
     });
-    // Role · date (smaller, gray)
-    const subSize  = Math.max(4.5, nameSize - 1.5);
-    const roleDate = [signer.signer_role || 'Firmante', dateStr].filter(Boolean).join('  ·  ');
-    page.drawText(toWinAnsi(roleDate), {
+
+    // Rol · fecha — en UNA línea, truncado para no desbordar
+    const roleDate = [signer.signer_role, dateStr].filter(Boolean).join(' · ');
+    page.drawText(toWinAnsi(fitText(roleDate, availW, subSize)), {
       x: x + pad, y: y + 2.5,
       size: subSize, font, color: rgb(0.45, 0.50, 0.58),
-      maxWidth: w - pad * 2,
     });
   }
 

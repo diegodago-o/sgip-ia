@@ -145,9 +145,9 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, tot
       const { startX, startY, origW, origH, cw, ch } = startResize.current;
       const pages = totalPages || 1;
       // Min/max expressed as fraction of TOTAL doc height (1 page = 1/pages of total)
-      const minH = 0.02 / pages;   // 2% of one page
-      const maxH = 0.50 / pages;   // 50% of one page
-      const minW = 0.08;
+      const minH = 0.008 / pages;  // ~0.8% de una página — cabe en celda de tabla
+      const maxH = 0.50  / pages;  // 50% de una página
+      const minW = 0.03;            // 3% del ancho — campo muy estrecho posible
       const newW = Math.max(minW, Math.min(1 - pos.x_percent, origW + (ev.clientX - startX) / cw));
       const newH = Math.max(minH, Math.min(maxH, origH + (ev.clientY - startY) / ch));
       onResize(idx, newW, newH);
@@ -477,10 +477,10 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                       const absY = e.clientY - scrollRect.top  + scrollTop;
                       const w = containerRef.current.scrollWidth  || containerRef.current.offsetWidth;
                       const h = containerRef.current.scrollHeight || containerRef.current.offsetHeight;
-                      // W is fraction of page width; H is fraction of TOTAL doc height (= ~8% of one page)
+                      // W is fraction of page width; H is fraction of TOTAL doc height (= ~5% of one page)
                       const pages = pdfInfo?.totalPages || 1;
-                      const W = 0.30;
-                      const H = 0.08 / pages; // 8% of one page, expressed as fraction of total doc
+                      const W = 0.25;
+                      const H = 0.05 / pages; // 5% of one page — más compacto, adaptable a tablas
                       const newX = Math.max(0, Math.min(1 - W, absX / w - W / 2));
                       const newY = Math.max(0, Math.min(1 - H, absY / h - H / 2));
                       setPositions(prev => prev.map((p, idx) =>

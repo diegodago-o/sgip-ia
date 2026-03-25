@@ -53,10 +53,19 @@ async function ensureTables() {
       created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  // Migración para tablas existentes — agrega signature_type si no existe
+  // Migración: agrega signature_type si no existe (compatible MySQL 5.7+)
   try {
-    await pool.execute(`ALTER TABLE free_signature_signers ADD COLUMN IF NOT EXISTS signature_type VARCHAR(20) DEFAULT 'draw'`);
-  } catch (_) { /* MySQL < 8.0 no soporta IF NOT EXISTS en ALTER — ignorar */ }
+    const [colCheck] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME   = 'free_signature_signers'
+         AND COLUMN_NAME  = 'signature_type'`
+    );
+    if (colCheck[0].cnt === 0) {
+      await pool.execute(`ALTER TABLE free_signature_signers ADD COLUMN signature_type VARCHAR(20) DEFAULT 'draw'`);
+      console.log('[freeSignatures] Columna signature_type agregada');
+    }
+  } catch (e) { console.warn('[freeSignatures] migrate signature_type:', e.message); }
 }
 ensureTables().catch(e => console.error('[freeSignatures] ensureTables:', e.message));
 

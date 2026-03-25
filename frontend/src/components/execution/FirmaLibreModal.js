@@ -92,7 +92,7 @@ function PDFAllPages({ pdfUrl, onReady }) {
 // ── Draggable signature field ─────────────────────────────────────────────────
 // pos: { x_percent, y_percent, width_percent, height_percent }
 // These are fractions of containerRef total scroll dimensions (all pages stacked).
-function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, onMove, onRemove, onResize }) {
+function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, totalPages, onMove, onRemove, onResize }) {
   const startDrag   = useRef(null);
   const startResize = useRef(null);
 
@@ -143,8 +143,13 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, onM
     const onResize_ = (ev) => {
       if (!startResize.current) return;
       const { startX, startY, origW, origH, cw, ch } = startResize.current;
-      const newW = Math.max(0.06, Math.min(1 - pos.x_percent, origW + (ev.clientX - startX) / cw));
-      const newH = Math.max(0.02, Math.min(1 - pos.y_percent, origH + (ev.clientY - startY) / ch));
+      const pages = totalPages || 1;
+      // Min/max expressed as fraction of TOTAL doc height (1 page = 1/pages of total)
+      const minH = 0.02 / pages;   // 2% of one page
+      const maxH = 0.50 / pages;   // 50% of one page
+      const minW = 0.08;
+      const newW = Math.max(minW, Math.min(1 - pos.x_percent, origW + (ev.clientX - startX) / cw));
+      const newH = Math.max(minH, Math.min(maxH, origH + (ev.clientY - startY) / ch));
       onResize(idx, newW, newH);
     };
     const onUp = () => {
@@ -500,6 +505,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                           color={FIELD_COLORS[i % FIELD_COLORS.length]}
                           scrollRef={scrollRef}
                           containerRef={containerRef}
+                          totalPages={pdfInfo?.totalPages || 1}
                           onMove={movePos}
                           onResize={resizePos}
                           onRemove={(idx) => { removePos(idx); setActiveSigner(idx); }}

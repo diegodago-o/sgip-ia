@@ -104,10 +104,10 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, onM
   const handleMouseDown = (e) => {
     e.preventDefault(); e.stopPropagation();
     const { w, h } = getContainerDims();
-    const contRect = containerRef.current.getBoundingClientRect();
-    // Offset = where inside the box the user clicked (preserves click point)
-    const absX = e.clientX - contRect.left + (scrollRef.current?.scrollLeft || 0);
-    const absY = e.clientY - contRect.top  + (scrollRef.current?.scrollTop  || 0);
+    // Use scrollRef rect (fixed) not containerRef rect (moves with scroll)
+    const scrollRect = scrollRef.current.getBoundingClientRect();
+    const absX = e.clientX - scrollRect.left + (scrollRef.current?.scrollLeft || 0);
+    const absY = e.clientY - scrollRect.top  + (scrollRef.current?.scrollTop  || 0);
     const offsetX = absX / w - pos.x_percent;
     const offsetY = absY / h - pos.y_percent;
     startDrag.current = { offsetX, offsetY, pw: pos.width_percent, ph: pos.height_percent };
@@ -115,10 +115,10 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, onM
     const onMove_ = (ev) => {
       if (!startDrag.current) return;
       const { w: cw, h: ch } = getContainerDims();
-      const cr  = containerRef.current.getBoundingClientRect();
+      const sr  = scrollRef.current.getBoundingClientRect();
       const { offsetX: ox, offsetY: oy, pw, ph } = startDrag.current;
-      const ax  = ev.clientX - cr.left + (scrollRef.current?.scrollLeft || 0);
-      const ay  = ev.clientY - cr.top  + (scrollRef.current?.scrollTop  || 0);
+      const ax  = ev.clientX - sr.left + (scrollRef.current?.scrollLeft || 0);
+      const ay  = ev.clientY - sr.top  + (scrollRef.current?.scrollTop  || 0);
       const newX = Math.max(0, Math.min(1 - pw, ax / cw - ox));
       const newY = Math.max(0, Math.min(1 - ph, ay / ch - oy));
       onMove(idx, newX, newY);
@@ -464,11 +464,12 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
                     }}
                     onClick={(e) => {
                       if (activeSigner === null) return;
-                      const rect = containerRef.current.getBoundingClientRect();
+                      // Use scrollRef rect (fixed in viewport) — containerRef rect changes with scroll
+                      const scrollRect = scrollRef.current.getBoundingClientRect();
                       const scrollTop  = scrollRef.current?.scrollTop || 0;
                       const scrollLeft = scrollRef.current?.scrollLeft || 0;
-                      const absX = e.clientX - rect.left + scrollLeft;
-                      const absY = e.clientY - rect.top  + scrollTop;
+                      const absX = e.clientX - scrollRect.left + scrollLeft;
+                      const absY = e.clientY - scrollRect.top  + scrollTop;
                       const w = containerRef.current.scrollWidth  || containerRef.current.offsetWidth;
                       const h = containerRef.current.scrollHeight || containerRef.current.offsetHeight;
                       // W is fraction of page width; H is fraction of TOTAL doc height (= ~8% of one page)

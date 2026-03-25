@@ -8,13 +8,18 @@ import {
 
 const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
+// Resolución 2x para exportación nítida al PDF (independiente del DPR del dispositivo)
+const CANVAS_SCALE = 2;
+
 /* ── Canvas signature pad (draw) ────────────────────────── */
 function SignaturePad({ onSigned, disabled }) {
-  const canvasRef  = useRef(null);
-  const drawing    = useRef(false);
-  const lastPos    = useRef({ x: 0, y: 0 });
+  const canvasRef    = useRef(null);
+  const drawing      = useRef(false);
+  const lastPos      = useRef({ x: 0, y: 0 });
   const hasStrokeRef = useRef(false);
   const [hasStroke, setHasStroke] = useState(false);
+  // Dimensiones lógicas del área de dibujo
+  const W = 700, H = 180;
 
   useEffect(() => { hasStrokeRef.current = hasStroke; }, [hasStroke]);
 
@@ -34,7 +39,7 @@ function SignaturePad({ onSigned, disabled }) {
     const pos = getPos(e, canvasRef.current);
     lastPos.current = pos;
     const ctx = canvasRef.current.getContext('2d');
-    ctx.beginPath(); ctx.arc(pos.x, pos.y, 1.5, 0, 2 * Math.PI);
+    ctx.beginPath(); ctx.arc(pos.x, pos.y, 1.5 * CANVAS_SCALE, 0, 2 * Math.PI);
     ctx.fillStyle = '#1e3a5f'; ctx.fill();
   }, [disabled]);
 
@@ -45,7 +50,8 @@ function SignaturePad({ onSigned, disabled }) {
     const ctx = canvas.getContext('2d');
     const pos = getPos(e, canvas);
     ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y);
-    ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 2.5 * CANVAS_SCALE;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.stroke();
     lastPos.current = pos;
     setHasStroke(true);
@@ -89,7 +95,9 @@ function SignaturePad({ onSigned, disabled }) {
       <div className={`relative border-2 rounded-xl overflow-hidden bg-white
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'border-brand-300 cursor-crosshair shadow-inner'}`}
         style={{ height: 180 }}>
-        <canvas ref={canvasRef} width={700} height={180} className="w-full h-full" style={{ touchAction: 'none' }} />
+        {/* canvas 2x — se muestra al tamaño CSS, se exporta en alta resolución */}
+        <canvas ref={canvasRef} width={W * CANVAS_SCALE} height={H * CANVAS_SCALE}
+          className="w-full h-full" style={{ touchAction: 'none' }} />
         {!hasStroke && !disabled && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-gray-300 text-sm select-none">Dibuje su firma aquí</span>
@@ -108,6 +116,9 @@ function SignaturePad({ onSigned, disabled }) {
 function TypeSignaturePad({ onSigned, disabled, defaultName }) {
   const [text, setText] = useState(defaultName || '');
   const canvasRef = useRef(null);
+  // Dimensiones lógicas; el canvas se renderiza a 2x para nitidez en PDF
+  const W = 700, H = 170;
+  const FONT_SIZE = 62; // lógico; se duplica internamente
 
   useEffect(() => {
     if (!document.getElementById('dancing-script-font')) {
@@ -123,13 +134,14 @@ function TypeSignaturePad({ onSigned, disabled, defaultName }) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!val.trim()) { onSigned(null); return; }
-    ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(20, 140); ctx.lineTo(canvas.width - 20, 140); ctx.stroke();
+    // Baseline decorativa NO se dibuja en el canvas — se muestra solo en CSS
+    // (evita que la línea gris aparezca incrustada en el PDF)
     ctx.fillStyle = '#1e3a5f';
-    ctx.font = '700 62px "Dancing Script", cursive';
+    ctx.font = `700 ${FONT_SIZE * CANVAS_SCALE}px "Dancing Script", cursive`;
     ctx.textBaseline = 'alphabetic';
-    const x = Math.max(20, (canvas.width - ctx.measureText(val).width) / 2);
-    ctx.fillText(val, x, 130);
+    const textW = ctx.measureText(val).width;
+    const x = Math.max(20 * CANVAS_SCALE, (canvas.width - textW) / 2);
+    ctx.fillText(val, x, 130 * CANVAS_SCALE);
     onSigned(canvas.toDataURL('image/png'));
   }, [onSigned]);
 
@@ -139,16 +151,31 @@ function TypeSignaturePad({ onSigned, disabled, defaultName }) {
   };
   useEffect(() => { if (defaultName) document.fonts.ready.then(() => render(defaultName)); }, []); // eslint-disable-line
 
-  const clear = () => { setText(''); onSigned(null); const c = canvasRef.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+  const clear = () => {
+    setText(''); onSigned(null);
+    const c = canvasRef.current;
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  };
 
   return (
     <div className="space-y-3">
       <input type="text" value={text} onChange={handleChange} disabled={disabled}
         placeholder="Escriba su nombre completo…"
         className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-400 disabled:opacity-50" />
-      <div className={`relative border-2 rounded-xl overflow-hidden bg-white ${disabled ? 'opacity-50' : 'border-brand-300 shadow-inner'}`} style={{ height: 170 }}>
-        <canvas ref={canvasRef} width={700} height={170} className="w-full h-full" />
-        {!text && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="text-gray-300 text-sm select-none">La firma aparecerá aquí</span></div>}
+      <div className={`relative border-2 rounded-xl overflow-hidden bg-white ${disabled ? 'opacity-50' : 'border-brand-300 shadow-inner'}`}
+        style={{ height: 170 }}>
+        {/* canvas 2x — fondo transparente, solo trazo cursivo */}
+        <canvas ref={canvasRef} width={W * CANVAS_SCALE} height={H * CANVAS_SCALE} className="w-full h-full" />
+        {/* Baseline como decoración CSS — no entra en el PNG exportado */}
+        {text && (
+          <div className="absolute pointer-events-none"
+            style={{ bottom: 32, left: 20, right: 20, height: 1, background: '#CBD5E1' }} />
+        )}
+        {!text && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-gray-300 text-sm select-none">La firma aparecerá aquí</span>
+          </div>
+        )}
       </div>
       <button type="button" onClick={clear} disabled={disabled || !text}
         className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -232,13 +259,14 @@ const SIG_MODES = [
   { id: 'mobile', label: 'Celular',  Icon: Smartphone },
 ];
 
-function MultiSignaturePad({ onSigned, disabled, token, signerName }) {
+function MultiSignaturePad({ onSigned, onModeChange, disabled, token, signerName }) {
   const [mode, setMode] = useState('draw');
+  const changeMode = (id) => { setMode(id); onSigned(null); onModeChange?.(id); };
   return (
     <div className="space-y-3">
       <div className="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 p-1 gap-0.5">
         {SIG_MODES.map(({ id, label, Icon }) => (
-          <button key={id} type="button" onClick={() => { setMode(id); onSigned(null); }}
+          <button key={id} type="button" onClick={() => changeMode(id)}
             className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium transition-all
               ${mode === id ? 'bg-white text-brand-700 shadow-sm border border-gray-100' : 'text-gray-500 hover:text-gray-700'}`}>
             <Icon size={15} /><span className="hidden sm:block">{label}</span>
@@ -260,6 +288,7 @@ export default function FirmaLibrePage() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState('');
   const [signatureImg, setSignatureImg] = useState(null);
+  const [sigMode, setSigMode]           = useState('draw'); // draw | type | image
   const [rejectMode, setRejectMode]   = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting]   = useState(false);
@@ -282,7 +311,10 @@ export default function FirmaLibrePage() {
     if (!signatureImg) return;
     setSubmitting(true);
     try {
-      await axios.post(`${PUBLIC_API}/firma/libre/${token}/firmar`, { signature_image: signatureImg });
+      await axios.post(`${PUBLIC_API}/firma/libre/${token}/firmar`, {
+        signature_image: signatureImg,
+        signature_type:  sigMode,   // draw | type | image
+      });
       setDoneMsg('¡Firma registrada exitosamente! Recibirás el documento firmado por correo cuando todos hayan firmado.');
       setDone(true);
     } catch (e) {
@@ -412,6 +444,7 @@ export default function FirmaLibrePage() {
 
             <MultiSignaturePad
               onSigned={setSignatureImg}
+              onModeChange={setSigMode}
               disabled={submitting}
               token={token}
               signerName={signer.name}

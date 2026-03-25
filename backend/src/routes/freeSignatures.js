@@ -45,6 +45,7 @@ async function ensureTables() {
       width_percent    DECIMAL(8,6),
       height_percent   DECIMAL(8,6),
       signature_image  LONGTEXT,
+      signature_type   VARCHAR(20) DEFAULT 'draw',
       signed_at        TIMESTAMP NULL,
       ip_address       VARCHAR(45),
       user_agent       VARCHAR(500),
@@ -52,6 +53,10 @@ async function ensureTables() {
       created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // Migración para tablas existentes — agrega signature_type si no existe
+  try {
+    await pool.execute(`ALTER TABLE free_signature_signers ADD COLUMN IF NOT EXISTS signature_type VARCHAR(20) DEFAULT 'draw'`);
+  } catch (_) { /* MySQL < 8.0 no soporta IF NOT EXISTS en ALTER — ignorar */ }
 }
 ensureTables().catch(e => console.error('[freeSignatures] ensureTables:', e.message));
 
@@ -320,9 +325,11 @@ async function buildSignedPdf(request, project, signers) {
 
     auditPage.drawRectangle({ x: 50, y: cy - 48, width: aw - 100, height: 52, color: rgb(0.97,0.98,0.99), borderColor: rgb(0.88,0.91,0.95), borderWidth: 0.5 });
 
+    const sigTypeLabel = { draw: 'Manuscrita', type: 'Tipografica', image: 'Imagen/Sello' }[s.signature_type] || 'Electronica';
     auditPage.drawText(toWinAnsi(`${i + 1}. ${s.signer_name}`), { x: 60, y: cy - 10, size: 9, font: fontB, color: rgb(0.11,0.37,0.67) });
     auditPage.drawText(toWinAnsi(`Rol: ${s.signer_role || '-'} - Orden: ${s.sign_order}`), { x: 60, y: cy - 22, size: 8, font, color: rgb(0.4,0.4,0.4) });
     auditPage.drawText(toWinAnsi(statusLabel), { x: aw - 130, y: cy - 10, size: 8, font: fontB, color: statusColor });
+    auditPage.drawText(toWinAnsi(`Tipo: ${sigTypeLabel}`), { x: aw - 130, y: cy - 22, size: 7, font, color: rgb(0.55,0.60,0.68) });
 
     if (s.status === 'signed' && s.signed_at) {
       auditPage.drawText(toWinAnsi(`Fecha: ${new Date(s.signed_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`), { x: 60, y: cy - 34, size: 8, font, color: rgb(0.3,0.3,0.3) });
@@ -658,7 +665,7 @@ publicRouter.get('/:token/pdf', async (req, res) => {
 
 // POST /:token/firmar — submit signature
 publicRouter.post('/:token/firmar', express.json({ limit: '10mb' }), async (req, res) => {
-  const { signature_image } = req.body;
+  const { signature_image, signature_type } = req.body;
   if (!signature_image) return res.status(400).json({ error: 'Firma requerida' });
 
   try {
@@ -690,8 +697,8 @@ publicRouter.post('/:token/firmar', express.json({ limit: '10mb' }), async (req,
     const ua = req.headers['user-agent'] || '';
 
     await pool.execute(
-      "UPDATE free_signature_signers SET status='signed', signature_image=?, signed_at=NOW(), ip_address=?, user_agent=? WHERE id=?",
-      [signature_image, ip, ua, signer.id]
+      "UPDATE free_signature_signers SET status='signed', signature_image=?, signature_type=?, signed_at=NOW(), ip_address=?, user_agent=? WHERE id=?",
+      [signature_image, signature_type || 'draw', ip, ua, signer.id]
     );
 
     // Audit log for signing (no authenticated user — use signer name in details)

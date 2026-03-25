@@ -217,13 +217,61 @@ async function buildSignedPdf(request, project, signers) {
     const w  = wPct * width;
     const h  = hPct * height;
 
-    // Draw border box
-    page.drawRectangle({ x, y, width: w, height: h, borderColor: rgb(0.11, 0.37, 0.67), borderWidth: 0.5 });
-    // Draw signature image
-    page.drawImage(sigImage, { x: x + 2, y: y + 2, width: w - 4, height: h - 4 });
-    // Label below
-    page.drawText(toWinAnsi(`${signer.signer_name} - ${signer.signer_role || 'Firmante'}`), {
-      x, y: y - 10, size: 6, font, color: rgb(0.4, 0.4, 0.4),
+    // ── Structured signature container (Adobe Sign style) ───────────
+    const pad     = Math.max(3, w * 0.03);        // ~3% padding
+    const accentH = Math.max(3, h * 0.06);        // top accent bar height
+    const textH   = Math.min(22, h * 0.30);       // bottom text area (name + date)
+    const sigAreaH = h - accentH - textH - pad;   // usable height for image
+
+    // Background fill
+    page.drawRectangle({ x, y, width: w, height: h,
+      color: rgb(0.973, 0.980, 1.0),
+      borderColor: rgb(0.11, 0.37, 0.67), borderWidth: 0.7,
+    });
+    // Top accent bar
+    page.drawRectangle({ x, y: y + h - accentH, width: w, height: accentH,
+      color: rgb(0.11, 0.37, 0.67),
+    });
+
+    // Signature image — preserve aspect ratio, centered in sig area
+    const dims    = sigImage.scale(1);
+    const aspect  = dims.width / (dims.height || 1);
+    const maxImgW = w - pad * 2;
+    const maxImgH = Math.max(8, sigAreaH - pad);
+    let imgW = maxImgW;
+    let imgH = imgW / aspect;
+    if (imgH > maxImgH) { imgH = maxImgH; imgW = imgH * aspect; }
+    const imgX = x + (w - imgW) / 2;
+    const imgY = y + textH + (sigAreaH - imgH) / 2;
+    page.drawImage(sigImage, { x: imgX, y: imgY, width: imgW, height: imgH });
+
+    // Divider line
+    page.drawLine({
+      start: { x: x + pad, y: y + textH },
+      end:   { x: x + w - pad, y: y + textH },
+      thickness: 0.4, color: rgb(0.75, 0.82, 0.92),
+    });
+
+    // Name (bold, proportional size)
+    const nameSize = Math.min(7.5, Math.max(5, w / 22));
+    const dateStr  = signer.signed_at
+      ? new Date(signer.signed_at).toLocaleString('es-CO', {
+          timeZone: 'America/Bogota', day: '2-digit', month: 'short',
+          year: 'numeric', hour: '2-digit', minute: '2-digit',
+        })
+      : '';
+    page.drawText(toWinAnsi(signer.signer_name), {
+      x: x + pad, y: y + textH - nameSize - 1,
+      size: nameSize, font: fontB, color: rgb(0.11, 0.22, 0.45),
+      maxWidth: w - pad * 2,
+    });
+    // Role · date (smaller, gray)
+    const subSize  = Math.max(4.5, nameSize - 1.5);
+    const roleDate = [signer.signer_role || 'Firmante', dateStr].filter(Boolean).join('  ·  ');
+    page.drawText(toWinAnsi(roleDate), {
+      x: x + pad, y: y + 2.5,
+      size: subSize, font, color: rgb(0.45, 0.50, 0.58),
+      maxWidth: w - pad * 2,
     });
   }
 

@@ -172,6 +172,41 @@ router.get('/bi', async (req, res) => {
         .slice(0, 20);
     } catch {}
 
+    // ── PMO INDICATORS ──
+    const pmoByProject = [];
+    for (const p of projects) {
+      try {
+        const years = projectYears(p);
+        const lb_income = parseFloat(p.contract_value) || 0;
+        // Planned costs from budget tables (same as financialByProject but retrieved again for clarity)
+        const [pp] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=?', [p.id]);
+        const [pc] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_contractors WHERE project_id=?', [p.id]);
+        const [pe] = await pool.execute('SELECT COALESCE(SUM(valor_total),0) as t FROM budget_expenses WHERE project_id=?', [p.id]);
+        const lb_costs = parseFloat(pp[0].t) + parseFloat(pc[0].t) + parseFloat(pe[0].t);
+        const fin = financialByProject.find(f => f.project_id === p.id) || {};
+        const seg_income = parseFloat(fin.income) || 0;
+        const seg_costs  = parseFloat(fin.expenses) || 0;
+        pmoByProject.push({
+          project_id: p.id, project_name: p.name, project_code: p.code,
+          lb:  pmoIndicators(lb_income,  lb_costs,  years),
+          seg: pmoIndicators(seg_income, seg_costs, years),
+        });
+      } catch { /* skip */ }
+    }
+    // Aggregate PMO
+    const agg_lb_income  = pmoByProject.reduce((s, r) => s + r.lb.income,  0);
+    const agg_lb_costs   = pmoByProject.reduce((s, r) => s + r.lb.costs,   0);
+    const agg_seg_income = pmoByProject.reduce((s, r) => s + r.seg.income, 0);
+    const agg_seg_costs  = pmoByProject.reduce((s, r) => s + r.seg.costs,  0);
+    const avg_years      = projects.length > 0 ? projects.reduce((s, p) => s + projectYears(p), 0) / projects.length : 1;
+    const pmo = {
+      aggregate: {
+        lb:  pmoIndicators(agg_lb_income,  agg_lb_costs,  avg_years),
+        seg: pmoIndicators(agg_seg_income, agg_seg_costs, avg_years),
+      },
+      by_project: pmoByProject,
+    };
+
     // ── AGGREGATE STATS ──
     const totalValue = projects.reduce((s, p) => s + parseFloat(p.contract_value || 0), 0);
     const totalObligations = obGlobal.reduce((s, r) => s + parseInt(r.total), 0);
@@ -205,6 +240,7 @@ router.get('/bi', async (req, res) => {
         team: teamGlobal,
         policies: { by_project: policyGlobal, expiring: expiringPolicies },
         payments: paymentStats,
+        pmo,
         timeline,
         generated_at: new Date().toISOString(),
       }
@@ -222,6 +258,59 @@ function groupCount(arr, field) {
     map[key] = (map[key] || 0) + 1;
   });
   return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+}
+
+// ── PMO Financial helpers ──────────────────────────────────────────────────
+function computeIRR(cashFlows) {
+  if (!cashFlows || cashFlows.length < 2) return null;
+  // Need at least one sign change
+  const hasPositive = cashFlows.some(c => c > 0);
+  const hasNegative = cashFlows.some(c => c < 0);
+  if (!hasPositive || !hasNegative) return null;
+  let rate = 0.10;
+  for (let i = 0; i < 300; i++) {
+    let npv = 0, dnpv = 0;
+    for (let t = 0; t < cashFlows.length; t++) {
+      const denom = Math.pow(1 + rate, t);
+      npv  += cashFlows[t] / denom;
+      if (t > 0) dnpv -= (t * cashFlows[t]) / (denom * (1 + rate));
+    }
+    if (Math.abs(dnpv) < 1e-12) break;
+    const delta = npv / dnpv;
+    rate -= delta;
+    if (rate <= -0.999) rate = -0.998;
+    if (Math.abs(delta) < 1e-9) break;
+  }
+  const pct = rate * 100;
+  return (isFinite(pct) && pct > -99 && pct < 1000) ? Math.round(pct * 10) / 10 : null;
+}
+
+function computeNPV(cashFlows, rate = 0.10) {
+  return cashFlows.reduce((s, cf, t) => s + cf / Math.pow(1 + rate, t), 0);
+}
+
+function buildCashFlows(totalCost, totalIncome, years) {
+  const n = Math.max(1, Math.round(years));
+  const annualIncome = totalIncome / n;
+  const flows = [-totalCost];
+  for (let i = 1; i <= n; i++) flows.push(annualIncome);
+  return flows;
+}
+
+function projectYears(p) {
+  const term = parseFloat(p.execution_term) || 1;
+  if (p.execution_term_unit === 'anos') return term;
+  if (p.execution_term_unit === 'meses') return term / 12;
+  return term / 365;
+}
+
+function pmoIndicators(income, costs, years) {
+  const flows  = buildCashFlows(costs, income, years);
+  const tir    = computeIRR(flows);
+  const vpn    = costs > 0 ? Math.round(computeNPV(flows, 0.10)) : 0;
+  const renta  = costs > 0 ? Math.round((income - costs) / costs * 100 * 10) / 10 : 0;
+  const margen = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : 0;
+  return { income, costs, rentabilidad: renta, margen, tir, vpn };
 }
 
 module.exports = router;

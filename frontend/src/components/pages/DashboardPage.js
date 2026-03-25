@@ -39,8 +39,70 @@ function KPI({ label, value, sub, icon: Icon, color, onClick, trend }) {
         )}
       </div>
       <p className="text-2xl font-display font-bold text-brand-900 mt-2">{value}</p>
-      <p className="text-[11px] text-surface-400 mt-0.5">{label}</p>
+      <p className="text-[11px] text-surface-600 font-medium mt-0.5">{label}</p>
       {sub && <p className="text-[10px] text-surface-500 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+/* ── PMO Indicators Panel ─────────────────────────────── */
+function PMOPanel({ pmo, projects }) {
+  const [sel, setSel] = useState('all');
+  if (!pmo) return null;
+  const d = sel === 'all' ? pmo.aggregate : pmo.by_project?.find(p => String(p.project_id) === sel);
+  if (!d) return null;
+
+  const ColIndicator = ({ label, val, format }) => (
+    <div className="text-center">
+      <p className="text-[10px] font-medium mb-1 opacity-70">{label}</p>
+      <p className={`font-bold leading-tight ${format === 'currency' ? 'text-sm' : 'text-xl'}`}>
+        {val == null ? '—' : format === 'currency' ? COP(val) : format === 'pct' ? `${val}%` : val}
+      </p>
+    </div>
+  );
+
+  const SideCard = ({ title, data, colorClass, headerClass }) => (
+    <div className={`flex-1 ${colorClass} rounded-xl p-4 border`}>
+      <p className={`text-xs font-bold text-center uppercase tracking-widest mb-4 ${headerClass}`}>{title}</p>
+      <div className="grid grid-cols-3 gap-2">
+        <ColIndicator label="Rentabilidad" val={data?.rentabilidad} format="pct" />
+        <ColIndicator label="TIR" val={data?.tir} format="pct" />
+        <ColIndicator label="VPN" val={data?.vpn} format="currency" />
+      </div>
+      <div className="mt-3 pt-3 border-t border-current/10 grid grid-cols-2 gap-2">
+        <ColIndicator label="Margen Neto" val={data?.margen} format="pct" />
+        <ColIndicator label="Costos" val={data?.costs} format="currency" />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow-card overflow-hidden">
+      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-surface-100">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-brand-600" />
+          <h3 className="font-display font-semibold text-brand-900 text-sm">Indicadores PMO</h3>
+          <span className="text-[10px] bg-surface-100 text-surface-500 px-2 py-0.5 rounded-full">Tasa de descuento: 10%</span>
+        </div>
+        <select value={sel} onChange={e => setSel(e.target.value)} className="input-field text-xs w-52">
+          <option value="all">Todos los proyectos</option>
+          {projects.map(p => <option key={p.id} value={String(p.id)}>{p.code} — {p.name}</option>)}
+        </select>
+      </div>
+      <div className="px-5 py-4 flex gap-4">
+        <SideCard
+          title="Línea Base"
+          data={d.lb}
+          colorClass="bg-blue-50 border-blue-100 text-blue-900"
+          headerClass="text-blue-700"
+        />
+        <SideCard
+          title="Seguimiento"
+          data={d.seg}
+          colorClass="bg-emerald-50 border-emerald-100 text-emerald-900"
+          headerClass="text-emerald-700"
+        />
+      </div>
     </div>
   );
 }
@@ -295,6 +357,9 @@ export default function DashboardPage() {
         <KPI label="Equipo Activo" value={filterByProject(data.team).reduce((s,t)=>s+parseInt(t.activos||0),0)} icon={Users} color="bg-purple-500" />
       </div>
 
+      {/* PMO Indicators */}
+      {data.pmo && <PMOPanel pmo={data.pmo} projects={data.projects} />}
+
       {/* Row 1: Status + Type + Priority */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <ChartCard title="Por Estado" onExport={() => exportCSV(statusData, 'proyectos_estado')}>
@@ -313,7 +378,7 @@ export default function DashboardPage() {
                 onClick={() => setFilters(f => ({...f, status: sm.by_status[i]?.name}))}>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                  <span className="text-surface-500">{item.name}</span>
+                  <span className="text-surface-700">{item.name}</span>
                 </div>
                 <span className="font-semibold text-brand-900">{item.value}</span>
               </div>
@@ -325,8 +390,8 @@ export default function DashboardPage() {
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={typeData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} allowDecimals={false} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#94A3B8' }} width={80} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#475569' }} allowDecimals={false} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#475569' }} width={80} />
               <Tooltip contentStyle={TOOLTIP_STYLE} />
               <Bar dataKey="value" fill="#1B5FAA" radius={[0,4,4,0]} name="Proyectos"
                 onClick={(d) => setFilters(f => ({...f, type: sm.by_type.find(t => (TYPE_L[t.name]||t.name) === d.name)?.name}))} className="cursor-pointer" />
@@ -338,10 +403,10 @@ export default function DashboardPage() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={finData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} />
-              <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickFormatter={v => fmt(v)} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
+              <YAxis tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => fmt(v)} />
               <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => COP(v)} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="ingreso" fill="#059669" name="Ingreso" radius={[2,2,0,0]}
                 onClick={(d) => { if (d.project_id) navigate(`/adjudicacion/${d.project_id}`); }} className="cursor-pointer" />
               <Bar dataKey="gasto" fill="#DC2626" name="Gasto" radius={[2,2,0,0]} />
@@ -356,10 +421,10 @@ export default function DashboardPage() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={progressData} barGap={0}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} />
-              <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
+              <YAxis tick={{ fontSize: 9, fill: '#475569' }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
               <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v}%`} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="avance" fill="#059669" name="Avance Físico" radius={[2,2,0,0]}
                 onClick={d => { if (d.project_id) navigate(`/adjudicacion/${d.project_id}`); }} className="cursor-pointer" />
               <Bar dataKey="tiempo" fill="#94A3B8" name="Tiempo Transcurrido" radius={[2,2,0,0]} />
@@ -371,10 +436,10 @@ export default function DashboardPage() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={obChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} />
-              <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} allowDecimals={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
+              <YAxis tick={{ fontSize: 9, fill: '#475569' }} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="cumplidas" stackId="a" fill="#059669" name="Cumplidas" />
               <Bar dataKey="en_curso" stackId="a" fill="#3B82F6" name="En curso" />
               <Bar dataKey="pendientes" stackId="a" fill="#F59E0B" name="Pendientes" />
@@ -392,12 +457,12 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height={250}>
               <RadarChart data={riskCatData}>
                 <PolarGrid stroke="#E2E8F0" />
-                <PolarAngleAxis dataKey="category" tick={{ fontSize: 10, fill: '#64748B' }} />
+                <PolarAngleAxis dataKey="category" tick={{ fontSize: 10, fill: '#334155' }} />
                 <PolarRadiusAxis tick={{ fontSize: 9 }} />
                 <Radar name="Total" dataKey="total" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.3} />
                 <Radar name="Críticos" dataKey="criticos" stroke="#EF4444" fill="#EF4444" fillOpacity={0.3} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               </RadarChart>
             </ResponsiveContainer>
           ) : <p className="text-center text-surface-400 text-sm py-12">Sin datos de riesgos</p>}
@@ -407,8 +472,8 @@ export default function DashboardPage() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={finData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} />
-              <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickFormatter={v => `${v.toFixed(0)}%`} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
+              <YAxis tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => `${v.toFixed(0)}%`} />
               <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v.toFixed(1)}%`} />
               <Bar dataKey="margen_pct" name="Margen %" radius={[4,4,0,0]}>
                 {finData.map((d, i) => <Cell key={i} fill={d.margen_pct >= 15 ? '#059669' : d.margen_pct >= 0 ? '#F59E0B' : '#EF4444'} />)}

@@ -5,6 +5,9 @@ import {
   CheckCircle, XCircle, AlertTriangle, PenLine, RotateCcw,
   FileText, Shield, Loader2, Type, ImageIcon, Smartphone, Upload, MapPin,
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
 
 const PUBLIC_API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
@@ -281,6 +284,146 @@ function MultiSignaturePad({ onSigned, onModeChange, disabled, token, signerName
   );
 }
 
+/* ── PDF viewer with interactive signature field overlay ────────────────────── */
+function PDFSignerViewer({ pdfUrl, signerPage, xPct, yPct, wPct, hPct, done, onFieldClick, onNumPages }) {
+  const [pages,   setPages]   = useState([]);
+  const [numPgs,  setNumPgs]  = useState(0);
+  const [loading, setLoading] = useState(true);
+  const canvasRefs = useRef([]);
+  const fieldRef   = useRef(null);
+
+  // 1 — load PDF
+  useEffect(() => {
+    if (!pdfUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+        if (cancelled) return;
+        const n = pdf.numPages;
+        const data = [];
+        for (let p = 1; p <= n; p++) data.push({ page: await pdf.getPage(p), num: p });
+        if (!cancelled) { setPages(data); setNumPgs(n); onNumPages?.(n); }
+      } catch (e) { if (!cancelled) { console.error('[PDFSignerViewer]', e); setLoading(false); } }
+    })();
+    return () => { cancelled = true; };
+  }, [pdfUrl, onNumPages]);
+
+  // 2 — render canvases
+  useEffect(() => {
+    if (!pages.length) return;
+    let cancelled = false;
+    (async () => {
+      const cw = canvasRefs.current[0]?.parentElement?.parentElement?.clientWidth || 680;
+      for (let i = 0; i < pages.length; i++) {
+        const canvas = canvasRefs.current[i];
+        if (!canvas || cancelled) break;
+        const vp0   = pages[i].page.getViewport({ scale: 1 });
+        const scale = cw / vp0.width;
+        const vp    = pages[i].page.getViewport({ scale });
+        canvas.width  = vp.width;
+        canvas.height = vp.height;
+        await pages[i].page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [pages]);
+
+  // 3 — auto-scroll to signature field
+  useEffect(() => {
+    if (!loading && fieldRef.current)
+      setTimeout(() => fieldRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+  }, [loading]);
+
+  // Convert total-doc y_percent → per-page fraction for the signing page
+  const perPageY = numPgs > 0
+    ? Math.max(0, Math.min(1 - hPct, yPct * numPgs - (signerPage - 1)))
+    : yPct;
+
+  return (
+    <div>
+      <style>{`
+        @keyframes sigFieldPulse {
+          0%,100% { box-shadow: 0 0 0 3px rgba(27,95,170,0.22); }
+          50%      { box-shadow: 0 0 0 7px rgba(27,95,170,0.07); }
+        }
+      `}</style>
+
+      <div style={{ position: 'relative', minHeight: 200 }}>
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10" style={{ minHeight: 200 }}>
+            <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
+          </div>
+        )}
+
+        {pages.map((_, i) => (
+          <div key={i} style={{ position: 'relative' }}>
+            <canvas
+              ref={el => { canvasRefs.current[i] = el; }}
+              style={{ display: 'block', width: '100%', borderBottom: i < pages.length - 1 ? '2px solid #e2e8f0' : 'none' }}
+            />
+
+            {/* ── Interactive "Clic para firmar" overlay ─────────────────── */}
+            {i + 1 === signerPage && !done && (
+              <div
+                ref={fieldRef}
+                onClick={onFieldClick}
+                style={{
+                  position: 'absolute',
+                  left:   `${xPct  * 100}%`,
+                  top:    `${perPageY * 100}%`,
+                  width:  `${wPct  * 100}%`,
+                  height: `${hPct  * 100}%`,
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  border: '2.5px solid #1B5FAA',
+                  borderRadius: 5,
+                  background: 'rgba(27,95,170,0.07)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 2,
+                  animation: 'sigFieldPulse 2s ease-in-out infinite',
+                  overflow: 'hidden',
+                }}
+              >
+                <PenLine size={13} color="#1B5FAA" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#1B5FAA', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+                  Clic para firmar
+                </span>
+              </div>
+            )}
+
+            {/* ── Firmado ──────────────────────────────────────────────────── */}
+            {i + 1 === signerPage && done && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left:   `${xPct  * 100}%`,
+                  top:    `${perPageY * 100}%`,
+                  width:  `${wPct  * 100}%`,
+                  height: `${hPct  * 100}%`,
+                  zIndex: 10,
+                  border: '2px solid #059669',
+                  borderRadius: 5,
+                  background: 'rgba(5,150,105,0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <CheckCircle size={16} color="#059669" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main page ──────────────────────────────────────────── */
 export default function FirmaLibrePage() {
   const { token } = useParams();
@@ -289,6 +432,8 @@ export default function FirmaLibrePage() {
   const [error, setError]             = useState('');
   const [signatureImg, setSignatureImg] = useState(null);
   const [sigMode, setSigMode]           = useState('draw'); // draw | type | image
+  const [sigModalOpen, setSigModalOpen] = useState(false); // modal de firma
+  const [pdfNumPages,  setPdfNumPages]  = useState(null);  // páginas totales del PDF
   const [rejectMode, setRejectMode]   = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting]   = useState(false);
@@ -369,6 +514,7 @@ export default function FirmaLibrePage() {
   const signerPage = signer.page_num || 1;
 
   return (
+    <>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-brand-700 text-white px-6 py-4 shadow">
@@ -408,71 +554,57 @@ export default function FirmaLibrePage() {
           )}
         </div>
 
-        {/* Position indicator */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center gap-3">
-          <MapPin className="w-4 h-4 text-blue-500 flex-shrink-0" />
-          <p className="text-sm text-blue-700">
-            Su firma debe ir en la <strong>página {signerPage}</strong> del documento.
-            {signer.x_percent && (
-              <span className="ml-1 text-blue-500">
-                Posición: {Math.round((signer.x_percent || 0) * 100)}% horizontal,{' '}
-                {Math.round((signer.y_percent  || 0) * 100)}% vertical en esa página.
-              </span>
-            )}
-          </p>
-        </div>
-
-        {/* PDF preview */}
+        {/* PDF con overlay interactivo de firma */}
         {pdfBlobUrl && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Toolbar */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <p className="text-sm font-medium text-gray-700">Vista previa del documento</p>
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-gray-400" />
+                <p className="text-sm font-medium text-gray-700">Vista previa del documento</p>
+              </div>
               <a href={pdfBlobUrl} download={request.file_name}
                 className="text-xs text-brand-600 hover:underline">Descargar original</a>
             </div>
-            <iframe src={`${pdfBlobUrl}#page=${signerPage}`} className="w-full" style={{ height: 480 }} title="Documento" />
+            {/* Hint */}
+            {!done && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-b border-blue-100">
+                <MapPin className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                <p className="text-xs text-blue-700">
+                  Tu campo de firma está en la <strong>página {signerPage}</strong>.
+                  Haz clic en el recuadro azul pulsante para firmar.
+                </p>
+              </div>
+            )}
+            {/* Visor PDF con overlay */}
+            <div className="overflow-y-auto" style={{ maxHeight: '70vh' }}>
+              <PDFSignerViewer
+                pdfUrl={pdfBlobUrl}
+                signerPage={signerPage}
+                xPct={parseFloat(signer.x_percent) || 0.10}
+                yPct={parseFloat(signer.y_percent)  || 0.50}
+                wPct={parseFloat(signer.width_percent)  || 0.25}
+                hPct={parseFloat(signer.height_percent) || 0.08}
+                done={done}
+                onFieldClick={() => { setError(''); setSigModalOpen(true); }}
+                onNumPages={setPdfNumPages}
+              />
+            </div>
           </div>
         )}
 
-        {/* Signature area */}
-        {!rejectMode ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <PenLine className="w-5 h-5 text-brand-500" />
-              <h3 className="font-semibold text-gray-800">Tu firma electrónica</h3>
-            </div>
-
-            <MultiSignaturePad
-              onSigned={setSignatureImg}
-              onModeChange={setSigMode}
-              disabled={submitting}
-              token={token}
-              signerName={signer.name}
-            />
-
-            {error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg text-sm text-red-700 mt-3">
-                <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />{error}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
-              <button onClick={() => setRejectMode(true)}
-                className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors">
-                <XCircle className="w-4 h-4" /> Rechazar documento
-              </button>
-              <button onClick={handleSign} disabled={!signatureImg || submitting}
-                className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-                Firmar documento
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-400 mt-3 text-center">
-              Al firmar acepta que esta firma tiene validez jurídica según Ley 527 de 1999 y Decreto 1074 de 2015 (Colombia). Su IP quedará registrada.
-            </p>
+        {/* Opción rechazar (fuera del modal) */}
+        {!done && !rejectMode && (
+          <div className="flex justify-center">
+            <button onClick={() => setRejectMode(true)}
+              className="flex items-center gap-1.5 text-sm text-red-400 hover:text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg transition-colors">
+              <XCircle className="w-4 h-4" /> Rechazar documento
+            </button>
           </div>
-        ) : (
+        )}
+
+        {/* Formulario de rechazo */}
+        {rejectMode && (
           <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-5">
             <div className="flex items-center gap-2 mb-4">
               <XCircle className="w-5 h-5 text-red-500" />
@@ -495,5 +627,63 @@ export default function FirmaLibrePage() {
         )}
       </div>
     </div>
+
+    {/* ── Modal de firma ────────────────────────────────────────────────────── */}
+    {sigModalOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+        style={{ background: 'rgba(0,0,0,0.45)' }}
+        onClick={e => { if (e.target === e.currentTarget) setSigModalOpen(false); }}
+      >
+        <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-lg">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <PenLine className="w-5 h-5 text-brand-600" />
+              <h3 className="font-semibold text-gray-800">Tu firma electrónica</h3>
+            </div>
+            <button onClick={() => setSigModalOpen(false)}
+              className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+          {/* Pad de firma */}
+          <div className="p-5">
+            <MultiSignaturePad
+              onSigned={setSignatureImg}
+              onModeChange={setSigMode}
+              disabled={submitting}
+              token={token}
+              signerName={signer.name}
+            />
+            {error && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg text-sm text-red-700 mt-3">
+                <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />{error}
+              </div>
+            )}
+          </div>
+          {/* Footer */}
+          <div className="px-5 pb-2 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+            <button onClick={() => { setSigModalOpen(false); setRejectMode(true); }}
+              className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors">
+              <XCircle className="w-4 h-4" /> Rechazar
+            </button>
+            <button
+              onClick={handleSign}
+              disabled={!signatureImg || submitting}
+              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+              Firmar documento
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 text-center px-5 pb-5 pt-2">
+            Al firmar acepta la validez jurídica según Ley 527/1999 y Decreto 1074/2015 (Colombia).
+            Su IP quedará registrada.
+          </p>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -207,15 +207,42 @@ router.get('/bi', async (req, res) => {
         // Costs (Earned Value): budget × % de avance físico
         const seg_costs = progress > 0 ? lb_costs * progress / 100 : 0;
 
-        // Proportional income schedule for SEG
-        const seg_scale = lb_income > 0 ? seg_income / lb_income : 0;
-        const seg_sched = lb_sched.map(r => ({ mes: r.mes, valor: r.valor * seg_scale }));
+        // ─ SPI (Índice de Desempeño de Cronograma) ─
+        const progress_expected = p.total_days_est > 0
+          ? Math.min(100, (parseFloat(p.elapsed_days) || 0) / parseFloat(p.total_days_est) * 100)
+          : 0;
+        const spi = progress_expected > 0
+          ? Math.round((progress / progress_expected) * 100) / 100
+          : null;
+
+        // ─ Actividades atrasadas ─
+        const projSched  = schedGlobal.find(s => s.project_id === p.id);
+        const atrasadas  = parseInt(projSched?.atrasadas || 0);
+        const totalActs  = parseInt(projSched?.total || 0);
+        const pct_atrasadas = totalActs > 0 ? Math.round(atrasadas / totalActs * 1000) / 10 : 0;
+
+        // ─ Recaudo vs contrato ─
+        const recaudo_pct = lb_income > 0
+          ? Math.round(seg_income / lb_income * 1000) / 10
+          : null;
+
+        // ─ Semáforo RAG ─
+        const projRisk   = riskGlobal.find(r => r.project_id === p.id);
+        const criticos   = parseInt(projRisk?.criticos || 0);
+        const projOb     = obGlobal.find(o => o.project_id === p.id);
+        const vencidas_ob = parseInt(projOb?.vencidas || 0);
+        let rag = 'verde';
+        if (p.status === 'suspendido' || (spi !== null && spi < 0.75) || criticos > 3 || vencidas_ob > 3) {
+          rag = 'rojo';
+        } else if ((spi !== null && spi < 0.90) || criticos > 1 || vencidas_ob > 1) {
+          rag = 'amarillo';
+        }
 
         pmoByProject.push({
           project_id: p.id, project_name: p.name, project_code: p.code,
-          progress,
-          lb:  lb_costs  > 0 ? pmoIndicators(lb_income,  lb_costs,  lb_sched,  months)  : null,
-          seg: seg_costs > 0 ? pmoIndicators(seg_income, seg_costs, seg_sched, elapsed) : null,
+          progress, spi, pct_atrasadas, recaudo_pct, rag,
+          lb:  lb_costs  > 0 ? pmoIndicators(lb_income,  lb_costs,  months)  : null,
+          seg: seg_costs > 0 ? pmoIndicators(seg_income, seg_costs, elapsed) : null,
         });
       } catch { /* skip */ }
     }
@@ -231,10 +258,30 @@ router.get('/bi', async (req, res) => {
       ? projects.reduce((s, p) => s + projectMonths(p), 0) / projects.length : 12;
     const avg_elapsed    = projects.length > 0
       ? projects.reduce((s, p) => s + Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30), 0) / projects.length : 6;
+
+    // ─ SPI & RAG aggregates ─
+    const validSpi = pmoByProject.filter(r => r.spi !== null);
+    const avg_spi  = validSpi.length > 0
+      ? Math.round(validSpi.reduce((s, r) => s + r.spi, 0) / validSpi.length * 100) / 100
+      : null;
+    const avg_pct_atrasadas = pmoByProject.length > 0
+      ? Math.round(pmoByProject.reduce((s, r) => s + (r.pct_atrasadas || 0), 0) / pmoByProject.length * 10) / 10
+      : 0;
+    const total_recaudo_pct = agg_lb_income > 0
+      ? Math.round(agg_seg_income / agg_lb_income * 1000) / 10
+      : null;
+    const rag_verde    = pmoByProject.filter(r => r.rag === 'verde').length;
+    const rag_amarillo = pmoByProject.filter(r => r.rag === 'amarillo').length;
+    const rag_rojo     = pmoByProject.filter(r => r.rag === 'rojo').length;
+
     const pmo = {
       aggregate: {
-        lb:  agg_lb_costs  > 0 ? pmoIndicators(agg_lb_income,  agg_lb_costs,  [], avg_months)  : null,
-        seg: agg_seg_costs > 0 ? pmoIndicators(agg_seg_income, agg_seg_costs, [], avg_elapsed) : null,
+        lb:  agg_lb_costs  > 0 ? pmoIndicators(agg_lb_income,  agg_lb_costs,  avg_months)  : null,
+        seg: agg_seg_costs > 0 ? pmoIndicators(agg_seg_income, agg_seg_costs, avg_elapsed) : null,
+        spi: avg_spi,
+        pct_atrasadas: avg_pct_atrasadas,
+        recaudo_pct: total_recaudo_pct,
+        rag: { verde: rag_verde, amarillo: rag_amarillo, rojo: rag_rojo, total: pmoByProject.length },
       },
       by_project: pmoByProject,
     };

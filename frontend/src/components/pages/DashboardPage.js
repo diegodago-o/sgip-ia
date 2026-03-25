@@ -83,8 +83,19 @@ function PMOPanel({ pmo, projects }) {
     </div>
   );
 
+  // ─ Desempeño operativo ─
+  const spi      = d.spi;
+  const spiColor = spi == null ? 'text-surface-400'
+    : spi >= 0.90 ? 'text-emerald-600' : spi >= 0.75 ? 'text-amber-500' : 'text-red-600';
+  const spiLabel = spi == null ? '—'
+    : spi >= 1.00 ? 'Adelantado' : spi >= 0.90 ? 'En tiempo' : spi >= 0.75 ? 'Leve atraso' : 'Atrasado';
+
+  const rag  = d.rag  || { verde: 0, amarillo: 0, rojo: 0, total: 0 };
+  const ragTotal = rag.total || 1;
+
   return (
     <div className="bg-white rounded-xl shadow-card overflow-hidden">
+      {/* Header */}
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-surface-100">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-brand-600" />
@@ -96,7 +107,9 @@ function PMOPanel({ pmo, projects }) {
           {projects.map(p => <option key={p.id} value={String(p.id)}>{p.code} — {p.name}</option>)}
         </select>
       </div>
-      <div className="px-5 py-4 flex gap-4">
+
+      {/* Financiero LB vs SEG */}
+      <div className="px-5 pt-4 pb-3 flex gap-4">
         <SideCard
           title="Línea Base"
           data={d.lb}
@@ -111,6 +124,81 @@ function PMOPanel({ pmo, projects }) {
           colorClass="bg-emerald-50 border-emerald-100 text-emerald-900"
           headerClass="text-emerald-700"
         />
+      </div>
+
+      {/* Desempeño Operativo */}
+      <div className="border-t border-surface-100 px-5 py-4">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-surface-400 mb-3">Desempeño Operativo</p>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {/* SPI */}
+          <div className="bg-surface-50 rounded-xl p-3 border border-surface-100">
+            <p className="text-[10px] text-surface-500 font-medium mb-1">SPI · Índice Cronograma</p>
+            <p className={`text-2xl font-bold font-display ${spiColor}`}>
+              {spi == null ? '—' : spi.toFixed(2)}
+            </p>
+            <p className={`text-[10px] font-medium mt-0.5 ${spiColor}`}>{spiLabel}</p>
+            <p className="text-[9px] text-surface-400 mt-1">avance real ÷ avance esperado</p>
+          </div>
+
+          {/* Actividades atrasadas */}
+          <div className="bg-surface-50 rounded-xl p-3 border border-surface-100">
+            <p className="text-[10px] text-surface-500 font-medium mb-1">Actividades Atrasadas</p>
+            <p className={`text-2xl font-bold font-display ${
+              (d.pct_atrasadas || 0) === 0 ? 'text-emerald-600'
+              : (d.pct_atrasadas || 0) <= 15 ? 'text-amber-500' : 'text-red-600'
+            }`}>
+              {d.pct_atrasadas != null ? `${d.pct_atrasadas}%` : '—'}
+            </p>
+            <p className="text-[9px] text-surface-400 mt-1">del total de actividades</p>
+          </div>
+
+          {/* Recaudo */}
+          <div className="bg-surface-50 rounded-xl p-3 border border-surface-100">
+            <p className="text-[10px] text-surface-500 font-medium mb-1">Recaudo vs Contrato</p>
+            <p className={`text-2xl font-bold font-display ${
+              d.recaudo_pct == null ? 'text-surface-400'
+              : d.recaudo_pct >= 80 ? 'text-emerald-600'
+              : d.recaudo_pct >= 50 ? 'text-amber-500' : 'text-red-600'
+            }`}>
+              {d.recaudo_pct != null ? `${d.recaudo_pct}%` : '—'}
+            </p>
+            <p className="text-[9px] text-surface-400 mt-1">facturado + pagado / valor contrato</p>
+          </div>
+        </div>
+
+        {/* RAG Salud del portafolio */}
+        {sel === 'all' && rag.total > 0 && (
+          <div>
+            <p className="text-[10px] text-surface-500 font-medium mb-2">
+              Salud del Portafolio
+              <span className="ml-2 text-surface-400 font-normal">{rag.total} proyecto{rag.total !== 1 ? 's' : ''}</span>
+            </p>
+            {/* Barra RAG */}
+            <div className="flex rounded-full overflow-hidden h-4 mb-2">
+              {rag.verde    > 0 && <div title={`Verde: ${rag.verde}`}    style={{ width: `${rag.verde/ragTotal*100}%`    }} className="bg-emerald-500 flex items-center justify-center text-[8px] text-white font-bold">{rag.verde}</div>}
+              {rag.amarillo > 0 && <div title={`Amarillo: ${rag.amarillo}`} style={{ width: `${rag.amarillo/ragTotal*100}%` }} className="bg-amber-400 flex items-center justify-center text-[8px] text-white font-bold">{rag.amarillo}</div>}
+              {rag.rojo     > 0 && <div title={`Rojo: ${rag.rojo}`}      style={{ width: `${rag.rojo/ragTotal*100}%`     }} className="bg-red-500 flex items-center justify-center text-[8px] text-white font-bold">{rag.rojo}</div>}
+            </div>
+            <div className="flex items-center gap-4 text-[10px] text-surface-600">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Verde {rag.verde} ({Math.round(rag.verde/ragTotal*100)}%)</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Amarillo {rag.amarillo} ({Math.round(rag.amarillo/ragTotal*100)}%)</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Rojo {rag.rojo} ({Math.round(rag.rojo/ragTotal*100)}%)</span>
+            </div>
+          </div>
+        )}
+        {sel !== 'all' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-surface-500 font-medium">Estado del proyecto:</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              d.rag === 'verde' ? 'bg-emerald-100 text-emerald-700'
+              : d.rag === 'amarillo' ? 'bg-amber-100 text-amber-700'
+              : d.rag === 'rojo' ? 'bg-red-100 text-red-700'
+              : 'bg-surface-100 text-surface-500'
+            }`}>
+              {d.rag === 'verde' ? '● Verde' : d.rag === 'amarillo' ? '● Amarillo' : d.rag === 'rojo' ? '● Rojo' : '—'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

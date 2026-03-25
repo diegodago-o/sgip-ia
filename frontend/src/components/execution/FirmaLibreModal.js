@@ -161,9 +161,13 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, tot
     document.addEventListener('mouseup', onUp);
   };
 
+  // stopClick evita que el click burbujee al contenedor padre y re-coloque el campo
+  const stopClick = (e) => e.stopPropagation();
+
   return (
     <div
       onMouseDown={handleMouseDown}
+      onClick={stopClick}
       style={{
         position: 'absolute',
         left:   `${pos.x_percent      * 100}%`,
@@ -180,13 +184,15 @@ function SignatureFieldBox({ idx, pos, name, color, scrollRef, containerRef, tot
         {idx + 1}. {name}
       </div>
       <button
-        onMouseDown={e => { e.stopPropagation(); onRemove(idx); }}
+        onMouseDown={e => { e.stopPropagation(); }}
+        onClick={e => { e.stopPropagation(); onRemove(idx); }}
         style={{ position: 'absolute', top: -8, right: -8, background: color, border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 11 }}
       >
         <X size={9} color="white" />
       </button>
       <div
         onMouseDown={handleResizeMouseDown}
+        onClick={stopClick}
         style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, cursor: 'se-resize', background: color, borderRadius: '2px 0 3px 0', opacity: 0.8 }}
       />
     </div>

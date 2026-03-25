@@ -167,7 +167,20 @@ function ImageSignaturePad({ onSigned, disabled }) {
     const file = e.target.files?.[0]; if (!file) return;
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onload = (ev) => { setPreview(ev.target.result); onSigned(ev.target.result); };
+    reader.onload = (ev) => {
+      // Convert any format (WebP, GIF, BMP…) to PNG so pdf-lib can embed it
+      const img = new window.Image();
+      img.onload = () => {
+        const cvs = document.createElement('canvas');
+        cvs.width  = img.naturalWidth  || img.width;
+        cvs.height = img.naturalHeight || img.height;
+        cvs.getContext('2d').drawImage(img, 0, 0);
+        const pngDataUrl = cvs.toDataURL('image/png');
+        setPreview(pngDataUrl);
+        onSigned(pngDataUrl);
+      };
+      img.src = ev.target.result;
+    };
     reader.readAsDataURL(file);
   };
   const clear = () => { setPreview(null); onSigned(null); if (inputRef.current) inputRef.current.value = ''; };

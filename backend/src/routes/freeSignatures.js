@@ -192,17 +192,26 @@ async function buildSignedPdf(request, project, signers) {
     const page    = pages[Math.min(pageIdx, pages.length - 1)];
     const { width, height } = page.getSize();
 
-    // Parse base64 signature image
-    const base64Data = signer.signature_image.includes(',')
-      ? signer.signature_image.split(',')[1]
-      : signer.signature_image;
-    const sigBuffer = Buffer.from(base64Data, 'base64');
+    // Parse base64 signature image — detect format from data-URL header
+    const rawDataUrl  = signer.signature_image || '';
+    const mimeMatch   = rawDataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    const detectedMime = mimeMatch ? mimeMatch[1].toLowerCase() : 'image/png';
+    const base64Data  = rawDataUrl.includes(',') ? rawDataUrl.split(',')[1] : rawDataUrl;
+    const sigBuffer   = Buffer.from(base64Data, 'base64');
 
     let sigImage;
     try {
-      sigImage = await pdfDoc.embedPng(sigBuffer);
-    } catch {
-      try { sigImage = await pdfDoc.embedJpg(sigBuffer); } catch { continue; }
+      // Prefer detected format; fall back to the other
+      if (detectedMime === 'image/jpeg' || detectedMime === 'image/jpg') {
+        try       { sigImage = await pdfDoc.embedJpg(sigBuffer); }
+        catch (e2){ sigImage = await pdfDoc.embedPng(sigBuffer); }
+      } else {
+        try       { sigImage = await pdfDoc.embedPng(sigBuffer); }
+        catch (e2){ sigImage = await pdfDoc.embedJpg(sigBuffer); }
+      }
+    } catch (embedErr) {
+      console.error(`[firma] No se pudo embeber imagen firmante ${signer.signer_name} (${detectedMime}):`, embedErr.message);
+      continue;
     }
 
     // MySQL DECIMAL columns arrive as strings — parseFloat to avoid NaN

@@ -180,67 +180,109 @@ router.get('/bi', async (req, res) => {
         const progress = Math.max(0, Math.min(100, parseFloat(p.progress_pct) || 0));
         const elapsed  = Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30); // months elapsed
 
-        // ─ LÍNEA BASE ─
-        const lb_income = parseFloat(p.contract_value) || 0;
+        // ─ LÍNEA BASE: INGRESOS ─
+        // Fuente primaria: schedule de ingresos planificados (budget_income_schedule)
+        const [lbIncRow] = await pool.execute(
+          'SELECT COALESCE(SUM(valor_con_iva),0) as t FROM budget_income_schedule WHERE project_id=?', [p.id]
+        );
+        const lb_income_sched = parseFloat(lbIncRow[0].t);
+        // Fallback: contract_value si el schedule no está configurado
+        const lb_income = lb_income_sched > 0 ? lb_income_sched : (parseFloat(p.contract_value) || 0);
+
+        // ─ LÍNEA BASE: COSTOS ─
         const [pp] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll    WHERE project_id=?', [p.id]);
         const [pc] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_contractors WHERE project_id=?', [p.id]);
         const [pe] = await pool.execute('SELECT COALESCE(SUM(valor_total),0)  as t FROM budget_expenses    WHERE project_id=?', [p.id]);
         const lb_costs = parseFloat(pp[0].t) + parseFloat(pc[0].t) + parseFloat(pe[0].t);
 
-        // Real income payment schedule (grouped by month)
-        const [incSched] = await pool.execute(
-          'SELECT mes, SUM(valor_con_iva) as valor FROM budget_income_schedule WHERE project_id=? GROUP BY mes ORDER BY mes',
-          [p.id]
-        );
-        const lb_sched = incSched.map(r => ({ mes: parseInt(r.mes), valor: parseFloat(r.valor) }));
-
-        // ─ SEGUIMIENTO (Earned Value approach) ─
-        // Income: what's been actually invoiced/collected
+        // ─ SEGUIMIENTO: INGRESOS REALES ─
+        // Facturado/pagado del schedule de ingresos
         const [seg_inc_q] = await pool.execute(
           "SELECT COALESCE(SUM(valor_con_iva),0) as v FROM budget_income_schedule WHERE project_id=? AND estado IN ('pagado','facturado')",
           [p.id]
         );
         const seg_income_actual = parseFloat(seg_inc_q[0].v);
-        // Fallback: proportional to progress if nothing invoiced yet
+        // Fallback: proporcional al avance si nada facturado aún
         const seg_income = seg_income_actual > 0 ? seg_income_actual : (progress > 0 ? lb_income * progress / 100 : 0);
 
-        // Costs (Earned Value): budget × % de avance físico
-        const seg_costs = progress > 0 ? lb_costs * progress / 100 : 0;
+        // ─ SEGUIMIENTO: COSTOS REALES ─
+        // Fuente primaria: budget_tracking.valor_ejecutado (ejecución real registrada)
+        const [btRow] = await pool.execute(
+          'SELECT COALESCE(SUM(valor_ejecutado),0) as t FROM budget_tracking WHERE project_id=?', [p.id]
+        );
+        const seg_costs_real = parseFloat(btRow[0].t);
+        // Fallback: Earned Value si no hay tracking real (lb_costs × avance%)
+        const seg_costs = seg_costs_real > 0 ? seg_costs_real : (progress > 0 ? lb_costs * progress / 100 : 0);
 
         // ─ SPI (Índice de Desempeño de Cronograma) ─
-        const progress_expected = p.total_days_est > 0
-          ? Math.min(100, (parseFloat(p.elapsed_days) || 0) / parseFloat(p.total_days_est) * 100)
-          : 0;
-        const spi = progress_expected > 0
-          ? Math.round((progress / progress_expected) * 100) / 100
-          : null;
+        // Preferir progress_records si tienen datos de avance planificado
+        const [prRow] = await pool.execute(
+          'SELECT physical_planned, physical_actual FROM progress_records WHERE project_id=? AND physical_planned > 0 ORDER BY period_date DESC LIMIT 1',
+          [p.id]
+        );
+        let spi = null;
+        if (prRow.length > 0 && parseFloat(prRow[0].physical_planned) > 0) {
+          // Fuente real: registros de avance
+          spi = Math.round(parseFloat(prRow[0].physical_actual) / parseFloat(prRow[0].physical_planned) * 100) / 100;
+        } else {
+          // Fallback: avance físico real ÷ avance esperado por tiempo transcurrido
+          const progress_expected = p.total_days_est > 0
+            ? Math.min(100, (parseFloat(p.elapsed_days) || 0) / parseFloat(p.total_days_est) * 100)
+            : 0;
+          spi = progress_expected > 0
+            ? Math.round((progress / progress_expected) * 100) / 100
+            : null;
+        }
+
+        // ─ CPI (Índice de Desempeño de Costos) ─
+        // EV (Valor Ganado) = Costo planificado × % avance real
+        // AC (Costo Real)   = budget_tracking.valor_ejecutado (o estimado proporcional)
+        const ev = lb_costs * progress / 100;
+        let cpi = null;
+        if (seg_costs_real > 0 && ev > 0) {
+          // Fuente real: ejecución de budget_tracking
+          cpi = Math.round(ev / seg_costs_real * 100) / 100;
+        } else if (elapsed > 0 && months > 0 && lb_costs > 0 && progress > 0) {
+          // Fallback estimado: EV ÷ (lb_costs × tiempo_transcurrido)
+          const ac_est = lb_costs * Math.min(1, elapsed / months);
+          cpi = ac_est > 0 ? Math.round(ev / ac_est * 100) / 100 : null;
+        }
 
         // ─ Actividades atrasadas ─
-        const projSched  = schedGlobal.find(s => s.project_id === p.id);
-        const atrasadas  = parseInt(projSched?.atrasadas || 0);
-        const totalActs  = parseInt(projSched?.total || 0);
+        const projSched     = schedGlobal.find(s => s.project_id === p.id);
+        const atrasadas     = parseInt(projSched?.atrasadas || 0);
+        const totalActs     = parseInt(projSched?.total || 0);
         const pct_atrasadas = totalActs > 0 ? Math.round(atrasadas / totalActs * 1000) / 10 : 0;
 
         // ─ Recaudo vs contrato ─
-        const recaudo_pct = lb_income > 0
-          ? Math.round(seg_income / lb_income * 1000) / 10
+        // Fuente: payments.net_value WHERE status='pagado' (pagos reales recibidos)
+        const [recRow] = await pool.execute(
+          "SELECT COALESCE(SUM(net_value),0) as t FROM payments WHERE project_id=? AND status='pagado'", [p.id]
+        );
+        const pagos_recibidos = parseFloat(recRow[0].t);
+        const contract_value  = parseFloat(p.contract_value) || 0;
+        const recaudo_pct = contract_value > 0
+          ? Math.round(pagos_recibidos / contract_value * 1000) / 10
           : null;
 
-        // ─ Semáforo RAG ─
-        const projRisk   = riskGlobal.find(r => r.project_id === p.id);
-        const criticos   = parseInt(projRisk?.criticos || 0);
-        const projOb     = obGlobal.find(o => o.project_id === p.id);
-        const vencidas_ob = parseInt(projOb?.vencidas || 0);
+        // ─ Semáforo RAG — estándar PMO: basado en SPI y CPI ─
+        // Verde:    SPI >= 0.95 Y CPI >= 0.95
+        // Amarillo: SPI o CPI entre 0.80 y 0.95
+        // Rojo:     SPI < 0.80 O CPI < 0.80 O suspendido
         let rag = 'verde';
-        if (p.status === 'suspendido' || (spi !== null && spi < 0.75) || criticos > 3 || vencidas_ob > 3) {
+        const spiBad  = spi !== null && spi  < 0.80;
+        const cpiBad  = cpi !== null && cpi  < 0.80;
+        const spiWarn = spi !== null && spi  < 0.95;
+        const cpiWarn = cpi !== null && cpi  < 0.95;
+        if (p.status === 'suspendido' || spiBad || cpiBad) {
           rag = 'rojo';
-        } else if ((spi !== null && spi < 0.90) || criticos > 1 || vencidas_ob > 1) {
+        } else if (spiWarn || cpiWarn) {
           rag = 'amarillo';
         }
 
         pmoByProject.push({
           project_id: p.id, project_name: p.name, project_code: p.code,
-          progress, spi, pct_atrasadas, recaudo_pct, rag,
+          progress, spi, cpi, pct_atrasadas, recaudo_pct, rag,
           lb:  lb_costs  > 0 ? pmoIndicators(lb_income,  lb_costs,  months)  : null,
           seg: seg_costs > 0 ? pmoIndicators(seg_income, seg_costs, elapsed) : null,
         });
@@ -259,17 +301,24 @@ router.get('/bi', async (req, res) => {
     const avg_elapsed    = projects.length > 0
       ? projects.reduce((s, p) => s + Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30), 0) / projects.length : 6;
 
-    // ─ SPI & RAG aggregates ─
+    // ─ Agregados operativos ─
     const validSpi = pmoByProject.filter(r => r.spi !== null);
     const avg_spi  = validSpi.length > 0
-      ? Math.round(validSpi.reduce((s, r) => s + r.spi, 0) / validSpi.length * 100) / 100
-      : null;
+      ? Math.round(validSpi.reduce((s, r) => s + r.spi, 0) / validSpi.length * 100) / 100 : null;
+
+    const validCpi = pmoByProject.filter(r => r.cpi !== null);
+    const avg_cpi  = validCpi.length > 0
+      ? Math.round(validCpi.reduce((s, r) => s + r.cpi, 0) / validCpi.length * 100) / 100 : null;
+
     const avg_pct_atrasadas = pmoByProject.length > 0
-      ? Math.round(pmoByProject.reduce((s, r) => s + (r.pct_atrasadas || 0), 0) / pmoByProject.length * 10) / 10
-      : 0;
-    const total_recaudo_pct = agg_lb_income > 0
-      ? Math.round(agg_seg_income / agg_lb_income * 1000) / 10
-      : null;
+      ? Math.round(pmoByProject.reduce((s, r) => s + (r.pct_atrasadas || 0), 0) / pmoByProject.length * 10) / 10 : 0;
+
+    // Recaudo total: suma de payments pagados ÷ suma de contract_value
+    const total_pagos   = pmoByProject.reduce((s, r) => s + (r.recaudo_pct != null && parseFloat(r.recaudo_pct) >= 0
+      ? (parseFloat(projects.find(px => px.id === r.project_id)?.contract_value) || 0) * r.recaudo_pct / 100 : 0), 0);
+    const total_contrato = projects.reduce((s, p) => s + (parseFloat(p.contract_value) || 0), 0);
+    const total_recaudo_pct = total_contrato > 0 ? Math.round(total_pagos / total_contrato * 1000) / 10 : null;
+
     const rag_verde    = pmoByProject.filter(r => r.rag === 'verde').length;
     const rag_amarillo = pmoByProject.filter(r => r.rag === 'amarillo').length;
     const rag_rojo     = pmoByProject.filter(r => r.rag === 'rojo').length;
@@ -279,6 +328,7 @@ router.get('/bi', async (req, res) => {
         lb:  agg_lb_costs  > 0 ? pmoIndicators(agg_lb_income,  agg_lb_costs,  avg_months)  : null,
         seg: agg_seg_costs > 0 ? pmoIndicators(agg_seg_income, agg_seg_costs, avg_elapsed) : null,
         spi: avg_spi,
+        cpi: avg_cpi,
         pct_atrasadas: avg_pct_atrasadas,
         recaudo_pct: total_recaudo_pct,
         rag: { verde: rag_verde, amarillo: rag_amarillo, rojo: rag_rojo, total: pmoByProject.length },
@@ -403,7 +453,8 @@ function computeVPN(income, costs, numMonths) {
 /** Compute all PMO indicators. numMonths = horizon used for TIR/VPN. */
 function pmoIndicators(income, costs, numMonths) {
   if (!income && !costs) return { income: 0, costs: 0, rentabilidad: null, margen: null, tir: null, vpn: null };
-  const rentabilidad = costs > 0 ? Math.round((income - costs) / costs * 100 * 10) / 10 : null;
+  // Rentabilidad = Margen Neto = (Ingresos - Costos) / Ingresos × 100
+  const rentabilidad = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : null;
   const margen       = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : null;
   const tir = computeTIR(income, costs, numMonths);
   const vpn = computeVPN(income, costs, numMonths);

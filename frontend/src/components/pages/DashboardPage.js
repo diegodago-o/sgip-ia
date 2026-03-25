@@ -86,9 +86,15 @@ function PMOPanel({ pmo, projects }) {
   // ─ Desempeño operativo ─
   const spi      = d.spi;
   const spiColor = spi == null ? 'text-surface-400'
-    : spi >= 0.90 ? 'text-emerald-600' : spi >= 0.75 ? 'text-amber-500' : 'text-red-600';
+    : spi >= 0.95 ? 'text-emerald-600' : spi >= 0.80 ? 'text-amber-500' : 'text-red-600';
   const spiLabel = spi == null ? '—'
-    : spi >= 1.00 ? 'Adelantado' : spi >= 0.90 ? 'En tiempo' : spi >= 0.75 ? 'Leve atraso' : 'Atrasado';
+    : spi >= 1.00 ? 'Adelantado' : spi >= 0.95 ? 'En tiempo' : spi >= 0.80 ? 'Leve atraso' : 'Atrasado';
+
+  const cpi      = d.cpi;
+  const cpiColor = cpi == null ? 'text-surface-400'
+    : cpi >= 0.95 ? 'text-emerald-600' : cpi >= 0.80 ? 'text-amber-500' : 'text-red-600';
+  const cpiLabel = cpi == null ? '—'
+    : cpi >= 1.00 ? 'Bajo presupuesto' : cpi >= 0.95 ? 'En presupuesto' : cpi >= 0.80 ? 'Leve sobrecoste' : 'Sobrecoste';
 
   const rag  = d.rag  || { verde: 0, amarillo: 0, rojo: 0, total: 0 };
   const ragTotal = rag.total || 1;
@@ -120,7 +126,7 @@ function PMOPanel({ pmo, projects }) {
         <SideCard
           title="Seguimiento"
           data={d.seg}
-          note="Valor ganado · costos = presupuesto × avance%"
+          note="Ingresos facturados/pagados · costos reales ejecutados"
           colorClass="bg-emerald-50 border-emerald-100 text-emerald-900"
           headerClass="text-emerald-700"
         />
@@ -129,15 +135,25 @@ function PMOPanel({ pmo, projects }) {
       {/* Desempeño Operativo */}
       <div className="border-t border-surface-100 px-5 py-4">
         <p className="text-[10px] font-bold uppercase tracking-widest text-surface-400 mb-3">Desempeño Operativo</p>
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {/* SPI */}
           <div className="bg-surface-50 rounded-xl p-3 border border-surface-100">
-            <p className="text-[10px] text-surface-500 font-medium mb-1">SPI · Índice Cronograma</p>
+            <p className="text-[10px] text-surface-500 font-medium mb-1">SPI · Cronograma</p>
             <p className={`text-2xl font-bold font-display ${spiColor}`}>
               {spi == null ? '—' : spi.toFixed(2)}
             </p>
             <p className={`text-[10px] font-medium mt-0.5 ${spiColor}`}>{spiLabel}</p>
-            <p className="text-[9px] text-surface-400 mt-1">avance real ÷ avance esperado</p>
+            <p className="text-[9px] text-surface-400 mt-1">avance real ÷ avance planificado</p>
+          </div>
+
+          {/* CPI */}
+          <div className="bg-surface-50 rounded-xl p-3 border border-surface-100">
+            <p className="text-[10px] text-surface-500 font-medium mb-1">CPI · Costos</p>
+            <p className={`text-2xl font-bold font-display ${cpiColor}`}>
+              {cpi == null ? '—' : cpi.toFixed(2)}
+            </p>
+            <p className={`text-[10px] font-medium mt-0.5 ${cpiColor}`}>{cpiLabel}</p>
+            <p className="text-[9px] text-surface-400 mt-1">valor ganado ÷ costo real</p>
           </div>
 
           {/* Actividades atrasadas */}
@@ -149,7 +165,7 @@ function PMOPanel({ pmo, projects }) {
             }`}>
               {d.pct_atrasadas != null ? `${d.pct_atrasadas}%` : '—'}
             </p>
-            <p className="text-[9px] text-surface-400 mt-1">del total de actividades</p>
+            <p className="text-[9px] text-surface-400 mt-1">vencidas sin completar / total</p>
           </div>
 
           {/* Recaudo */}
@@ -162,7 +178,7 @@ function PMOPanel({ pmo, projects }) {
             }`}>
               {d.recaudo_pct != null ? `${d.recaudo_pct}%` : '—'}
             </p>
-            <p className="text-[9px] text-surface-400 mt-1">facturado + pagado / valor contrato</p>
+            <p className="text-[9px] text-surface-400 mt-1">pagos recibidos / valor contrato</p>
           </div>
         </div>
 
@@ -187,8 +203,8 @@ function PMOPanel({ pmo, projects }) {
           </div>
         )}
         {sel !== 'all' && (
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-surface-500 font-medium">Estado del proyecto:</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-[10px] text-surface-500 font-medium">Salud del proyecto:</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
               d.rag === 'verde' ? 'bg-emerald-100 text-emerald-700'
               : d.rag === 'amarillo' ? 'bg-amber-100 text-amber-700'
@@ -196,6 +212,12 @@ function PMOPanel({ pmo, projects }) {
               : 'bg-surface-100 text-surface-500'
             }`}>
               {d.rag === 'verde' ? '● Verde' : d.rag === 'amarillo' ? '● Amarillo' : d.rag === 'rojo' ? '● Rojo' : '—'}
+            </span>
+            <span className="text-[9px] text-surface-400">
+              {d.rag === 'verde' ? 'SPI ≥ 0.95 y CPI ≥ 0.95'
+               : d.rag === 'amarillo' ? 'SPI o CPI entre 0.80 y 0.95'
+               : d.rag === 'rojo' ? 'SPI < 0.80 o CPI < 0.80'
+               : ''}
             </span>
           </div>
         )}

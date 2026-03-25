@@ -61,18 +61,25 @@ function PMOPanel({ pmo, projects }) {
     </div>
   );
 
-  const SideCard = ({ title, data, colorClass, headerClass }) => (
+  const SideCard = ({ title, data, colorClass, headerClass, note }) => (
     <div className={`flex-1 ${colorClass} rounded-xl p-4 border`}>
-      <p className={`text-xs font-bold text-center uppercase tracking-widest mb-4 ${headerClass}`}>{title}</p>
-      <div className="grid grid-cols-3 gap-2">
-        <ColIndicator label="Rentabilidad" val={data?.rentabilidad} format="pct" />
-        <ColIndicator label="TIR" val={data?.tir} format="pct" />
-        <ColIndicator label="VPN" val={data?.vpn} format="currency" />
-      </div>
-      <div className="mt-3 pt-3 border-t border-current/10 grid grid-cols-2 gap-2">
-        <ColIndicator label="Margen Neto" val={data?.margen} format="pct" />
-        <ColIndicator label="Costos" val={data?.costs} format="currency" />
-      </div>
+      <p className={`text-xs font-bold text-center uppercase tracking-widest mb-1 ${headerClass}`}>{title}</p>
+      {note && <p className="text-[9px] text-center opacity-60 mb-3">{note}</p>}
+      {!data ? (
+        <p className="text-center text-xs opacity-50 py-4">Sin datos suficientes</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <ColIndicator label="Rentabilidad" val={data.rentabilidad} format="pct" />
+            <ColIndicator label="TIR anual" val={data.tir} format="pct" />
+            <ColIndicator label="VPN" val={data.vpn} format="currency" />
+          </div>
+          <div className="mt-3 pt-3 border-t border-current/10 grid grid-cols-2 gap-2">
+            <ColIndicator label="Margen Neto" val={data.margen} format="pct" />
+            <ColIndicator label="Costos" val={data.costs} format="currency" />
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -93,12 +100,14 @@ function PMOPanel({ pmo, projects }) {
         <SideCard
           title="Línea Base"
           data={d.lb}
+          note="Valor contrato vs presupuesto planificado"
           colorClass="bg-blue-50 border-blue-100 text-blue-900"
           headerClass="text-blue-700"
         />
         <SideCard
           title="Seguimiento"
           data={d.seg}
+          note="Valor ganado · costos = presupuesto × avance%"
           colorClass="bg-emerald-50 border-emerald-100 text-emerald-900"
           headerClass="text-emerald-700"
         />

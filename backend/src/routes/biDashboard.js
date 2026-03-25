@@ -176,33 +176,65 @@ router.get('/bi', async (req, res) => {
     const pmoByProject = [];
     for (const p of projects) {
       try {
-        const years = projectYears(p);
+        const months   = projectMonths(p);
+        const progress = Math.max(0, Math.min(100, parseFloat(p.progress_pct) || 0));
+        const elapsed  = Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30); // months elapsed
+
+        // ─ LÍNEA BASE ─
         const lb_income = parseFloat(p.contract_value) || 0;
-        // Planned costs from budget tables (same as financialByProject but retrieved again for clarity)
-        const [pp] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=?', [p.id]);
+        const [pp] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll    WHERE project_id=?', [p.id]);
         const [pc] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_contractors WHERE project_id=?', [p.id]);
-        const [pe] = await pool.execute('SELECT COALESCE(SUM(valor_total),0) as t FROM budget_expenses WHERE project_id=?', [p.id]);
+        const [pe] = await pool.execute('SELECT COALESCE(SUM(valor_total),0)  as t FROM budget_expenses    WHERE project_id=?', [p.id]);
         const lb_costs = parseFloat(pp[0].t) + parseFloat(pc[0].t) + parseFloat(pe[0].t);
-        const fin = financialByProject.find(f => f.project_id === p.id) || {};
-        const seg_income = parseFloat(fin.income) || 0;
-        const seg_costs  = parseFloat(fin.expenses) || 0;
+
+        // Real income payment schedule (grouped by month)
+        const [incSched] = await pool.execute(
+          'SELECT mes, SUM(valor_con_iva) as valor FROM budget_income_schedule WHERE project_id=? GROUP BY mes ORDER BY mes',
+          [p.id]
+        );
+        const lb_sched = incSched.map(r => ({ mes: parseInt(r.mes), valor: parseFloat(r.valor) }));
+
+        // ─ SEGUIMIENTO (Earned Value approach) ─
+        // Income: what's been actually invoiced/collected
+        const [seg_inc_q] = await pool.execute(
+          "SELECT COALESCE(SUM(valor_con_iva),0) as v FROM budget_income_schedule WHERE project_id=? AND estado IN ('pagado','facturado')",
+          [p.id]
+        );
+        const seg_income_actual = parseFloat(seg_inc_q[0].v);
+        // Fallback: proportional to progress if nothing invoiced yet
+        const seg_income = seg_income_actual > 0 ? seg_income_actual : (progress > 0 ? lb_income * progress / 100 : 0);
+
+        // Costs (Earned Value): budget × % de avance físico
+        const seg_costs = progress > 0 ? lb_costs * progress / 100 : 0;
+
+        // Proportional income schedule for SEG
+        const seg_scale = lb_income > 0 ? seg_income / lb_income : 0;
+        const seg_sched = lb_sched.map(r => ({ mes: r.mes, valor: r.valor * seg_scale }));
+
         pmoByProject.push({
           project_id: p.id, project_name: p.name, project_code: p.code,
-          lb:  pmoIndicators(lb_income,  lb_costs,  years),
-          seg: pmoIndicators(seg_income, seg_costs, years),
+          progress,
+          lb:  lb_costs  > 0 ? pmoIndicators(lb_income,  lb_costs,  lb_sched,  months)  : null,
+          seg: seg_costs > 0 ? pmoIndicators(seg_income, seg_costs, seg_sched, elapsed) : null,
         });
       } catch { /* skip */ }
     }
+
     // Aggregate PMO
-    const agg_lb_income  = pmoByProject.reduce((s, r) => s + r.lb.income,  0);
-    const agg_lb_costs   = pmoByProject.reduce((s, r) => s + r.lb.costs,   0);
-    const agg_seg_income = pmoByProject.reduce((s, r) => s + r.seg.income, 0);
-    const agg_seg_costs  = pmoByProject.reduce((s, r) => s + r.seg.costs,  0);
-    const avg_years      = projects.length > 0 ? projects.reduce((s, p) => s + projectYears(p), 0) / projects.length : 1;
+    const validLb  = pmoByProject.filter(r => r.lb);
+    const validSeg = pmoByProject.filter(r => r.seg);
+    const agg_lb_income  = validLb.reduce((s, r)  => s + r.lb.income,  0);
+    const agg_lb_costs   = validLb.reduce((s, r)  => s + r.lb.costs,   0);
+    const agg_seg_income = validSeg.reduce((s, r) => s + r.seg.income, 0);
+    const agg_seg_costs  = validSeg.reduce((s, r) => s + r.seg.costs,  0);
+    const avg_months     = projects.length > 0
+      ? projects.reduce((s, p) => s + projectMonths(p), 0) / projects.length : 12;
+    const avg_elapsed    = projects.length > 0
+      ? projects.reduce((s, p) => s + Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30), 0) / projects.length : 6;
     const pmo = {
       aggregate: {
-        lb:  pmoIndicators(agg_lb_income,  agg_lb_costs,  avg_years),
-        seg: pmoIndicators(agg_seg_income, agg_seg_costs, avg_years),
+        lb:  agg_lb_costs  > 0 ? pmoIndicators(agg_lb_income,  agg_lb_costs,  [], avg_months)  : null,
+        seg: agg_seg_costs > 0 ? pmoIndicators(agg_seg_income, agg_seg_costs, [], avg_elapsed) : null,
       },
       by_project: pmoByProject,
     };
@@ -261,56 +293,119 @@ function groupCount(arr, field) {
 }
 
 // ── PMO Financial helpers ──────────────────────────────────────────────────
-function computeIRR(cashFlows) {
+
+/** Project duration in months */
+function projectMonths(p) {
+  const term = parseFloat(p.execution_term) || 12;
+  if (p.execution_term_unit === 'anos')  return term * 12;
+  if (p.execution_term_unit === 'meses') return term;
+  return Math.max(1, term / 30); // dias → meses
+}
+
+/**
+ * Newton-Raphson monthly IRR, returns annualised % or null
+ * cashFlows[0] must be negative (initial outflow).
+ */
+function computeMonthlyIRR(cashFlows) {
   if (!cashFlows || cashFlows.length < 2) return null;
-  // Need at least one sign change
-  const hasPositive = cashFlows.some(c => c > 0);
-  const hasNegative = cashFlows.some(c => c < 0);
-  if (!hasPositive || !hasNegative) return null;
-  let rate = 0.10;
+  if (!cashFlows.some(v => v > 0) || !cashFlows.some(v => v < 0)) return null;
+  let r = 0.01; // start at 1 % / month
   for (let i = 0; i < 300; i++) {
-    let npv = 0, dnpv = 0;
+    let npv = 0, d = 0;
     for (let t = 0; t < cashFlows.length; t++) {
-      const denom = Math.pow(1 + rate, t);
-      npv  += cashFlows[t] / denom;
-      if (t > 0) dnpv -= (t * cashFlows[t]) / (denom * (1 + rate));
+      const denom = Math.pow(1 + r, t);
+      npv += cashFlows[t] / denom;
+      if (t > 0) d -= t * cashFlows[t] / (denom * (1 + r));
     }
-    if (Math.abs(dnpv) < 1e-12) break;
-    const delta = npv / dnpv;
-    rate -= delta;
-    if (rate <= -0.999) rate = -0.998;
+    if (Math.abs(d) < 1e-14) break;
+    const delta = npv / d;
+    r -= delta;
+    if (r <= -0.999) r = -0.998;
     if (Math.abs(delta) < 1e-9) break;
   }
-  const pct = rate * 100;
-  return (isFinite(pct) && pct > -99 && pct < 1000) ? Math.round(pct * 10) / 10 : null;
+  if (!isFinite(r) || r <= -1) return null;
+  // Annualise
+  const annual = (Math.pow(1 + r, 12) - 1) * 100;
+  return (annual > -99 && annual < 5000) ? Math.round(annual * 10) / 10 : null;
 }
 
-function computeNPV(cashFlows, rate = 0.10) {
-  return cashFlows.reduce((s, cf, t) => s + cf / Math.pow(1 + rate, t), 0);
+/**
+ * VPN at 10 % annual (monthly equivalent) for a monthly cash-flow array.
+ */
+function computeMonthlyVPN(cashFlows) {
+  const mr = Math.pow(1.10, 1 / 12) - 1; // monthly discount ≈ 0.797 %
+  return Math.round(cashFlows.reduce((s, cf, t) => s + cf / Math.pow(1 + mr, t), 0));
 }
 
-function buildCashFlows(totalCost, totalIncome, years) {
-  const n = Math.max(1, Math.round(years));
-  const annualIncome = totalIncome / n;
-  const flows = [-totalCost];
-  for (let i = 1; i <= n; i++) flows.push(annualIncome);
-  return flows;
+/**
+ * Build monthly cash flows.
+ * – incomeSchedule: [{mes, valor}] from budget_income_schedule (grouped by mes)
+ * – totalCost: planned costs spread evenly across months
+ * – numMonths: project duration in months
+ *
+ * Period 0 = initial working-capital outflow (first month's cost).
+ * Costs are assumed to occur BEFORE income each month (conservative model).
+ */
+function buildMonthlyFlows(incomeSchedule, totalCost, numMonths) {
+  const n = Math.max(2, Math.round(numMonths));
+  const monthlyCost = totalCost / n;
+
+  // If we have a real schedule, use it; otherwise distribute evenly
+  let incByMonth;
+  if (incomeSchedule && incomeSchedule.length >= 2) {
+    incByMonth = {};
+    incomeSchedule.forEach(r => { incByMonth[r.mes] = parseFloat(r.valor) || 0; });
+  } else {
+    // Even distribution
+    incByMonth = {};
+    const monthlyInc = totalCost > 0 ? (totalCost + totalCost * 0.40) / n : 0; // placeholder; caller overrides
+    for (let m = 1; m <= n; m++) incByMonth[m] = monthlyInc;
+  }
+
+  // Rebuild with actual total income so the schedule sums correctly
+  const totalInc = Object.values(incByMonth).reduce((s, v) => s + v, 0);
+  const flows = [];
+  // Period 0: negative outflow = first month working capital
+  flows.push(-monthlyCost);
+  for (let m = 1; m <= n; m++) {
+    const inc = incByMonth[m] || 0;
+    const cost = monthlyCost;
+    flows.push(inc - cost);
+  }
+  return { flows, totalInc };
 }
 
-function projectYears(p) {
-  const term = parseFloat(p.execution_term) || 1;
-  if (p.execution_term_unit === 'anos') return term;
-  if (p.execution_term_unit === 'meses') return term / 12;
-  return term / 365;
-}
+/**
+ * Compute all PMO indicators for a given income / cost pair.
+ * incomeSchedule: [{mes, valor}] — monthly distribution of income (may be empty)
+ * numMonths: project duration in months
+ */
+function pmoIndicators(income, costs, incomeSchedule, numMonths) {
+  if (!income && !costs) return { income: 0, costs: 0, rentabilidad: null, margen: null, tir: null, vpn: null };
 
-function pmoIndicators(income, costs, years) {
-  const flows  = buildCashFlows(costs, income, years);
-  const tir    = computeIRR(flows);
-  const vpn    = costs > 0 ? Math.round(computeNPV(flows, 0.10)) : 0;
-  const renta  = costs > 0 ? Math.round((income - costs) / costs * 100 * 10) / 10 : 0;
-  const margen = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : 0;
-  return { income, costs, rentabilidad: renta, margen, tir, vpn };
+  const rentabilidad = costs > 0 ? Math.round((income - costs) / costs * 100 * 10) / 10 : null;
+  const margen       = income > 0 ? Math.round((income - costs) / income * 100 * 10) / 10 : null;
+
+  // Build monthly flows using the income schedule (or even distribution)
+  let sched = incomeSchedule;
+  if (!sched || !sched.length) {
+    // Construct synthetic even schedule from income total
+    const n = Math.max(2, Math.round(numMonths));
+    const monthlyInc = income / n;
+    sched = Array.from({ length: n }, (_, i) => ({ mes: i + 1, valor: monthlyInc }));
+  }
+
+  const { flows } = buildMonthlyFlows(sched, costs, numMonths);
+
+  // Scale flows so that income totals equal the declared income
+  const rawInc = flows.slice(1).reduce((s, v) => s + v, 0) + costs; // recover income from flows
+  const scale  = rawInc > 0 ? income / rawInc : 1;
+  const scaledFlows = flows.map((v, t) => t === 0 ? v : v * scale);
+
+  const tir = computeMonthlyIRR(scaledFlows);
+  const vpn = computeMonthlyVPN(scaledFlows);
+
+  return { income, costs, rentabilidad, margen, tir, vpn };
 }
 
 module.exports = router;

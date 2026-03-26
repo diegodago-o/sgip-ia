@@ -80,6 +80,22 @@ router.put('/users/:id',
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
+// ═══ DELETE USER (Admin only) ═══
+router.delete('/users/:id', roleMiddleware('admin'), async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id);
+    if (targetId === req.user.id) return res.status(400).json({ error: 'No puede eliminar su propio usuario' });
+    const [rows] = await pool.execute('SELECT id, full_name, email FROM users WHERE id=?', [targetId]);
+    if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+    // Eliminar asignaciones primero
+    await pool.execute('DELETE FROM project_assignments WHERE user_id=?', [targetId]);
+    await pool.execute('DELETE FROM users WHERE id=?', [targetId]);
+    await pool.execute('INSERT INTO audit_log (user_id,action,entity_type,entity_id,details) VALUES (?,?,?,?,?)',
+      [req.user.id, 'delete_user', 'user', targetId, JSON.stringify({ email: rows[0].email, full_name: rows[0].full_name })]);
+    res.json({ message: `Usuario ${rows[0].full_name} eliminado` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ═══ TOGGLE USER ACTIVE (Admin only) ═══
 router.patch('/users/:id/toggle', roleMiddleware('admin'), async (req, res) => {
   try {

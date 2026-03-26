@@ -259,6 +259,7 @@ export const adminAPI = {
   createUser: (data) => api.post('/admin/users', data),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
   toggleUser: (id) => api.patch(`/admin/users/${id}/toggle`),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
   assignableUsers: () => api.get('/admin/users/assignable'),
   getUserAssignments: (uid) => api.get(`/admin/users/${uid}/assignments`),
   getAssignments: (pid) => api.get(`/admin/projects/${pid}/assignments`),

@@ -45,6 +45,14 @@ export default function AdminUsersPage() {
     } catch (err) { alert(err.response?.data?.error || 'Error'); }
   };
 
+  const handleDelete = async (user) => {
+    if (!window.confirm(`¿Eliminar permanentemente a "${user.full_name}"?\n\nEsta acción no se puede deshacer y removerá al usuario de todos los proyectos.`)) return;
+    try {
+      await adminAPI.deleteUser(user.id);
+      loadUsers();
+    } catch (err) { alert(err.response?.data?.error || 'Error al eliminar'); }
+  };
+
   const filtered = users.filter(u =>
     u.full_name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -99,6 +107,7 @@ export default function AdminUsersPage() {
               onExpand={() => setExpandedUser(expandedUser === u.id ? null : u.id)}
               onEdit={() => { setEditUser(u); setShowModal(true); }}
               onToggle={() => handleToggle(u.id)}
+              onDelete={() => handleDelete(u)}
               isSelf={u.id === currentUser.id} />
           ))}
           {filtered.length === 0 && <p className="text-center py-8 text-surface-400 text-sm">No se encontraron usuarios</p>}
@@ -111,7 +120,7 @@ export default function AdminUsersPage() {
   );
 }
 
-function UserCard({ user, isExpanded, onExpand, onEdit, onToggle, isSelf }) {
+function UserCard({ user, isExpanded, onExpand, onEdit, onToggle, onDelete, isSelf }) {
   const info = ROLE_INFO[user.role] || { label: user.role, color: 'bg-gray-100 text-gray-700' };
   return (
     <div className={`bg-white rounded-xl border border-surface-100 transition-all ${!user.is_active ? 'opacity-60' : ''}`}>
@@ -151,6 +160,11 @@ function UserCard({ user, isExpanded, onExpand, onEdit, onToggle, isSelf }) {
               <button onClick={onToggle} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-50 text-surface-600 text-xs hover:bg-surface-100">
                 {user.is_active ? <ToggleRight className="w-3 h-3" /> : <ToggleLeft className="w-3 h-3" />}
                 {user.is_active ? 'Desactivar' : 'Activar'}
+              </button>
+            )}
+            {!isSelf && (
+              <button onClick={onDelete} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs hover:bg-red-100">
+                <Trash2 className="w-3 h-3" /> Eliminar
               </button>
             )}
           </div>

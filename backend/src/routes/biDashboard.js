@@ -312,11 +312,10 @@ router.get('/bi', async (req, res) => {
         ? Math.round((agg_income - agg_costs) / agg_income * 100 * 10) / 10
         : null;
 
-      // VPN portafolio = Σ VPN_individual (demostrable: ΣVPNᵢ = VPN(Σflujos) cuando la tasa es igual)
+      // VPN portafolio = Σ VPN_individual
+      // Usa getIncome/getCosts/getMonths para tomar LB o SEG según el escenario correcto
       const vpn = validArr.reduce((s, r) => {
-        const ind = getIncome(r);
-        const ind_vpn = r.lb ? r.lb.vpn : r.seg ? r.seg.vpn : 0;
-        return s + (ind_vpn || 0);
+        return s + computeVPN(getIncome(r), getCosts(r), getMonths(r));
       }, 0);
 
       // TIR portafolio = TIR de flujos consolidados mes a mes

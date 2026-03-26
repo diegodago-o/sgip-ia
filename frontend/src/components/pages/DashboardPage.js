@@ -254,7 +254,40 @@ function FilterBadge({ label, onRemove }) {
   );
 }
 
-const TOOLTIP_STYLE = { backgroundColor: '#0A1F3A', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' };
+const TOOLTIP_STYLE = { backgroundColor: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.10)', fontSize: '12px', padding: '8px 12px' };
+const TOOLTIP_LABEL_STYLE = { color: '#0F172A', fontWeight: 600, marginBottom: 2 };
+const TOOLTIP_ITEM_STYLE = { color: '#475569' };
+
+function ChartTooltip({ active, payload, label, formatter, unit }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{
+      backgroundColor: '#1e293b',
+      border: 'none',
+      borderRadius: '8px',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+      padding: '8px 12px',
+      fontSize: '12px',
+      minWidth: 100,
+    }}>
+      {label !== undefined && label !== '' && (
+        <p style={{ color: '#ffffff', fontWeight: 700, marginBottom: 4, marginTop: 0 }}>{label}</p>
+      )}
+      {payload.map((entry, i) => {
+        const val = formatter ? formatter(entry.value, entry.name) : entry.value;
+        const displayVal = Array.isArray(val) ? val[0] : val;
+        const displayName = Array.isArray(val) ? val[1] : (entry.name || '');
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: i < payload.length - 1 ? 3 : 0 }}>
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: entry.color || entry.fill || '#60A5FA', flexShrink: 0 }} />
+            {displayName && <span style={{ color: '#94a3b8' }}>{displayName}:</span>}
+            <span style={{ color: '#ffffff', fontWeight: 600 }}>{displayVal}{unit || ''}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
@@ -488,7 +521,7 @@ export default function DashboardPage() {
                 onClick={(_, idx) => setFilters(f => ({...f, status: sm.by_status[idx]?.name}))}>
                 {statusData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} className="cursor-pointer hover:opacity-80" />)}
               </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip content={<ChartTooltip />} wrapperStyle={{ outline: 'none' }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1">
@@ -511,7 +544,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis type="number" tick={{ fontSize: 10, fill: '#475569' }} allowDecimals={false} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#475569' }} width={80} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip content={<ChartTooltip />} wrapperStyle={{ outline: 'none' }} />
               <Bar dataKey="value" fill="#1B5FAA" radius={[0,4,4,0]} name="Proyectos"
                 onClick={(d) => setFilters(f => ({...f, type: sm.by_type.find(t => (TYPE_L[t.name]||t.name) === d.name)?.name}))} className="cursor-pointer" />
             </BarChart>
@@ -524,7 +557,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
               <YAxis tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => fmt(v)} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => COP(v)} />
+              <Tooltip content={(p) => <ChartTooltip {...p} formatter={(v) => COP(v)} />} wrapperStyle={{ outline: 'none' }} />
               <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="ingreso" fill="#059669" name="Ingreso" radius={[2,2,0,0]}
                 onClick={(d) => { if (d.project_id) navigate(`/adjudicacion/${d.project_id}`); }} className="cursor-pointer" />
@@ -542,7 +575,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
               <YAxis tick={{ fontSize: 9, fill: '#475569' }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v}%`} />
+              <Tooltip content={(p) => <ChartTooltip {...p} formatter={(v) => `${v}%`} />} wrapperStyle={{ outline: 'none' }} />
               <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="avance" fill="#059669" name="Avance Físico" radius={[2,2,0,0]}
                 onClick={d => { if (d.project_id) navigate(`/adjudicacion/${d.project_id}`); }} className="cursor-pointer" />
@@ -557,7 +590,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
               <YAxis tick={{ fontSize: 9, fill: '#475569' }} allowDecimals={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip content={<ChartTooltip />} wrapperStyle={{ outline: 'none' }} />
               <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               <Bar dataKey="cumplidas" stackId="a" fill="#059669" name="Cumplidas" />
               <Bar dataKey="en_curso" stackId="a" fill="#3B82F6" name="En curso" />
@@ -580,7 +613,7 @@ export default function DashboardPage() {
                 <PolarRadiusAxis tick={{ fontSize: 9 }} />
                 <Radar name="Total" dataKey="total" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.3} />
                 <Radar name="Críticos" dataKey="criticos" stroke="#EF4444" fill="#EF4444" fillOpacity={0.3} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Tooltip content={<ChartTooltip />} wrapperStyle={{ outline: 'none' }} />
                 <Legend wrapperStyle={{ fontSize: 10, color: '#334155' }} />
               </RadarChart>
             </ResponsiveContainer>
@@ -593,7 +626,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#475569' }} />
               <YAxis tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => `${v.toFixed(0)}%`} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v.toFixed(1)}%`} />
+              <Tooltip content={(p) => <ChartTooltip {...p} formatter={(v) => `${v.toFixed(1)}%`} />} wrapperStyle={{ outline: 'none' }} />
               <Bar dataKey="margen_pct" name="Margen %" radius={[4,4,0,0]}>
                 {finData.map((d, i) => <Cell key={i} fill={d.margen_pct >= 15 ? '#059669' : d.margen_pct >= 0 ? '#F59E0B' : '#EF4444'} />)}
               </Bar>

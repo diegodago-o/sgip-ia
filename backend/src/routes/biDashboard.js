@@ -282,24 +282,68 @@ router.get('/bi', async (req, res) => {
 
         pmoByProject.push({
           project_id: p.id, project_name: p.name, project_code: p.code,
-          progress, spi, cpi, pct_atrasadas, recaudo_pct, rag,
+          progress, spi, cpi, pct_atrasadas, recaudo_pct,
+          pagos_recibidos, contract_value,
+          _months: months,   // duración propia — necesaria para TIR consolidada
+          _elapsed: elapsed, // tiempo transcurrido — para TIR SEG consolidada
+          rag,
           lb:  lb_costs  > 0 ? pmoIndicators(lb_income,  lb_costs,  months)  : null,
           seg: seg_costs > 0 ? pmoIndicators(seg_income, seg_costs, elapsed) : null,
         });
       } catch { /* skip */ }
     }
 
-    // Aggregate PMO
+    // ── AGGREGATE PMO ──────────────────────────────────────────────────────────
     const validLb  = pmoByProject.filter(r => r.lb);
     const validSeg = pmoByProject.filter(r => r.seg);
     const agg_lb_income  = validLb.reduce((s, r)  => s + r.lb.income,  0);
     const agg_lb_costs   = validLb.reduce((s, r)  => s + r.lb.costs,   0);
     const agg_seg_income = validSeg.reduce((s, r) => s + r.seg.income, 0);
     const agg_seg_costs  = validSeg.reduce((s, r) => s + r.seg.costs,  0);
-    const avg_months     = projects.length > 0
-      ? projects.reduce((s, p) => s + projectMonths(p), 0) / projects.length : 12;
-    const avg_elapsed    = projects.length > 0
-      ? projects.reduce((s, p) => s + Math.max(1, (parseFloat(p.elapsed_days) || 30) / 30), 0) / projects.length : 6;
+
+    // ─ Rentabilidad portafolio: (ΣIngresos - ΣCostos) / ΣIngresos — recalcular sobre totales
+    // ─ VPN portafolio: suma de VPNs individuales (VPN es aditivo para proyectos independientes)
+    // ─ TIR portafolio: flujos mensuales CONSOLIDADOS → Newton-Raphson (único método correcto)
+    function aggIndicators(validArr, agg_income, agg_costs, getIncome, getCosts, getMonths) {
+      if (agg_costs === 0) return null;
+
+      // Rentabilidad = margen neto sobre ingresos totales
+      const rentabilidad = agg_income > 0
+        ? Math.round((agg_income - agg_costs) / agg_income * 100 * 10) / 10
+        : null;
+
+      // VPN portafolio = Σ VPN_individual (demostrable: ΣVPNᵢ = VPN(Σflujos) cuando la tasa es igual)
+      const vpn = validArr.reduce((s, r) => {
+        const ind = getIncome(r);
+        const ind_vpn = r.lb ? r.lb.vpn : r.seg ? r.seg.vpn : 0;
+        return s + (ind_vpn || 0);
+      }, 0);
+
+      // TIR portafolio = TIR de flujos consolidados mes a mes
+      // Modelo: t=0 → -ΣCostos; t=1..n_max → suma de (income_i/n_i) de proyectos activos en t
+      const portfolioProjects = validArr
+        .map(r => ({
+          income: getCosts(r) > 0 ? getIncome(r) : 0,
+          costs:  getCosts(r),
+          n:      Math.max(2, Math.round(getMonths(r))),
+        }))
+        .filter(p => p.costs > 0 && p.income > 0);
+
+      const tir = computeConsolidatedTIR(portfolioProjects);
+
+      return { income: agg_income, costs: agg_costs, rentabilidad, margen: rentabilidad, tir, vpn };
+    }
+
+    // LB: income = r.lb.income, costs = r.lb.costs, months = r._months
+    const agg_lb_ind = aggIndicators(
+      validLb, agg_lb_income, agg_lb_costs,
+      r => r.lb.income, r => r.lb.costs, r => r._months
+    );
+    // SEG: income = r.seg.income, costs = r.seg.costs, elapsed = r._elapsed
+    const agg_seg_ind = aggIndicators(
+      validSeg, agg_seg_income, agg_seg_costs,
+      r => r.seg.income, r => r.seg.costs, r => r._elapsed
+    );
 
     // ─ Agregados operativos ─
     const validSpi = pmoByProject.filter(r => r.spi !== null);
@@ -313,11 +357,11 @@ router.get('/bi', async (req, res) => {
     const avg_pct_atrasadas = pmoByProject.length > 0
       ? Math.round(pmoByProject.reduce((s, r) => s + (r.pct_atrasadas || 0), 0) / pmoByProject.length * 10) / 10 : 0;
 
-    // Recaudo total: suma de payments pagados ÷ suma de contract_value
-    const total_pagos   = pmoByProject.reduce((s, r) => s + (r.recaudo_pct != null && parseFloat(r.recaudo_pct) >= 0
-      ? (parseFloat(projects.find(px => px.id === r.project_id)?.contract_value) || 0) * r.recaudo_pct / 100 : 0), 0);
-    const total_contrato = projects.reduce((s, p) => s + (parseFloat(p.contract_value) || 0), 0);
-    const total_recaudo_pct = total_contrato > 0 ? Math.round(total_pagos / total_contrato * 1000) / 10 : null;
+    // ─ Recaudo total: usar pagos_recibidos directos (sin reconstruir desde recaudo_pct redondeado) ─
+    const total_pagos    = pmoByProject.reduce((s, r) => s + (r.pagos_recibidos || 0), 0);
+    const total_contrato = pmoByProject.reduce((s, r) => s + (r.contract_value  || 0), 0);
+    const total_recaudo_pct = total_contrato > 0
+      ? Math.round(total_pagos / total_contrato * 1000) / 10 : null;
 
     const rag_verde    = pmoByProject.filter(r => r.rag === 'verde').length;
     const rag_amarillo = pmoByProject.filter(r => r.rag === 'amarillo').length;
@@ -325,8 +369,8 @@ router.get('/bi', async (req, res) => {
 
     const pmo = {
       aggregate: {
-        lb:  agg_lb_costs  > 0 ? pmoIndicators(agg_lb_income,  agg_lb_costs,  avg_months)  : null,
-        seg: agg_seg_costs > 0 ? pmoIndicators(agg_seg_income, agg_seg_costs, avg_elapsed) : null,
+        lb:  agg_lb_ind,
+        seg: agg_seg_ind,
         spi: avg_spi,
         cpi: avg_cpi,
         pct_atrasadas: avg_pct_atrasadas,
@@ -448,6 +492,61 @@ function computeVPN(income, costs, numMonths) {
   const monthlyInc = income / n;
   const flows = [-costs, ...Array(n).fill(monthlyInc)];
   return Math.round(flows.reduce((s, cf, t) => s + cf / Math.pow(1 + mr, t), 0));
+}
+
+/**
+ * TIR del PORTAFOLIO calculada sobre flujos mensuales CONSOLIDADOS.
+ *
+ * Método: cada proyecto aporta su inversión en t=0 y sus ingresos distribuidos
+ * uniformemente en t=1..n_i. Los flujos de todos los proyectos se SUMAN por período,
+ * generando un único vector consolidado sobre el que se resuelve TIR(VAN=0).
+ *
+ * Esto es matemáticamente correcto (≠ suma/promedio de TIRs individuales).
+ *
+ * @param {Array<{income, costs, n}>} projects — array de proyectos con n=duración en meses
+ * @returns {number|null} TIR anualizada en %
+ */
+function computeConsolidatedTIR(projects) {
+  if (!projects || projects.length === 0) return null;
+  const valid = projects.filter(p => p.costs > 0 && p.income > 0 && p.n >= 2);
+  if (valid.length === 0) return null;
+
+  // Horizonte = duración máxima entre proyectos
+  const nMax = Math.max(...valid.map(p => p.n));
+
+  // Construir flujos consolidados
+  const flows = new Array(nMax + 1).fill(0);
+  flows[0] = -valid.reduce((s, p) => s + p.costs, 0); // inversión total en t=0
+
+  for (const p of valid) {
+    const monthly = p.income / p.n;
+    for (let t = 1; t <= p.n; t++) {
+      flows[t] += monthly; // cada proyecto aporta su cuota mensual
+    }
+  }
+
+  // Verificar cambio de signo (condición necesaria para TIR real única)
+  const hasPositive = flows.slice(1).some(f => f > 0);
+  if (!hasPositive) return null;
+
+  // Newton-Raphson sobre el vector consolidado
+  let r = 0.01;
+  for (let i = 0; i < 500; i++) {
+    let npv = 0, d = 0;
+    for (let t = 0; t < flows.length; t++) {
+      const denom = Math.pow(1 + r, t);
+      npv += flows[t] / denom;
+      if (t > 0) d -= t * flows[t] / (denom * (1 + r));
+    }
+    if (Math.abs(d) < 1e-14) break;
+    const delta = npv / d;
+    r -= delta;
+    if (r <= -0.999) r = -0.998;
+    if (Math.abs(delta) < 1e-9) break;
+  }
+  if (!isFinite(r) || r <= -1) return null;
+  const annual = (Math.pow(1 + r, 12) - 1) * 100;
+  return (annual > -9999 && annual < 99999) ? Math.round(annual * 10) / 10 : null;
 }
 
 /** Compute all PMO indicators. numMonths = horizon used for TIR/VPN. */

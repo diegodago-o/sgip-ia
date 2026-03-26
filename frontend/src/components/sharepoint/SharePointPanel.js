@@ -362,7 +362,7 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
       )}
 
       {/* File list */}
-      <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-200 rounded-xl overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-16 gap-2 text-surface-300">
             <Loader2 className="w-5 h-5 animate-spin" />
@@ -380,7 +380,7 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
             )}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] text-sm">
             <thead>
               <tr className="border-b border-surface-100">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-surface-400 w-auto">Nombre</th>

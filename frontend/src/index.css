@@ -11,18 +11,24 @@
 }
 
 @layer components {
+  /* Botón primario / acción única: fondo teal sólido, texto blanco */
   .btn-primary {
-    @apply bg-brand-600 text-white px-5 py-2.5 rounded-lg font-medium
-           hover:bg-brand-700 active:bg-brand-800
+    @apply bg-brand-500 text-white px-5 py-2.5 rounded-lg font-normal text-[1rem]
+           border border-brand-500
+           hover:bg-brand-600 hover:border-brand-600 active:bg-brand-700
            transition-all duration-200 ease-out
            focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
+  /* Botón secundario/cancelar: outline teal, hover → fondo teal sólido */
   .btn-ghost {
-    @apply text-brand-600 px-4 py-2 rounded-lg font-medium
-           hover:bg-brand-50 active:bg-brand-100
-           transition-all duration-150;
+    @apply bg-white text-brand-500 px-5 py-2.5 rounded-lg font-normal text-[1rem]
+           border border-brand-500
+           hover:bg-brand-500 hover:text-white active:bg-brand-600
+           transition-all duration-200 ease-out
+           focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .input-field {
@@ -38,3 +44,22 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* ── Texto de todos los modales ────────────────────────────────────────────
+   .fixed.inset-0 apunta al overlay de TODOS los modales de la app.
+   - label: !important para vencer utilidades Tailwind (siempre #868d96)
+   - p, li, td, th: solo si NO tienen clase text-* explícita de Tailwind
+     (:not([class*="text-"]) evita sobreescribir colores semánticos)
+────────────────────────────────────────────────────────────────────────── */
+.fixed.inset-0 label {
+  color: #868d96 !important;
+  font-size: 0.8rem !important;
+}
+
+.fixed.inset-0 p:not([class*="text-"]),
+.fixed.inset-0 li:not([class*="text-"]),
+.fixed.inset-0 td:not([class*="text-"]),
+.fixed.inset-0 th:not([class*="text-"]) {
+  color: #868d96;
+  font-size: 0.8rem;
+}

@@ -99,10 +99,10 @@ router.get('/:projectId/panel', async (req, res) => {
 
       // Correspondence
       pool.execute(`SELECT COUNT(*) as total,
-        SUM(correspondence_type='recibida') as recibidas,
-        SUM(correspondence_type='enviada') as enviadas,
-        SUM(correspondence_type='recibida' AND status='pendiente_respuesta') as sin_respuesta,
-        SUM(correspondence_type='recibida' AND status='pendiente_respuesta'
+        SUM(status='recibido') as recibidas,
+        SUM(status IN ('radicado','enviado')) as enviadas,
+        SUM(status='recibido') as sin_respuesta,
+        SUM(status='recibido'
             AND reference_date < DATE_SUB(CURDATE(), INTERVAL 7 DAY)) as vencidas_respuesta
         FROM correspondence WHERE project_id=?`, [pid]),
 
@@ -126,7 +126,7 @@ router.get('/:projectId/panel', async (req, res) => {
         SUM(status IN ('solicitado','en_revision')) as pendientes,
         COALESCE(SUM(impact_cost),0) as total_impact_cost,
         COALESCE(SUM(impact_days),0) as total_impact_days
-        FROM changes WHERE project_id=?`, [pid]),
+        FROM change_orders WHERE project_id=?`, [pid]),
 
       // Budget tracking
       pool.execute(`SELECT
@@ -170,12 +170,12 @@ router.get('/:projectId/panel', async (req, res) => {
       // Timeline: minutes
       pool.execute(`SELECT 'minute' as type, COALESCE(minute_number,'') as ref, title as name,
         meeting_date as date, status, 'bajo' as severity
-        FROM minutes WHERE project_id=? AND meeting_date IS NOT NULL ORDER BY meeting_date DESC LIMIT 8`, [pid]),
+        FROM meeting_minutes WHERE project_id=? AND meeting_date IS NOT NULL ORDER BY meeting_date DESC LIMIT 8`, [pid]),
 
       // Timeline: changes
       pool.execute(`SELECT 'change' as type, COALESCE(change_number,'') as ref, title as name,
         requested_date as date, status, 'medio' as severity
-        FROM changes WHERE project_id=? AND requested_date IS NOT NULL ORDER BY requested_date DESC LIMIT 5`, [pid]),
+        FROM change_orders WHERE project_id=? AND requested_date IS NOT NULL ORDER BY requested_date DESC LIMIT 5`, [pid]),
 
       // Recent activity (cross-module union)
       pool.execute(`
@@ -185,7 +185,7 @@ router.get('/:projectId/panel', async (req, res) => {
         UNION ALL
         (SELECT 'obligation'     as type, LEFT(description,60)             as title, status, updated_at as date FROM obligations    WHERE project_id=? ORDER BY updated_at  DESC LIMIT 3)
         UNION ALL
-        (SELECT 'minute'         as type, title                            as title, status, created_at as date FROM minutes        WHERE project_id=? ORDER BY created_at  DESC LIMIT 3)
+        (SELECT 'minute'         as type, title                            as title, status, created_at as date FROM meeting_minutes WHERE project_id=? ORDER BY created_at  DESC LIMIT 3)
         UNION ALL
         (SELECT 'correspondence' as type, LEFT(subject,60)                 as title, status, created_at as date FROM correspondence WHERE project_id=? ORDER BY created_at  DESC LIMIT 2)
         ORDER BY date DESC LIMIT 12`, [pid, pid, pid, pid, pid]),

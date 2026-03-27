@@ -166,6 +166,7 @@ export default function IndicadoresPage() {
   });
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
   const [dropOpen, setDropOpen] = useState(false);
 
   // Load projects list
@@ -188,9 +189,10 @@ export default function IndicadoresPage() {
   const loadData = useCallback(() => {
     if (!selectedId) return;
     setLoading(true);
+    setError(null);
     indicatorsAPI.panel(selectedId)
-      .then(({ data: r }) => setData(r.data))
-      .catch(() => setData(null))
+      .then(({ data: r }) => { setData(r.data); setError(null); })
+      .catch((e) => { setData(null); setError(e?.response?.data?.error || 'Error cargando el panel'); })
       .finally(() => setLoading(false));
   }, [selectedId]);
 
@@ -279,6 +281,20 @@ export default function IndicadoresPage() {
       {/* ── Loading ── */}
       {selectedId && loading && !data && (
         <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-brand-400" /></div>
+      )}
+
+      {/* ── Error ── */}
+      {selectedId && !loading && !data && error && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-3">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+          </div>
+          <p className="text-sm font-medium text-red-600 mb-1">Error cargando el panel</p>
+          <p className="text-xs text-surface-400 mb-4">{error}</p>
+          <button onClick={loadData} className="text-xs px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700">
+            Reintentar
+          </button>
+        </div>
       )}
 
       {/* ── Panel content ── */}

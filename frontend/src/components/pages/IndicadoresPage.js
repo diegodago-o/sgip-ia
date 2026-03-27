@@ -13,9 +13,10 @@ import {
 const COP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
 const fmt = v => {
   if (v == null) return '—';
-  if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-  if (Math.abs(v) >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+  if (Math.abs(v) >= 1e12) return `$${(v / 1e12).toFixed(1)} Bill`;
+  if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(1)} MM`;
+  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(0)} M`;
+  if (Math.abs(v) >= 1e3) return `$${(v / 1e3).toFixed(0)} K`;
   return `$${Math.round(v)}`;
 };
 const pct = v => v != null ? `${parseFloat(v).toFixed(1)}%` : '—';

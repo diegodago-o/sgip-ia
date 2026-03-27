@@ -16,7 +16,7 @@ import {
 const COP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
 const PCT = v => `${(parseFloat(v) || 0).toFixed(1)}%`;
 const DATE = d => d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-const fmt = v => { if (v >= 1e9) return `$${(v/1e9).toFixed(1)}B`; if (v >= 1e6) return `$${(v/1e6).toFixed(0)}M`; if (v >= 1e3) return `$${(v/1e3).toFixed(0)}K`; return `$${v}`; };
+const fmt = v => { if (v >= 1e12) return `$${(v/1e12).toFixed(1)} Bill`; if (v >= 1e9) return `$${(v/1e9).toFixed(1)} MM`; if (v >= 1e6) return `$${(v/1e6).toFixed(0)} M`; if (v >= 1e3) return `$${(v/1e3).toFixed(0)} K`; return `$${v}`; };
 
 const COLORS = ['#1B5FAA','#059669','#D97706','#DC2626','#7C3AED','#2563EB','#0891B2','#E11D48','#4F46E5','#16A34A'];
 const STATUS_L = { adjudicado:'Adjudicado', en_arranque:'En Arranque', en_ejecucion:'En Ejecución', suspendido:'Suspendido', cerrado:'Cerrado', liquidado:'Liquidado' };

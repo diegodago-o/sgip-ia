@@ -38,6 +38,7 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
   const [uploadType, setUploadType] = useState('');
   const [filterType, setFilterType] = useState('');
   const [classifyDoc, setClassifyDoc] = useState(null);
+  const [classifyUp, setClassifyUp] = useState(false);
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -264,7 +265,11 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
                     </span>
                   ) : (
                     <button
-                      onClick={() => setClassifyDoc(classifyDoc === doc.id ? null : doc.id)}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setClassifyUp(rect.bottom + 240 > window.innerHeight);
+                        setClassifyDoc(classifyDoc === doc.id ? null : doc.id);
+                      }}
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-surface-100 text-surface-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
                     >
                       <Tag className="w-3 h-3" /> Clasificar
@@ -273,7 +278,7 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
 
                   {/* Classify dropdown — anclado al badge */}
                   {classifyDoc === doc.id && (
-                    <div className="absolute top-full right-0 mt-1 z-30 bg-white rounded-lg shadow-lg border border-surface-200 p-2 w-56 animate-slide-up">
+                    <div className={`absolute ${classifyUp ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 z-30 bg-white rounded-lg shadow-lg border border-surface-200 p-2 w-56 animate-slide-up`}>
                       <div className="flex items-center justify-between mb-2 px-2">
                         <span className="text-xs font-semibold text-surface-400">Tipo de documento</span>
                         <button onClick={() => setClassifyDoc(null)}><X className="w-3.5 h-3.5 text-surface-400" /></button>
@@ -295,7 +300,11 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
                     className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center" title="Descargar">
                     <Download className="w-3.5 h-3.5 text-surface-400" />
                   </button>
-                  <button onClick={() => setClassifyDoc(classifyDoc === doc.id ? null : doc.id)}
+                  <button onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setClassifyUp(rect.bottom + 240 > window.innerHeight);
+                      setClassifyDoc(classifyDoc === doc.id ? null : doc.id);
+                    }}
                     className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center" title="Clasificar">
                     <Tag className="w-3.5 h-3.5 text-surface-400" />
                   </button>

@@ -257,18 +257,35 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
                 </div>
 
                 {/* Type badge */}
-                <div className="flex-shrink-0">
+                <div className="relative flex-shrink-0">
                   {typeInfo ? (
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo.color}`}>
                       {typeInfo.label}
                     </span>
                   ) : (
                     <button
-                      onClick={() => setClassifyDoc(doc.id)}
+                      onClick={() => setClassifyDoc(classifyDoc === doc.id ? null : doc.id)}
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-surface-100 text-surface-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
                     >
                       <Tag className="w-3 h-3" /> Clasificar
                     </button>
+                  )}
+
+                  {/* Classify dropdown — anclado al badge */}
+                  {classifyDoc === doc.id && (
+                    <div className="absolute top-full right-0 mt-1 z-30 bg-white rounded-lg shadow-lg border border-surface-200 p-2 w-56 animate-slide-up">
+                      <div className="flex items-center justify-between mb-2 px-2">
+                        <span className="text-xs font-semibold text-surface-400">Tipo de documento</span>
+                        <button onClick={() => setClassifyDoc(null)}><X className="w-3.5 h-3.5 text-surface-400" /></button>
+                      </div>
+                      {DOC_TYPES.map(t => (
+                        <button key={t.value}
+                          onClick={() => handleClassify(doc.id, t.value)}
+                          className="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-surface-50 transition-colors">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs ${t.color}`}>{t.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
 
@@ -278,7 +295,7 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
                     className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center" title="Descargar">
                     <Download className="w-3.5 h-3.5 text-surface-400" />
                   </button>
-                  <button onClick={() => setClassifyDoc(doc.id)}
+                  <button onClick={() => setClassifyDoc(classifyDoc === doc.id ? null : doc.id)}
                     className="w-7 h-7 rounded hover:bg-surface-100 flex items-center justify-center" title="Clasificar">
                     <Tag className="w-3.5 h-3.5 text-surface-400" />
                   </button>
@@ -287,23 +304,6 @@ export default function DocumentsPanel({ projectId, perms = {}, }) {
                     <Trash2 className="w-3.5 h-3.5 text-red-400" />
                   </button>
                 </div>
-
-                {/* Classify dropdown */}
-                {classifyDoc === doc.id && (
-                  <div className="absolute right-4 mt-24 z-20 bg-white rounded-lg shadow-lg border border-surface-200 p-2 w-56 animate-slide-up">
-                    <div className="flex items-center justify-between mb-2 px-2">
-                      <span className="text-xs font-semibold text-surface-400">Tipo de documento</span>
-                      <button onClick={() => setClassifyDoc(null)}><X className="w-3.5 h-3.5 text-surface-400" /></button>
-                    </div>
-                    {DOC_TYPES.map(t => (
-                      <button key={t.value}
-                        onClick={() => handleClassify(doc.id, t.value)}
-                        className="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-surface-50 transition-colors">
-                        <span className={`inline-flex px-1.5 py-0.5 rounded text-xs ${t.color}`}>{t.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}

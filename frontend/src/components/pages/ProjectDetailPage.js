@@ -32,7 +32,7 @@ const STATUS_FLOW = [
 const STATUS_C = {
   adjudicado:   { label:'Adjudicado',    bg:'bg-blue-100',    text:'text-blue-700',    ring:'ring-blue-400',    fill:'bg-blue-500' },
   en_arranque:  { label:'En Arranque',   bg:'bg-amber-100',   text:'text-amber-700',   ring:'ring-amber-400',   fill:'bg-amber-500' },
-  en_ejecucion: { label:'En Ejecución',  bg:'bg-emerald-100', text:'text-emerald-700', ring:'ring-emerald-400', fill:'bg-emerald-500' },
+  en_ejecucion: { label:'En Ejecución',  bg:'bg-brand-100',   text:'text-brand-700',  ring:'ring-brand-400',   fill:'bg-brand-500' },
   suspendido:   { label:'Suspendido',    bg:'bg-red-100',     text:'text-red-700',     ring:'ring-red-400',     fill:'bg-red-500' },
   cerrado:      { label:'Cerrado',       bg:'bg-gray-100',    text:'text-gray-700',    ring:'ring-gray-400',    fill:'bg-gray-500' },
   liquidado:    { label:'Liquidado',     bg:'bg-slate-100',   text:'text-slate-500',   ring:'ring-slate-400',   fill:'bg-slate-400' },
@@ -138,14 +138,14 @@ function StatusFlowBar({ project, perms, onStatusChanged }) {
                 {/* Circle */}
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm transition-all
                   ${state === 'current' ? `${sc.fill} text-white ring-4 ${sc.ring} ring-opacity-30 shadow-md` :
-                    state === 'completed' ? 'bg-emerald-500 text-white' :
+                    state === 'completed' ? 'bg-brand-500 text-white' :
                     'bg-surface-100 text-surface-300'}`}>
                   {state === 'completed' ? <CheckCircle2 className="w-4 h-4" /> : step.icon}
                 </div>
                 {/* Label */}
                 <span className={`mt-1.5 text-[10px] font-medium text-center leading-tight
                   ${state === 'current' ? sc.text + ' font-bold' :
-                    state === 'completed' ? 'text-emerald-600' : 'text-surface-300'}`}>
+                    state === 'completed' ? 'text-brand-600' : 'text-surface-300'}`}>
                   {step.label}
                 </span>
               </div>
@@ -153,7 +153,7 @@ function StatusFlowBar({ project, perms, onStatusChanged }) {
               {!isLast && (
                 <div className="flex-shrink-0 w-6 sm:w-10 flex items-center -mt-4">
                   <div className={`h-0.5 w-full rounded ${
-                    state === 'completed' || state === 'current' ? 'bg-emerald-300' : 'bg-surface-100'}`} />
+                    state === 'completed' || state === 'current' ? 'bg-brand-300' : 'bg-surface-100'}`} />
                 </div>
               )}
             </React.Fragment>

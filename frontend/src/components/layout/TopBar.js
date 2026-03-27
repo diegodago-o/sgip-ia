@@ -566,7 +566,7 @@ export default function TopBar() {
 
   return (
     <>
-      <header className="h-16 bg-white border-b border-surface-200 flex items-center justify-between px-6 flex-shrink-0">
+      <header className="h-16 bg-white border-b border-brand-500 flex items-center justify-between px-6 flex-shrink-0">
         {/* Left: Title */}
         <h1 className="text-lg font-display font-bold text-brand-900">{title}</h1>
 

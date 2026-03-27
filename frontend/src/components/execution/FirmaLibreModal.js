@@ -343,7 +343,7 @@ export default function FirmaLibreModal({ projectId, onClose, onCreated }) {
           {steps.map((s, i) => (
             <div key={s} className="flex items-center">
               <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors
-                ${step === i + 1 ? 'bg-brand-100 text-brand-700' : step > i + 1 ? 'text-emerald-600' : 'text-surface-400'}`}>
+                ${step === i + 1 ? 'bg-brand-100 text-brand-700' : step > i + 1 ? 'text-brand-600' : 'text-surface-400'}`}>
                 {step > i + 1
                   ? <CheckCircle className="w-3 h-3" />
                   : <span className="w-4 h-4 rounded-full border flex items-center justify-center text-[10px]">{i + 1}</span>}

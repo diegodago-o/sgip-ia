@@ -420,7 +420,7 @@ export default function CorrSignatureModal({
             {!hasActiveRequest && step !== 'status' && (
               <div className="flex items-center gap-1.5 text-xs text-gray-400">
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
-                  ${step === 'signers' ? 'bg-brand-600 text-white' : 'bg-green-500 text-white'}`}>
+                  ${step === 'signers' ? 'bg-brand-600 text-white' : 'bg-brand-500 text-white'}`}>
                   {step === 'signers' ? '1' : '✓'}
                 </span>
                 <span className={step === 'signers' ? 'text-brand-600 font-medium' : 'text-gray-400'}>

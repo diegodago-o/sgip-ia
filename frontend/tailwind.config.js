@@ -5,17 +5,17 @@ module.exports = {
     extend: {
       colors: {
         brand: {
-          50:  '#EEF4FB',
-          100: '#D5E4F5',
-          200: '#ABCAEB',
-          300: '#6FA3DB',
-          400: '#3B7FC9',
-          500: '#1B5FAA',
-          600: '#164D8A',
-          700: '#123D6E',
-          800: '#0E2F55',
-          900: '#0A1F3A',
-          950: '#061425',
+          50:  '#E2F8FB',
+          100: '#C0EFF5',
+          200: '#8FE3EC',
+          300: '#5ED5E1',
+          400: '#2EC5D5',
+          500: '#0ab7c9',
+          600: '#089EAF',
+          700: '#077E8C',
+          800: '#055E69',
+          900: '#1A3338',
+          950: '#0C1A1D',
         },
         accent: {
           400: '#F59E0B',
@@ -36,8 +36,8 @@ module.exports = {
         }
       },
       fontFamily: {
-        sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
-        display: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        sans: ['"Source Sans 3"', '"Source Sans Pro"', 'system-ui', 'sans-serif'],
+        display: ['"Source Sans 3"', '"Source Sans Pro"', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       boxShadow: {

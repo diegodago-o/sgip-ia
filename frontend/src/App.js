@@ -27,6 +27,7 @@ import CorrespondenceSigningPage from './components/pages/CorrespondenceSigningP
 import FirmaLibrePage from './components/pages/FirmaLibrePage';
 import OAuthCallbackPage from './components/auth/OAuthCallbackPage';
 import ConfiguracionPage from './pages/ConfiguracionPage';
+import IndicadoresPage from './components/pages/IndicadoresPage';
 
 function LoginGuard() {
   const { user, loading } = useAuth();
@@ -64,7 +65,7 @@ function AuthenticatedApp() {
 
           {/* Future modules */}
           <Route path="planificacion" element={<PlaceholderPage />} />
-          <Route path="indicadores" element={<PlaceholderPage />} />
+          <Route path="indicadores" element={<IndicadoresPage />} />
           <Route path="configuracion" element={
             <RoleGuard allowedRoles={['admin', 'director_pmo']}>
               <ConfiguracionPage />

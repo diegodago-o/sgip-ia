@@ -297,6 +297,11 @@ export const dashboardAPI = {
   bi: () => api.get('/dashboard/bi'),
 };
 
+// ═══ INDICATORS & KPIs ═══
+export const indicatorsAPI = {
+  panel: (projectId) => api.get(`/indicators/${projectId}/panel`),
+};
+
 // ═══ DIGITAL SIGNATURES ═══
 // signaturesAPI uses the authenticated `api` instance (Bearer token)
 export const signaturesAPI = {

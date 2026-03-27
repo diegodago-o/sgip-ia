@@ -28,7 +28,7 @@ const ALL_MODULES = [
   { id: 'adjudicacion', to: '/adjudicacion', icon: FileCheck,       label: 'Adjudicación' },
   { id: 'ejecucion',    to: '/ejecucion',    icon: PlayCircle,      label: 'Ejecución' },
   { id: 'cierre',       to: '/cierre',       icon: CheckSquare,     label: 'Cierre' },
-  { id: 'indicadores',  to: '/indicadores',  icon: BarChart3,       label: 'Indicadores', soon: true },
+  { id: 'indicadores',  to: '/indicadores',  icon: BarChart3,       label: 'Indicadores' },
   { id: 'ia',           to: '/ia',           icon: BrainCircuit,    label: 'Motor IA' },
 ];
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { projectsAPI } from '../../services/api';
 import {
   Plus, Search, Filter, ChevronLeft, ChevronRight,
@@ -39,6 +40,8 @@ function fmtDate(d) {
 
 export default function ProjectListPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canCreateProject = ['admin', 'gerente_proyecto'].includes(user?.role);
   const [projects, setProjects] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [loading, setLoading] = useState(true);
@@ -94,17 +97,19 @@ export default function ProjectListPage() {
           <h2 className="text-xl font-display font-bold text-brand-900">Proyectos</h2>
           <p className="text-sm text-surface-400">{pagination.total} proyecto{pagination.total !== 1 ? 's' : ''} registrado{pagination.total !== 1 ? 's' : ''}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAICreator(true)}
-            className="btn-secondary flex items-center gap-2 text-sm border-brand-200 text-brand-600 hover:bg-brand-50"
-          >
-            <Sparkles className="w-4 h-4" /> Crear con IA
-          </button>
-          <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Nuevo Proyecto
-          </button>
-        </div>
+        {canCreateProject && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAICreator(true)}
+              className="btn-secondary flex items-center gap-2 text-sm border-brand-200 text-brand-600 hover:bg-brand-50"
+            >
+              <Sparkles className="w-4 h-4" /> Crear con IA
+            </button>
+            <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Nuevo Proyecto
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Search & Filters */}
@@ -172,9 +177,11 @@ export default function ProjectListPage() {
         ) : projects.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-surface-400 mb-4">No se encontraron proyectos</p>
-            <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary text-sm">
-              Crear primer proyecto
-            </button>
+            {canCreateProject && (
+              <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary text-sm">
+                Crear primer proyecto
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

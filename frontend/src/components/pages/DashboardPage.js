@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { dashboardAPI, projectsAPI } from '../../services/api';
 import {
   FolderKanban, PlayCircle, CheckCircle2, AlertTriangle, DollarSign, Users,
@@ -296,6 +297,8 @@ export default function DashboardPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [drillView, setDrillView] = useState(null); // { type, data }
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canCreateProject = ['admin', 'gerente_proyecto'].includes(user?.role);
 
   const load = () => {
     setLoading(true);
@@ -435,9 +438,11 @@ export default function DashboardPage() {
             <Filter className="w-3.5 h-3.5" /> Filtros {isFiltered && `(${fProjects.length})`}
           </button>
           <button onClick={load} disabled={loading} className="btn-ghost text-xs"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
-          <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-1.5 text-xs">
-            <Plus className="w-3.5 h-3.5" /> Nuevo Proyecto
-          </button>
+          {canCreateProject && (
+            <button onClick={() => navigate('/adjudicacion/nuevo')} className="btn-primary flex items-center gap-1.5 text-xs">
+              <Plus className="w-3.5 h-3.5" /> Nuevo Proyecto
+            </button>
+          )}
         </div>
       </div>
 

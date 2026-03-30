@@ -9,6 +9,16 @@ function RoleGuard({ allowedRoles, children }) {
   if (!allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }
+
+const DASHBOARD_ROLES = ['admin', 'director_pmo', 'ceo'];
+
+/** Redirect root / based on role — roles without Dashboard go to /adjudicacion */
+function HomeRedirect() {
+  const { user } = useAuth();
+  const role = user?.role || 'apoyo';
+  if (DASHBOARD_ROLES.includes(role)) return <DashboardPage />;
+  return <Navigate to="/adjudicacion" replace />;
+}
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
@@ -45,12 +55,16 @@ function AuthenticatedApp() {
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
 
         <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-          {/* Dashboard */}
-          <Route index element={<DashboardPage />} />
+          {/* Dashboard — solo admin / director_pmo / ceo, el resto va a /adjudicacion */}
+          <Route index element={<HomeRedirect />} />
 
           {/* Module 1: Adjudicación */}
           <Route path="adjudicacion" element={<ProjectListPage />} />
-          <Route path="adjudicacion/nuevo" element={<ProjectFormPage />} />
+          <Route path="adjudicacion/nuevo" element={
+            <RoleGuard allowedRoles={['admin', 'gerente_proyecto']}>
+              <ProjectFormPage />
+            </RoleGuard>
+          } />
           <Route path="adjudicacion/:id" element={<ProjectDetailPage />} />
           <Route path="adjudicacion/:id/editar" element={<ProjectFormPage />} />
           {/* Module 2: Ejecución */}

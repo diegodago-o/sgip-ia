@@ -107,6 +107,18 @@ router.patch('/users/:id/toggle', roleMiddleware('admin'), async (req, res) => {
 
 // ═══ PROJECT ASSIGNMENTS ═══
 
+// List ALL projects for admin assignment UI (no pagination limit)
+router.get('/all-projects', roleMiddleware('admin'), async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, name, code, status FROM projects ORDER BY name ASC'
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error listando proyectos' });
+  }
+});
+
 // List assignments for a user (Admin only)
 router.get('/users/:userId/assignments', roleMiddleware('admin'), async (req, res) => {
   try {

@@ -201,7 +201,7 @@ function ProjectAssignments({ userId, userName, userRole }) {
     try {
       const [aRes, pRes] = await Promise.all([
         adminAPI.getUserAssignments(userId),
-        projectsAPI.list({ limit: 200 }),
+        adminAPI.allProjects(),
       ]);
       setAssignments(aRes.data.data || []);
       setAllProjects(pRes.data.data || []);

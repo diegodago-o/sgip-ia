@@ -67,7 +67,7 @@ function AuthenticatedApp() {
           <Route path="planificacion" element={<PlaceholderPage />} />
           <Route path="indicadores" element={<IndicadoresPage />} />
           <Route path="configuracion" element={
-            <RoleGuard allowedRoles={['admin', 'director_pmo']}>
+            <RoleGuard allowedRoles={['admin']}>
               <ConfiguracionPage />
             </RoleGuard>
           } />

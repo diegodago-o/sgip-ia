@@ -19,7 +19,7 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const sp   = require('../services/sharepoint');
 
 const router       = express.Router();
-const requireAdmin = roleMiddleware('admin', 'director_pmo');
+const requireAdmin = roleMiddleware('admin');
 
 router.use(authMiddleware, requireAdmin);
 

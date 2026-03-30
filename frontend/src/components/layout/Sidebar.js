@@ -17,10 +17,10 @@ const ROLE_LABELS = {
 
 const MODULE_ACCESS = {
   admin:            ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
-  gerente_proyecto: ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'ia'],
+  gerente_proyecto: ['adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
   director_pmo:     ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
-  ceo:              ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores'],
-  apoyo:            ['dashboard', 'adjudicacion', 'ejecucion', 'ia'],
+  ceo:              ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
+  apoyo:            ['adjudicacion', 'ejecucion', 'ia'],
 };
 
 const ALL_MODULES = [
@@ -95,8 +95,8 @@ export default function Sidebar() {
           );
         })}
 
-        {/* Configuración — solo admin y director_pmo */}
-        {(role === 'admin' || role === 'director_pmo') && (
+        {/* Configuración — solo admin */}
+        {role === 'admin' && (
           <>
             <div className="my-3 mx-3 border-t border-white/15" />
             {!collapsed && <p className="px-3 mb-2 text-[10px] uppercase tracking-widest text-white/40 font-semibold">Sistema</p>}

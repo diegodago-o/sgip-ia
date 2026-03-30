@@ -8,7 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware: authenticate, roleMiddleware } = require('../middleware/auth');
-const requireAdmin = roleMiddleware('admin', 'director_pmo');
+const requireAdmin = roleMiddleware('admin');
 const db = require('../config/database');
 const { sendMail, verifyConnection } = require('../services/mailer');
 

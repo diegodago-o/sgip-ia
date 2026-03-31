@@ -12,8 +12,11 @@ import {
 } from 'lucide-react';
 import { committeeCommitmentsAPI } from '../../services/api';
 
-const DATE = d =>
-  d ? new Date(d + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const DATE = d => {
+  if (!d) return '—';
+  const s = String(d).substring(0, 10); // Handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ss.000Z"
+  return new Date(s + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 const PRIORITY_CFG = {
   alta:  { label: 'Alta',  bg: 'bg-red-100',    text: 'text-red-700'   },
@@ -201,6 +204,70 @@ function CommitmentModal({ projectId, originDate, editItem, onClose, onSaved }) 
 }
 
 // ─────────────────────────────────────────────────────────────
+// Modal para registrar avance/acción (sin cerrar el compromiso)
+// ─────────────────────────────────────────────────────────────
+function ProgressModal({ projectId, item, onClose, onSaved }) {
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSave = async () => {
+    if (!notes.trim()) return setError('Describe la acción realizada');
+    setSaving(true); setError(null);
+    try {
+      await committeeCommitmentsAPI.update(projectId, item.id, {
+        status: 'en_progreso',
+        notes,
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-blue-500" />
+            <h3 className="font-display font-bold text-brand-900">Registrar avance</h3>
+          </div>
+          <button onClick={onClose}><X className="w-5 h-5 text-surface-400" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          {error && <div className="bg-red-50 border border-red-100 text-red-700 text-xs px-3 py-2 rounded-lg">{error}</div>}
+          <div className="bg-surface-50 rounded-lg px-3 py-2 text-sm text-brand-800 font-medium">{item.description}</div>
+          <div>
+            <label className="block text-xs font-semibold text-brand-800 mb-1">Acción realizada *</label>
+            <textarea
+              rows={3}
+              autoFocus
+              className="w-full border border-surface-200 rounded-lg text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
+              placeholder="Describe qué se hizo, acuerdo alcanzado, próximo paso..."
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-surface-100 bg-surface-50">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-surface-600 hover:bg-surface-100 rounded-lg">Cancelar</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Guardar avance
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Modal de evidencia / cierre de compromiso
 // ─────────────────────────────────────────────────────────────
 function CloseModal({ projectId, item, onClose, onSaved }) {
@@ -290,6 +357,7 @@ export default function CommitteeCommitmentsPanel({ projectId, readOnly = false 
   const [showNewModal,   setShowNewModal]   = useState(false);
   const [editItem,       setEditItem]       = useState(null);
   const [closeItem,      setCloseItem]      = useState(null);
+  const [progressItem,   setProgressItem]   = useState(null);
   const [updatingId,     setUpdatingId]     = useState(null);
   const [deletingId,     setDeletingId]     = useState(null);
 
@@ -387,6 +455,14 @@ export default function CommitteeCommitmentsPanel({ projectId, readOnly = false 
           item={closeItem}
           onClose={() => setCloseItem(null)}
           onSaved={() => { load(); showToast('✓ Compromiso marcado como cumplido'); }}
+        />
+      )}
+      {progressItem && (
+        <ProgressModal
+          projectId={projectId}
+          item={progressItem}
+          onClose={() => setProgressItem(null)}
+          onSaved={() => { load(); showToast('✓ Avance registrado'); }}
         />
       )}
 
@@ -524,7 +600,7 @@ export default function CommitteeCommitmentsPanel({ projectId, readOnly = false 
                             updatingId={updatingId}
                             deletingId={deletingId}
                             readOnly={readOnly}
-                            onProgress={() => quickStatus(c.id, 'en_progreso')}
+                            onProgress={() => setProgressItem(c)}
                             onClose={() => setCloseItem(c)}
                             onEdit={() => setEditItem(c)}
                             onDelete={() => handleDelete(c.id)}
@@ -545,7 +621,7 @@ export default function CommitteeCommitmentsPanel({ projectId, readOnly = false 
                     updatingId={updatingId}
                     deletingId={deletingId}
                     readOnly={readOnly}
-                    onProgress={() => quickStatus(c.id, 'en_progreso')}
+                    onProgress={() => setProgressItem(c)}
                     onClose={() => setCloseItem(c)}
                     onEdit={() => setEditItem(c)}
                     onDelete={() => handleDelete(c.id)}
@@ -638,15 +714,13 @@ function CommitmentRow({ item: c, updatingId, deletingId, readOnly, onProgress, 
               <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
             ) : (
               <>
-                {c.status === 'pendiente' && (
-                  <button
-                    onClick={onProgress}
-                    className="text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium whitespace-nowrap transition-colors"
-                    title="Marcar en progreso"
-                  >
-                    En progreso
-                  </button>
-                )}
+                <button
+                  onClick={onProgress}
+                  className="text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium whitespace-nowrap transition-colors"
+                  title="Registrar una acción realizada"
+                >
+                  + Avance
+                </button>
                 <button
                   onClick={onClose}
                   className="text-[10px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold whitespace-nowrap transition-colors"

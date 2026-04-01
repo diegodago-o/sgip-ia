@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { projectsAPI, sharepointConnectionsAPI } from '../../services/api';
-import { Save, ArrowLeft, Loader2, FolderKanban, Sparkles, X } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, FolderKanban, Sparkles, X, Upload, FileText } from 'lucide-react';
 
 const TYPE_OPTIONS = [
   { value: 'obra_civil', label: 'Obra Civil' },
@@ -39,6 +39,8 @@ const EMPTY_FORM = {
   sharepoint_connection_id: '',
   sharepoint_drive_id:      '',
   sharepoint_folder:        '',
+  correspondence_sender_name: '',
+  correspondence_logo:        '',
   tags: [],
 };
 
@@ -132,6 +134,8 @@ export default function ProjectFormPage() {
             sharepoint_connection_id: p.sharepoint_connection_id ? String(p.sharepoint_connection_id) : '',
             sharepoint_drive_id:      p.sharepoint_drive_id      || '',
             sharepoint_folder:        p.sharepoint_folder        || '',
+            correspondence_sender_name: p.correspondence_sender_name || '',
+            correspondence_logo:        p.correspondence_logo        || '',
             tags: p.tags || [],
           });
         })
@@ -140,7 +144,18 @@ export default function ProjectFormPage() {
     }
   }, [id, isEdit]);
 
+  const logoInputRef = useRef(null);
+
   const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { alert('El logo no debe superar 500 KB.'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => setForm(f => ({ ...f, correspondence_logo: ev.target.result }));
+    reader.readAsDataURL(file);
+  };
 
   const addTag = () => {
     const t = tagInput.trim();
@@ -414,6 +429,73 @@ export default function ProjectFormPage() {
                 </p>
               </Field>
             )}
+          </div>
+        </section>
+
+        {/* ── Section: Correspondencia ── */}
+        <section className="bg-white rounded-xl shadow-card p-6">
+          <h3 className="font-display font-semibold text-brand-900 mb-1 pb-3 border-b border-surface-100">
+            Correspondencia
+          </h3>
+          <p className="text-xs text-surface-400 mb-4">
+            Personaliza el encabezado de los documentos de correspondencia generados para este proyecto.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Nombre de la empresa remitente" span={2}>
+              <input
+                type="text"
+                value={form.correspondence_sender_name}
+                onChange={set('correspondence_sender_name')}
+                className="input-field"
+                placeholder="Ej: Tecnofactory S.A.S"
+              />
+              <p className="text-[11px] text-surface-400 mt-1">
+                Aparece en el encabezado de oficios y comunicados en lugar del nombre de la entidad contratante.
+              </p>
+            </Field>
+
+            <Field label="Logo de la empresa (encabezado)" span={2}>
+              <div className="flex items-start gap-4">
+                {form.correspondence_logo ? (
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={form.correspondence_logo}
+                      alt="Logo"
+                      className="h-14 max-w-[180px] object-contain border border-surface-200 rounded-lg p-1 bg-[#1E3A5F]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, correspondence_logo: '' }))}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600"
+                    >×</button>
+                  </div>
+                ) : (
+                  <div className="w-20 h-14 border-2 border-dashed border-surface-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-surface-300" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    className="flex items-center gap-2 px-3 py-2 border border-surface-200 rounded-lg text-sm text-surface-600 hover:bg-surface-50 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {form.correspondence_logo ? 'Cambiar logo' : 'Subir logo'}
+                  </button>
+                  <p className="text-[11px] text-surface-400 mt-1.5">
+                    PNG, JPG o WebP · Máximo 500 KB · Fondo transparente recomendado.
+                  </p>
+                </div>
+              </div>
+            </Field>
           </div>
         </section>
 

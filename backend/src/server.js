@@ -332,6 +332,12 @@ async function runMigrations() {
     'ALTER TABLE meeting_minutes ADD COLUMN sp_file_url VARCHAR(500) NULL');
   await run('correspondence.sender_entity',
     'ALTER TABLE correspondence ADD COLUMN sender_entity VARCHAR(255) NULL DEFAULT NULL AFTER sender_title');
+
+  // ── Correspondencia personalizable por proyecto ──────────────────
+  await run('projects.correspondence_sender_name',
+    'ALTER TABLE projects ADD COLUMN correspondence_sender_name VARCHAR(255) NULL DEFAULT NULL');
+  await run('projects.correspondence_logo',
+    'ALTER TABLE projects ADD COLUMN correspondence_logo MEDIUMTEXT NULL DEFAULT NULL');
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

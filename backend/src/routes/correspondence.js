@@ -69,7 +69,8 @@ router.get('/:projectId/correspondence', [param('projectId').isInt()], async (re
     const [rows] = await pool.execute(`
       SELECT c.*, u.full_name AS created_by_name,
              p.name AS project_name, p.code AS project_code,
-             COALESCE(NULLIF(c.project_entity,''), p.client_name) AS project_entity
+             COALESCE(NULLIF(c.project_entity,''), p.client_name) AS project_entity,
+             p.correspondence_sender_name, p.correspondence_logo
       FROM correspondence c
       LEFT JOIN users u ON c.created_by = u.id
       LEFT JOIN projects p ON c.project_id = p.id
@@ -418,7 +419,8 @@ router.get('/:projectId/correspondence/:id/download',
     if (!validate(req, res)) return;
     try {
       const [[c]] = await pool.execute(
-        `SELECT cr.*, p.name as project_name, p.code as project_code
+        `SELECT cr.*, p.name as project_name, p.code as project_code,
+                p.correspondence_sender_name, p.correspondence_logo
          FROM correspondence cr
          JOIN projects p ON cr.project_id = p.id
          WHERE cr.id = ? AND cr.project_id = ?`,
@@ -430,7 +432,7 @@ router.get('/:projectId/correspondence/:id/download',
         Document, Packer, Paragraph, TextRun, AlignmentType,
         BorderStyle, Table, TableRow, TableCell, WidthType,
         ShadingType, HeadingLevel, PageBreak, TabStopType, TabStopLeader,
-        convertInchesToTwip, UnderlineType,
+        convertInchesToTwip, UnderlineType, ImageRun,
       } = require('docx');
 
       // ─── Helpers ──────────────────────────────────────────────────────────
@@ -482,20 +484,41 @@ router.get('/:projectId/correspondence/:id/download',
         columnSpan: opts.span || 1,
       });
 
+      // ─── Logo del proyecto (si está configurado) ──────────────────────
+      let logoImageRun = null;
+      if (c.correspondence_logo) {
+        try {
+          const m = c.correspondence_logo.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/);
+          if (m) {
+            const imgType = m[1] === 'jpg' ? 'jpeg' : m[1];
+            logoImageRun = new ImageRun({
+              data: Buffer.from(m[2], 'base64'),
+              transformation: { width: 130, height: 45 },
+              type: imgType,
+            });
+          }
+        } catch (_) { /* ignorar errores de logo */ }
+      }
+      const headerEntityName = c.correspondence_sender_name || c.project_entity || c.project_name || 'SGIP';
+
       // ─── Tabla de encabezado corporativo ───────────────────────────────
       const headerTable = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
         rows: [
-          // Fila 1: Nombre empresa + tipo doc
+          // Fila 1: Logo/Nombre empresa + tipo doc
           new TableRow({
             children: [
               new TableCell({
                 width: { size: 65, type: WidthType.PERCENTAGE },
                 children: [
-                  new Paragraph({
-                    children: [new TextRun({ text: c.project_entity || c.project_name || 'SGIP', bold: true, color: COLOR_WHITE, size: 28, font: 'Calibri' })],
+                  ...(logoImageRun ? [new Paragraph({
+                    children: [logoImageRun],
                     spacing: { before: 60, after: 20 },
+                  })] : []),
+                  new Paragraph({
+                    children: [new TextRun({ text: headerEntityName, bold: true, color: COLOR_WHITE, size: 28, font: 'Calibri' })],
+                    spacing: { before: logoImageRun ? 0 : 60, after: 20 },
                   }),
                   new Paragraph({
                     children: [new TextRun({ text: `Proyecto: ${c.project_name || ''}`, color: 'BDD7EE', size: 18, font: 'Calibri' })],
@@ -618,10 +641,18 @@ router.get('/:projectId/correspondence/:id/download',
       );
 
       // ─── Firma ────────────────────────────────────────────────────────
+      // 2 blank rows above the line give ~1 inch of space for the drawn
+      // digital signature image (corrSig) so it does not overlap the typed name below.
+      const blankCell = (h = 400) => new TableRow({ children: [new TableCell({
+        children: [new Paragraph({ children: [new TextRun({ text: '' })], spacing: { before: h, after: 0 } })],
+        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+      })] });
       const signatureTable = new Table({
         width: { size: 60, type: WidthType.PERCENTAGE },
         borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
         rows: [
+          blankCell(500), // space for drawn signature image (~0.35 in)
+          blankCell(500), // extra room (~0.35 in)  — total ≈ 0.7 in above the line
           new TableRow({ children: [new TableCell({
             children: [new Paragraph({ children: [new TextRun({ text: '_'.repeat(35), color: COLOR_LINE, size: 22 })], alignment: AlignmentType.LEFT })],
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },

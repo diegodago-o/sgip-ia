@@ -154,7 +154,17 @@ function PreviewModal({ projectId, record, onClose }) {
             {/* Encabezado corporativo */}
             <div className="flex">
               <div className="flex-1 bg-[#1E3A5F] px-6 py-5">
-                <p className="text-white font-bold text-base leading-tight">{record.project_entity || record.project_name || 'Entidad'}</p>
+                {record.correspondence_logo && (
+                  <img
+                    src={record.correspondence_logo}
+                    alt="Logo"
+                    className="h-10 mb-2 object-contain"
+                    style={{ maxWidth: '160px' }}
+                  />
+                )}
+                <p className="text-white font-bold text-base leading-tight">
+                  {record.correspondence_sender_name || record.project_entity || record.project_name || 'Entidad'}
+                </p>
                 {record.project_name && <p className="text-blue-200 text-xs mt-1">Proyecto: {record.project_name}</p>}
                 {record.project_code && <p className="text-blue-200 text-xs">Código: {record.project_code}</p>}
               </div>
@@ -212,9 +222,9 @@ function PreviewModal({ projectId, record, onClose }) {
               {/* Cierre */}
               <p className="pt-2">{record.closing || 'Cordialmente,'}</p>
 
-              {/* Firma */}
-              <div className="pt-8 space-y-0.5">
-                <div className="w-40 border-b border-gray-400 mb-2" />
+              {/* Firma — pt-20 da ~5 rem de espacio para la imagen de firma digital */}
+              <div className="pt-20 space-y-1">
+                <div className="w-44 border-b border-gray-500 mb-3" />
                 {record.sender_name   && <p className="font-bold text-[#1E3A5F]">{record.sender_name}</p>}
                 {record.sender_title  && <p className="text-gray-600 text-xs">{record.sender_title}</p>}
                 {record.sender_entity && <p className="text-gray-500 text-xs">{record.sender_entity}</p>}

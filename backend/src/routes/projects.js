@@ -271,6 +271,8 @@ router.post('/',
         sharepoint_site_url:      req.body.sharepoint_site_url      || null,
         sharepoint_connection_id: req.body.sharepoint_connection_id || null,
         sharepoint_drive_id:      req.body.sharepoint_drive_id      || null,
+        correspondence_sender_name: req.body.correspondence_sender_name || null,
+        correspondence_logo:        req.body.correspondence_logo        || null,
         created_by: req.user.id,
       };
 
@@ -319,6 +321,7 @@ router.put('/:id',
         'execution_term_unit','supervisor','director_id','location','status','priority',
         'progress_pct','selection_process','secop_number','cdp_number','rp_number',
         'sharepoint_folder', 'sharepoint_site_url', 'sharepoint_connection_id', 'sharepoint_drive_id',
+        'correspondence_sender_name', 'correspondence_logo',
       ];
 
       const updates = [];

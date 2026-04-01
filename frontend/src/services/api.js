@@ -422,6 +422,10 @@ export const sharepointAPI = {
   // Document coverage stats (DB only, no Graph calls)
   coverage: (projectId) =>
     api.get(`/sharepoint/projects/${projectId}/coverage`),
+  // Analyze a SharePoint file with AI (no download to client)
+  analyzeFile: (projectId, itemId, data, filename) =>
+    api.post(`/sharepoint/projects/${projectId}/analyze/${itemId}`, data,
+      { params: filename ? { filename } : {}, timeout: 90000 }),
 };
 
 export default api;

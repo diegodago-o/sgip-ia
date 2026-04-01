@@ -13,10 +13,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FolderKanban, FolderOpen, FileText, Upload, Download,
   ChevronRight, Home, Loader2, AlertTriangle, X, ExternalLink,
-  RefreshCw, File,
+  RefreshCw, File, Brain,
 } from 'lucide-react';
 import { sharepointAPI } from '../../services/api';
 import SPCoveragePanel from './SPCoveragePanel';
+import DocumentAnalysisModal, { canAnalyze } from './DocumentAnalysisModal';
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -212,6 +213,7 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
   const [uploading,    setUploading]    = useState(false);
   const [error,        setError]        = useState(null);
   const [previewItem,  setPreviewItem]  = useState(null);
+  const [analyzeItem,  setAnalyzeItem]  = useState(null);
 
   const fileInputRef = useRef(null);
 
@@ -420,12 +422,22 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
                               Seleccionar
                             </button>
                           ) : (
-                            <button
-                              onClick={async (e) => { e.stopPropagation(); await openDownload(projectId, item.id); }}
-                              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-brand-50 text-surface-400 hover:text-brand-600 transition-colors"
-                              title="Descargar">
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-0.5">
+                              {canAnalyze(item.name) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setAnalyzeItem(item); }}
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-brand-50 text-surface-400 hover:text-brand-600 transition-colors"
+                                  title="Analizar con IA">
+                                  <Brain className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                onClick={async (e) => { e.stopPropagation(); await openDownload(projectId, item.id); }}
+                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-brand-50 text-surface-400 hover:text-brand-600 transition-colors"
+                                title="Descargar">
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           )
                         )}
                       </div>
@@ -437,6 +449,15 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
           </table>
         )}
       </div>
+
+      {/* Analysis Modal */}
+      {analyzeItem && (
+        <DocumentAnalysisModal
+          projectId={projectId}
+          item={analyzeItem}
+          onClose={() => setAnalyzeItem(null)}
+        />
+      )}
 
       {/* Preview Modal */}
       {previewItem && (

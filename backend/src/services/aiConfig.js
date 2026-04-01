@@ -45,8 +45,9 @@ function clearAIConfigCache() {
  * @param {number} userId   — for logging
  */
 async function resolveAIConfig(reqBody = {}, reqQuery = {}, userId = null) {
-  const provider  = reqBody.provider || reqQuery.provider || process.env.AI_PROVIDER || 'anthropic';
   const sysCfg    = await loadSystemAIConfig();
+  // Priority: request param → env var → system DB config → fallback
+  const provider  = reqBody.provider || reqQuery.provider || process.env.AI_PROVIDER || sysCfg.default_provider || 'anthropic';
 
   let apiKey, model, source;
 

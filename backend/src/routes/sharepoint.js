@@ -548,10 +548,13 @@ router.post('/projects/:id/analyze/:itemId', [param('id').isInt()], async (req, 
     const fileResp = await axios.get(downloadUrl, { responseType: 'arraybuffer', timeout: 30000 });
     const buffer   = Buffer.from(fileResp.data);
 
-    // 3. Get filename from content-disposition or item metadata
-    const contentDisp = fileResp.headers['content-disposition'] || '';
-    const fnMatch     = contentDisp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-    const filename    = fnMatch ? fnMatch[1].replace(/['"]/g, '') : (req.query.filename || 'documento.pdf');
+    // 3. Get filename — prefer explicit query param, then content-disposition
+    // NOTE: SharePoint sends 'filename*=utf-8''...' before 'filename="..."', so we
+    // specifically match only 'filename=' (without asterisk) to avoid URL-encoded garbage.
+    const contentDisp  = fileResp.headers['content-disposition'] || '';
+    const fnMatch      = contentDisp.match(/(?<!\*)filename=((['"]).*?\2|[^;\n]*)/);
+    const fnFromHeader = fnMatch ? fnMatch[1].replace(/['"]/g, '') : '';
+    const filename     = req.query.filename || fnFromHeader || 'documento.pdf';
 
     // 4. Extract text
     const extracted = await extractBufferText(buffer, filename);

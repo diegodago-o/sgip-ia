@@ -238,6 +238,40 @@ function toInputDate(val) {
   return d.toISOString().slice(0, 10);
 }
 
+// ─── Sub-componentes del formulario — DEBEN estar fuera de FormModal
+// para que React no los re-cree en cada render y pierda el foco al tipear.
+function FieldInput({ label, field, form, set, type = 'text', required, placeholder, className = '' }) {
+  return (
+    <div className={`space-y-1 ${className}`}>
+      <label className="block text-xs font-medium text-surface-600">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      <input
+        type={type}
+        value={form[field] || ''}
+        onChange={e => set(field, e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all"
+      />
+    </div>
+  );
+}
+
+function FieldTextarea({ label, field, form, set, rows = 4, placeholder, className = '' }) {
+  return (
+    <div className={`space-y-1 ${className}`}>
+      <label className="block text-xs font-medium text-surface-600">{label}</label>
+      <textarea
+        rows={rows}
+        value={form[field] || ''}
+        onChange={e => set(field, e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all resize-y"
+      />
+    </div>
+  );
+}
+
 // ─── Modal de formulario (crear / editar) ────────────────────────────────────
 function FormModal({ projectId, initial, onClose, onSaved }) {
   const [form, setForm] = useState(() => {
@@ -324,32 +358,6 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
     }
   };
 
-  const Input = ({ label, field, type = 'text', required, placeholder, className = '' }) => (
-    <div className={`space-y-1 ${className}`}>
-      <label className="block text-xs font-medium text-surface-600">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</label>
-      <input
-        type={type}
-        value={form[field] || ''}
-        onChange={e => set(field, e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all"
-      />
-    </div>
-  );
-
-  const Textarea = ({ label, field, rows = 4, placeholder, className = '' }) => (
-    <div className={`space-y-1 ${className}`}>
-      <label className="block text-xs font-medium text-surface-600">{label}</label>
-      <textarea
-        rows={rows}
-        value={form[field] || ''}
-        onChange={e => set(field, e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all resize-y"
-      />
-    </div>
-  );
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col">
@@ -418,7 +426,7 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
                 {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
-            <Input label="Fecha" field="reference_date" type="date" required />
+            <FieldInput form={form} set={set} label="Fecha" field="reference_date" type="date" required />
             <div className="space-y-1">
               <label className="block text-xs font-medium text-surface-600">Estado</label>
               <select value={form.status} onChange={e => set('status', e.target.value)}
@@ -429,7 +437,7 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
             </div>
           </div>
 
-          <Input label="Asunto" field="subject" required placeholder="Asunto de la comunicación" />
+          <FieldInput form={form} set={set} label="Asunto" field="subject" required placeholder="Asunto de la comunicación" />
 
           {/* Separador Destinatario */}
           <div className="flex items-center gap-2">
@@ -439,11 +447,11 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Nombre completo"  field="recipient_name"   placeholder="Nombre del destinatario" />
-            <Input label="Cargo"            field="recipient_title"  placeholder="Cargo / Función" />
-            <Input label="Entidad"          field="recipient_entity" placeholder="Nombre de la entidad" />
-            <Input label="Ciudad"           field="recipient_city"   placeholder="Ciudad" />
-            <Input label="Dirección"        field="recipient_address" placeholder="Dirección (opcional)" className="col-span-2" />
+            <FieldInput form={form} set={set} label="Nombre completo"  field="recipient_name"   placeholder="Nombre del destinatario" />
+            <FieldInput form={form} set={set} label="Cargo"            field="recipient_title"  placeholder="Cargo / Función" />
+            <FieldInput form={form} set={set} label="Entidad"          field="recipient_entity" placeholder="Nombre de la entidad" />
+            <FieldInput form={form} set={set} label="Ciudad"           field="recipient_city"   placeholder="Ciudad" />
+            <FieldInput form={form} set={set} label="Dirección"        field="recipient_address" placeholder="Dirección (opcional)" className="col-span-2" />
           </div>
 
           {/* Separador Remitente */}
@@ -454,8 +462,8 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Nombre del remitente" field="sender_name"  placeholder="Gerente de Proyecto" />
-            <Input label="Cargo del remitente"  field="sender_title" placeholder="Cargo" />
+            <FieldInput form={form} set={set} label="Nombre del remitente" field="sender_name"  placeholder="Gerente de Proyecto" />
+            <FieldInput form={form} set={set} label="Cargo del remitente"  field="sender_title" placeholder="Cargo" />
           </div>
 
           {/* Separador Referencia contrato */}
@@ -466,11 +474,11 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input label="N° de Contrato"       field="contract_reference"  placeholder="Ej: 001-2025" />
-            <Input label="Entidad contratante"  field="project_entity"      placeholder="Nombre de la entidad" />
-            <Input label="Fecha de inicio"      field="project_start_date"  type="date" />
+            <FieldInput form={form} set={set} label="N° de Contrato"       field="contract_reference"  placeholder="Ej: 001-2025" />
+            <FieldInput form={form} set={set} label="Entidad contratante"  field="project_entity"      placeholder="Nombre de la entidad" />
+            <FieldInput form={form} set={set} label="Fecha de inicio"      field="project_start_date"  type="date" />
           </div>
-          <Textarea label="Objeto del contrato (referencia)" field="project_object" rows={2}
+          <FieldTextarea form={form} set={set} label="Objeto del contrato (referencia)" field="project_object" rows={2}
             placeholder="Resumen del objeto del contrato" />
 
           {/* Separador Cuerpo */}
@@ -480,9 +488,9 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
             <div className="flex-1 h-px bg-surface-100" />
           </div>
 
-          <Textarea label="Cuerpo de la comunicación" field="body" rows={8}
+          <FieldTextarea form={form} set={set} label="Cuerpo de la comunicación" field="body" rows={8}
             placeholder="Redacta el cuerpo completo de la comunicación..." />
-          <Input label="Cierre" field="closing" placeholder="Ej: Cordialmente," />
+          <FieldInput form={form} set={set} label="Cierre" field="closing" placeholder="Ej: Cordialmente," />
 
           {/* Separador Seguimiento */}
           <div className="flex items-center gap-2">
@@ -492,11 +500,11 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <Input label="N° de radicado"    field="radicado_number" placeholder="RAD-2026-001" />
-            <Input label="Fecha de envío"    field="sent_date"       type="date" />
-            <Input label="Fecha de respuesta" field="response_date"  type="date" />
+            <FieldInput form={form} set={set} label="N° de radicado"    field="radicado_number" placeholder="RAD-2026-001" />
+            <FieldInput form={form} set={set} label="Fecha de envío"    field="sent_date"       type="date" />
+            <FieldInput form={form} set={set} label="Fecha de respuesta" field="response_date"  type="date" />
           </div>
-          <Textarea label="Observaciones internas" field="notes" rows={2}
+          <FieldTextarea form={form} set={set} label="Observaciones internas" field="notes" rows={2}
             placeholder="Notas de seguimiento..." />
         </div>
 

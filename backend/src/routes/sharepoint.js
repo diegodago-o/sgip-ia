@@ -287,17 +287,37 @@ async function extractBufferText(buffer, filename) {
   // XLSX — xlsx library supports buffers
   if (['xlsx', 'xls'].includes(ext)) {
     try {
-      const XLSX  = require('xlsx');
-      const wb    = XLSX.read(buffer, { type: 'buffer' });
+      const XLSX = require('xlsx');
+      const wb   = XLSX.read(buffer, { type: 'buffer', cellFormula: false, cellHTML: false });
       const lines = [];
       wb.SheetNames.forEach(name => {
         lines.push(`\n=== HOJA: ${name} ===`);
-        const ws   = wb.Sheets[name];
-        const rows = XLSX.utils.sheet_to_csv(ws);
-        lines.push(rows);
+        const ws = wb.Sheets[name];
+
+        // Try sheet_to_json first (more reliable for data sheets)
+        try {
+          const jsonRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: false });
+          const filtered = jsonRows
+            .filter(row => Array.isArray(row) && row.some(c => String(c || '').trim()))
+            .map(row => row.map(c => String(c ?? '').trim()).join('\t'));
+          if (filtered.length > 0) {
+            lines.push(filtered.slice(0, 500).join('\n')); // limit to 500 rows per sheet
+            return;
+          }
+        } catch (_) { /* fallback to csv */ }
+
+        // Fallback: sheet_to_csv
+        const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+        // Remove comma-only lines (empty rows in CSV)
+        const cleaned = csv.split('\n').filter(l => l.replace(/,/g, '').trim()).slice(0, 500).join('\n');
+        lines.push(cleaned);
       });
-      return { text: lines.join('\n').trim(), method: 'xlsx' };
-    } catch (e) { return { text: '', method: 'failed' }; }
+      const text = lines.join('\n').trim();
+      if (text.length > 10) return { text: text.substring(0, 50000), method: 'xlsx' }; // cap at 50K chars
+    } catch (e) {
+      console.error('[SP analyze] XLSX parse error:', e.message);
+    }
+    return { text: '', method: 'failed' };
   }
 
   // PDF — pdf-parse if available, else base64 for vision
@@ -595,8 +615,12 @@ router.post('/projects/:id/analyze/:itemId', [param('id').isInt()], async (req, 
       }
     }
 
-    if (!text || text.length < 30) {
-      return res.status(400).json({ error: 'No se pudo extraer texto del documento.' });
+    if (!text || text.length < 10) {
+      const ext2 = (filename || '').split('.').pop().toLowerCase();
+      const hint = ['xlsx','xls'].includes(ext2)
+        ? 'El archivo Excel no tiene celdas con texto legible, está protegido, o usa un formato no compatible.'
+        : 'No se pudo extraer texto del documento.';
+      return res.status(400).json({ error: hint });
     }
 
     // 5. Build prompt and call AI

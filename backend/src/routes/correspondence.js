@@ -68,7 +68,8 @@ router.get('/:projectId/correspondence', [param('projectId').isInt()], async (re
   try {
     const [rows] = await pool.execute(`
       SELECT c.*, u.full_name AS created_by_name,
-             p.name AS project_name, p.code AS project_code, p.client_name AS project_entity
+             p.name AS project_name, p.code AS project_code,
+             COALESCE(NULLIF(c.project_entity,''), p.client_name) AS project_entity
       FROM correspondence c
       LEFT JOIN users u ON c.created_by = u.id
       LEFT JOIN projects p ON c.project_id = p.id
@@ -130,19 +131,19 @@ router.post('/:projectId/correspondence',
           (project_id, consecutive_num, consecutive_code, correspondence_type,
            subject, reference_date,
            recipient_name, recipient_title, recipient_entity, recipient_address, recipient_city,
-           sender_name, sender_title,
+           sender_name, sender_title, sender_entity,
            body, closing,
            contract_reference, project_entity, project_start_date, project_object,
            status, radicado_number, sent_date, response_date, notes, ai_prompt,
            created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `, [
         pid, num, code, type,
         b.subject, toSqlDate(b.reference_date),
         b.recipient_name  || null, b.recipient_title  || null,
         b.recipient_entity || proj?.client_name || null,
         b.recipient_address || null, b.recipient_city || 'Bogotá D.C.',
-        b.sender_name  || null, b.sender_title  || null,
+        b.sender_name  || null, b.sender_title  || null, b.sender_entity || null,
         b.body    || null, b.closing || 'Cordialmente,',
         b.contract_reference || proj?.contract_number || null,
         b.project_entity     || proj?.client_name     || null,
@@ -204,6 +205,7 @@ router.put('/:projectId/correspondence/:id',
           recipient_city      = ?,
           sender_name         = ?,
           sender_title        = ?,
+          sender_entity       = ?,
           body                = ?,
           closing             = ?,
           contract_reference  = ?,
@@ -222,7 +224,7 @@ router.put('/:projectId/correspondence/:id',
         toSqlDate(b.reference_date),
         b.recipient_name  ?? null, b.recipient_title  ?? null,
         b.recipient_entity ?? null, b.recipient_address ?? null, b.recipient_city ?? null,
-        b.sender_name ?? null, b.sender_title ?? null,
+        b.sender_name ?? null, b.sender_title ?? null, b.sender_entity ?? null,
         b.body ?? null, b.closing ?? null,
         b.contract_reference ?? null, b.project_entity ?? null,
         toSqlDate(b.project_start_date),
@@ -394,7 +396,9 @@ router.get('/:projectId/correspondence/:id/preview',
       if (!c) return res.status(404).json({ error: 'No encontrado' });
       const fmtDate = (d) => {
         if (!d) return '';
-        const dt = new Date(d);
+        const s = String(d).substring(0, 10);
+        const [y, m, day] = s.split('-').map(Number);
+        const dt = new Date(y, m - 1, day);
         const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
         return `${dt.getDate()} de ${months[dt.getMonth()]} de ${dt.getFullYear()}`;
       };
@@ -437,7 +441,9 @@ router.get('/:projectId/correspondence/:id/download',
       };
       const fmtDate = (d) => {
         if (!d) return '';
-        const dt = new Date(d);
+        const s = String(d).substring(0, 10);
+        const [y, m, day] = s.split('-').map(Number);
+        const dt = new Date(y, m - 1, day);
         const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
         return `${dt.getDate()} de ${months[dt.getMonth()]} de ${dt.getFullYear()}`;
       };
@@ -628,8 +634,8 @@ router.get('/:projectId/correspondence/:id/download',
             children: [new Paragraph({ children: [new TextRun({ text: c.sender_title || '', size: 20, color: '555555', font: 'Calibri' })], spacing: { after: 40 } })],
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
           })] }),
-          ...(c.project_entity ? [new TableRow({ children: [new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: c.project_entity, size: 20, color: '555555', font: 'Calibri' })] })],
+          ...((c.sender_entity || c.project_entity) ? [new TableRow({ children: [new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: c.sender_entity || c.project_entity, size: 20, color: '555555', font: 'Calibri' })] })],
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
           })] })] : []),
         ],

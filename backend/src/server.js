@@ -330,6 +330,8 @@ async function runMigrations() {
     'ALTER TABLE meeting_minutes ADD COLUMN sp_item_id VARCHAR(200) NULL');
   await run('meeting_minutes.sp_file_url',
     'ALTER TABLE meeting_minutes ADD COLUMN sp_file_url VARCHAR(500) NULL');
+  await run('correspondence.sender_entity',
+    'ALTER TABLE correspondence ADD COLUMN sender_entity VARCHAR(255) NULL DEFAULT NULL AFTER sender_title');
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

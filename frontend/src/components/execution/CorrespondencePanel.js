@@ -40,6 +40,7 @@ const EMPTY_FORM = {
   recipient_city: 'Bogotá D.C.',
   sender_name: '',
   sender_title: '',
+  sender_entity: '',
   body: '',
   closing: 'Cordialmente,',
   contract_reference: '',
@@ -53,9 +54,18 @@ const EMPTY_FORM = {
   notes: '',
 };
 
+// Parse YYYY-MM-DD as LOCAL midnight to avoid UTC-offset shifting the date one day back
+function parseLocalDate(d) {
+  if (!d) return new Date(NaN);
+  const s = String(d).substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(d);
+  const [y, m, day] = s.split('-').map(Number);
+  return new Date(y, m - 1, day);
+}
+
 function fmtDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+  return parseLocalDate(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // ─── Badge de estado ─────────────────────────────────────────────────────────
@@ -72,7 +82,7 @@ function StatusBadge({ status }) {
 // ─── Helpers fecha ────────────────────────────────────────────────────────────
 function fmtDateLong(d) {
   if (!d) return '';
-  const dt = new Date(d);
+  const dt = parseLocalDate(d);
   const months = ['enero','febrero','marzo','abril','mayo','junio','julio',
                   'agosto','septiembre','octubre','noviembre','diciembre'];
   return `${dt.getDate()} de ${months[dt.getMonth()]} de ${dt.getFullYear()}`;
@@ -205,9 +215,9 @@ function PreviewModal({ projectId, record, onClose }) {
               {/* Firma */}
               <div className="pt-8 space-y-0.5">
                 <div className="w-40 border-b border-gray-400 mb-2" />
-                {record.sender_name  && <p className="font-bold text-[#1E3A5F]">{record.sender_name}</p>}
-                {record.sender_title && <p className="text-gray-600 text-xs">{record.sender_title}</p>}
-                {record.project_entity&&<p className="text-gray-500 text-xs">{record.project_entity}</p>}
+                {record.sender_name   && <p className="font-bold text-[#1E3A5F]">{record.sender_name}</p>}
+                {record.sender_title  && <p className="text-gray-600 text-xs">{record.sender_title}</p>}
+                {record.sender_entity && <p className="text-gray-500 text-xs">{record.sender_entity}</p>}
               </div>
             </div>
 
@@ -325,6 +335,7 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
         recipient_city:      g.recipient_city      || f.recipient_city,
         sender_name:         g.sender_name         || f.sender_name,
         sender_title:        g.sender_title        || f.sender_title,
+        sender_entity:       g.sender_entity       || f.sender_entity,
         body:                g.body                || f.body,
         closing:             g.closing             || f.closing,
         contract_reference:  g.contract_reference  || f.contract_reference,
@@ -462,8 +473,9 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <FieldInput form={form} set={set} label="Nombre del remitente" field="sender_name"  placeholder="Gerente de Proyecto" />
-            <FieldInput form={form} set={set} label="Cargo del remitente"  field="sender_title" placeholder="Cargo" />
+            <FieldInput form={form} set={set} label="Nombre del remitente" field="sender_name"   placeholder="Ej: Germán Medina Wilches" />
+            <FieldInput form={form} set={set} label="Cargo del remitente"  field="sender_title"  placeholder="Ej: Gerente de Proyecto" />
+            <FieldInput form={form} set={set} label="Empresa del remitente" field="sender_entity" placeholder="Ej: Consorcio Fondo Colombia en Paz" className="col-span-2" />
           </div>
 
           {/* Separador Referencia contrato */}

@@ -262,24 +262,40 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   // Solución: HEADER_H = 76pt para acomodar hasta 2 líneas del nombre de entidad
   // (font 11 × 2 líneas × 1.2 interlineado ≈ 26pt), con Proyecto/Código a partir
   // de y+40 y y+52, fuera de la zona de 2 líneas.
-  const HEADER_H  = 76;
+  const HEADER_H  = 84;  // +8pt para acomodar logo + nombre + proyecto + código
   const ENTITY_W  = W * 0.65 - 20;  // ancho util columna izquierda
   const rcX = ML + W * 0.65;
   const rcW = W * 0.35;
 
   // Columna izquierda (65%): rectángulo azul oscuro
+  const headerEntityName = project.correspondence_sender_name || corr.project_entity || project.name || 'SGIP';
   doc.rect(ML, MT, W * 0.65, HEADER_H).fill('#1E3A5F');
-  // Nombre de entidad: font 11 con wrapping, clipeado a máx. 2 líneas (height:26)
+
+  // Logo del proyecto (si está configurado)
+  let logoDrawn = false;
+  if (project.correspondence_logo) {
+    try {
+      const m = project.correspondence_logo.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/);
+      if (m) {
+        const imgBuf = Buffer.from(m[2], 'base64');
+        doc.image(imgBuf, ML + 10, MT + 6, { height: 22, fit: [110, 22] });
+        logoDrawn = true;
+      }
+    } catch (_) { /* ignorar errores de logo */ }
+  }
+
+  // Nombre de entidad: si hay logo lo ponemos debajo, si no en la posición normal
+  const entityY = logoDrawn ? MT + 31 : MT + 8;
+  const entityH  = logoDrawn ? 18 : 26;
   doc.fillColor('white').fontSize(11).font('Helvetica-Bold')
-     .text(corr.project_entity || project.name || 'SGIP',
-           ML + 10, MT + 8, { width: ENTITY_W, height: 26 });
-  // Proyecto y código en filas fijas por debajo de las 2 líneas de nombre
+     .text(headerEntityName, ML + 10, entityY, { width: ENTITY_W, height: entityH });
+  // Proyecto y código en filas fijas por debajo
   doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
      .text(`Proyecto: ${project.name || ''}`,
-           ML + 10, MT + 40, { width: ENTITY_W, lineBreak: false });
+           ML + 10, MT + 52, { width: ENTITY_W, lineBreak: false });
   doc.fillColor('#BDD7EE').fontSize(8).font('Helvetica')
      .text(`Código: ${project.code || ''}`,
-           ML + 10, MT + 52, { width: ENTITY_W, lineBreak: false });
+           ML + 10, MT + 63, { width: ENTITY_W, lineBreak: false });
 
   // Columna derecha (35%): rectángulo azul medio, alineado con nueva altura
   doc.rect(rcX, MT, rcW, HEADER_H).fill('#2E86AB');
@@ -706,7 +722,7 @@ router.post('/', authenticate, async (req, res) => {
     const [[corr]] = await pool.execute('SELECT * FROM correspondence WHERE id=? AND project_id=?', [correspondenceId, projectId]);
     if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
 
-    const [[project]] = await pool.execute('SELECT id,name,code,client_name FROM projects WHERE id=?', [projectId]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [projectId]);
     if (!project) return res.status(404).json({ error: 'Proyecto no encontrado' });
 
     const [existing] = await pool.execute(
@@ -770,7 +786,7 @@ router.delete('/', authenticate, async (req, res) => {
     if (reqs.length) {
       const req_ = reqs[0];
       const [[corr]]    = await pool.execute('SELECT id,subject,consecutive_code,correspondence_type FROM correspondence WHERE id=?', [req_.correspondence_id]);
-      const [[project]] = await pool.execute('SELECT name,code FROM projects WHERE id=?', [req_.project_id]);
+      const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [req_.project_id]);
       const [signers]   = await pool.execute('SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]);
       const emailCfg = await loadEmailConfig();
       const cancelHtml = emailCancelledCorr({ corr, project, type: 'cancelled' });
@@ -793,7 +809,7 @@ router.get('/pdf', authenticate, async (req, res) => {
   try {
     const [[corr]] = await pool.execute('SELECT * FROM correspondence WHERE id=? AND project_id=?', [correspondenceId, projectId]);
     if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
-    const [[project]] = await pool.execute('SELECT id,name,code,client_name FROM projects WHERE id=?', [projectId]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [projectId]);
 
     const result = await buildCorrespondencePdf(corr, project, [], {});
     // X-PDF-Pages lets the frontend set the container height dynamically
@@ -813,7 +829,7 @@ router.get('/certificate', authenticate, async (req, res) => {
   try {
     const [[corr]] = await pool.execute('SELECT * FROM correspondence WHERE id=? AND project_id=?', [correspondenceId, projectId]);
     if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
-    const [[project]] = await pool.execute('SELECT id,name,code,client_name FROM projects WHERE id=?', [projectId]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [projectId]);
 
     const [reqs] = await pool.execute(
       "SELECT * FROM corr_signature_requests WHERE correspondence_id=? AND project_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
@@ -858,7 +874,7 @@ publicRouter.get('/:token', async (req, res) => {
       'SELECT id,subject,consecutive_code,correspondence_type,reference_date,recipient_name,recipient_entity,recipient_city,contract_reference FROM correspondence WHERE id=?',
       [req_.correspondence_id]
     );
-    const [[project]] = await pool.execute('SELECT name,code,client_name FROM projects WHERE id=?', [req_.project_id]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [req_.project_id]);
 
     if (signer.status === 'notified')
       await pool.execute("UPDATE corr_signature_signers SET status='viewed' WHERE token=?", [req.params.token]);
@@ -904,7 +920,7 @@ publicRouter.get('/:token/pdf', async (req, res) => {
     const req_ = reqs[0];
 
     const [[corr]]    = await pool.execute('SELECT * FROM correspondence WHERE id=?', [req_.correspondence_id]);
-    const [[project]] = await pool.execute('SELECT id,name,code,client_name FROM projects WHERE id=?', [req_.project_id]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [req_.project_id]);
     const [allSigners] = await pool.execute(
       'SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [req_.id]
     );
@@ -1039,7 +1055,7 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
 
     const [reqs] = await pool.execute('SELECT * FROM corr_signature_requests WHERE id=?', [signer.request_id]);
     const [[corr]]    = await pool.execute('SELECT id,subject,consecutive_code,correspondence_type FROM correspondence WHERE id=?', [reqs[0].correspondence_id]);
-    const [[project]] = await pool.execute('SELECT name,code FROM projects WHERE id=?', [reqs[0].project_id]);
+    const [[project]] = await pool.execute('SELECT id,name,code,client_name,correspondence_sender_name,correspondence_logo FROM projects WHERE id=?', [reqs[0].project_id]);
     const [allSigners] = await pool.execute(
       'SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
     );

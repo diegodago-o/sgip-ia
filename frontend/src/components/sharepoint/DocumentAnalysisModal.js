@@ -13,6 +13,17 @@ import { sharepointAPI, committeeCommitmentsAPI } from '../../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Convierte markdown simple (**bold**, *italic*) a HTML */
+function mdToHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .split('\n')
+    .map(line => line.trim() === '' ? '<br/>' : `<p style="margin:0 0 6px 0">${line}</p>`)
+    .join('');
+}
+
 const ANALYZABLE_EXTS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt', 'csv'];
 
 export function canAnalyze(filename) {
@@ -333,8 +344,133 @@ function AnalysisDisplay({ docType, analysis }) {
   );
 }
 
+// ── Import commitments panel ─────────────────────────────────────────────────
+function ImportCommitmentsPanel({ result, projectId }) {
+  const { commitments = [] } = result;
+  const allIdx = commitments.map((_, i) => i);
+  const [selected, setSelected] = useState(new Set(allIdx));
+  const [status, setStatus]     = useState(null); // null | 'loading' | 'success' | 'error'
+  const [errMsg, setErrMsg]     = useState('');
+
+  const toggle = (i) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(i) ? next.delete(i) : next.add(i);
+    return next;
+  });
+
+  const handleImport = async () => {
+    const toImport = commitments.filter((_, i) => selected.has(i));
+    if (!toImport.length) return;
+    setStatus('loading');
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      await committeeCommitmentsAPI.create(projectId, {
+        commitments: toImport.map(c => ({
+          description:    c.descripcion || c.description || '',
+          responsible:    c.responsable || c.responsible || null,
+          due_date:       c.fecha_limite || c.due_date || null,
+          priority:       c.prioridad || 'media',
+          origin_date:    today,
+          committee_type: 'comite_seguimiento',
+        })),
+      });
+      setStatus('success');
+    } catch (e) {
+      setErrMsg(e.response?.data?.error || e.message);
+      setStatus('error');
+    }
+  };
+
+  if (commitments.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10 text-surface-400">
+        <ClipboardList className="w-8 h-8" />
+        <p className="text-sm">No se detectaron compromisos en este documento.</p>
+      </div>
+    );
+  }
+
+  if (status === 'success') {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10">
+        <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+        <p className="text-sm font-semibold text-emerald-700">
+          {selected.size} compromiso{selected.size !== 1 ? 's' : ''} importado{selected.size !== 1 ? 's' : ''} correctamente
+        </p>
+        <p className="text-xs text-surface-400">Ya aparecen en el módulo de Comités del proyecto.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-amber-900">
+          {commitments.length} compromiso{commitments.length !== 1 ? 's' : ''} detectado{commitments.length !== 1 ? 's' : ''}
+        </h4>
+        <button
+          onClick={() => selected.size === commitments.length
+            ? setSelected(new Set())
+            : setSelected(new Set(allIdx))}
+          className="text-[10px] text-brand-600 hover:underline"
+        >
+          {selected.size === commitments.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+        </button>
+      </div>
+
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+        {commitments.map((c, i) => (
+          <label key={i} className={`flex gap-3 items-start p-3 rounded-xl border cursor-pointer transition-colors ${
+            selected.has(i) ? 'bg-amber-50 border-amber-200' : 'bg-surface-50 border-surface-200 opacity-60'
+          }`}>
+            <input
+              type="checkbox"
+              checked={selected.has(i)}
+              onChange={() => toggle(i)}
+              className="mt-0.5 flex-shrink-0 accent-amber-600"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-surface-800">{c.descripcion || c.description}</p>
+              <div className="flex flex-wrap gap-3 mt-1">
+                {(c.responsable || c.responsible) && (
+                  <span className="text-[10px] text-amber-700">👤 {c.responsable || c.responsible}</span>
+                )}
+                {(c.fecha_limite || c.due_date) && (
+                  <span className="text-[10px] text-amber-600">📅 {c.fecha_limite || c.due_date}</span>
+                )}
+                {c.prioridad && (
+                  <Badge className={c.prioridad === 'alta' ? 'bg-red-100 text-red-700' : c.prioridad === 'baja' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
+                    {c.prioridad}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {status === 'error' && (
+        <div className="bg-red-50 border border-red-100 text-red-700 text-xs p-3 rounded-xl">{errMsg}</div>
+      )}
+
+      <button
+        onClick={handleImport}
+        disabled={!selected.size || status === 'loading'}
+        className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+      >
+        {status === 'loading'
+          ? <Loader2 className="w-4 h-4 animate-spin" />
+          : <ClipboardList className="w-4 h-4" />}
+        {status === 'loading'
+          ? 'Importando...'
+          : `Importar ${selected.size} compromiso${selected.size !== 1 ? 's' : ''}`}
+      </button>
+    </div>
+  );
+}
+
 // ── Post-analysis actions ────────────────────────────────────────────────────
-function ActionResult({ actionType, result, onClose }) {
+function ActionResult({ actionType, result, projectId }) {
   const [copied, setCopied] = useState(false);
 
   const copy = (text) => {
@@ -346,19 +482,22 @@ function ActionResult({ actionType, result, onClose }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-brand-900">Borrador de Respuesta</h4>
-          <button onClick={() => copy(result.text)} className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800">
+          <button onClick={() => copy(result.text)} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-800 border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors">
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copiado' : 'Copiar'}
+            {copied ? 'Copiado' : 'Copiar texto'}
           </button>
         </div>
-        <textarea
-          readOnly
-          value={result.text || ''}
-          rows={12}
-          className="w-full border border-surface-200 rounded-xl text-xs p-3 bg-surface-50 resize-none font-mono"
+        <div
+          className="w-full border border-surface-200 rounded-xl text-xs p-4 bg-white leading-relaxed text-surface-800 overflow-y-auto"
+          style={{ maxHeight: '26rem', fontFamily: 'Calibri, Arial, sans-serif', fontSize: '12.5px', lineHeight: '1.7' }}
+          dangerouslySetInnerHTML={{ __html: mdToHtml(result.text || '') }}
         />
       </div>
     );
+  }
+
+  if (actionType === 'import_commitments') {
+    return <ImportCommitmentsPanel result={result} projectId={projectId} />;
   }
 
   if (actionType === 'validate_legal') {
@@ -427,7 +566,11 @@ function ActionResult({ actionType, result, onClose }) {
     );
   }
 
-  return <pre className="text-xs bg-surface-50 rounded-xl p-3 overflow-auto">{JSON.stringify(result, null, 2)}</pre>;
+  return (
+    <div className="text-xs text-surface-500 text-center py-6">
+      Resultado procesado correctamente.
+    </div>
+  );
 }
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
@@ -477,9 +620,117 @@ export default function DocumentAnalysisModal({ projectId, item, onClose }) {
       return;
     }
     if (type === 'export') {
-      const blob = new Blob([JSON.stringify(analysisResult, null, 2)], { type: 'application/json' });
+      const docLabel = DOC_TYPE_LABELS[docType] || docType || 'Documento';
+      const today    = new Date().toLocaleDateString('es-CO', { dateStyle: 'long' });
+      const ar       = analysisResult || {};
+
+      const section = (title, body) => body
+        ? `<div class="sec"><h3>${title}</h3>${body}</div>`
+        : '';
+      const list = (items) => items?.length
+        ? `<ul>${items.map(it => `<li>${typeof it === 'string' ? it : (it.descripcion || it.description || JSON.stringify(it))}</li>`).join('')}</ul>`
+        : '';
+      const pill = (txt, color) => `<span class="pill" style="background:${color};color:#fff">${txt}</span>`;
+
+      const commitmentCards = (ar.compromisos || []).map(c => `
+        <div class="card amber">
+          <p class="card-title">${c.descripcion || c.description || ''}</p>
+          <p class="card-meta">
+            ${c.responsable || c.responsible ? `👤 ${c.responsable || c.responsible}` : ''}
+            ${c.fecha_limite || c.due_date ? `&nbsp;📅 ${c.fecha_limite || c.due_date}` : ''}
+            ${c.prioridad ? `&nbsp;<span class="pill-sm">${c.prioridad}</span>` : ''}
+          </p>
+        </div>`).join('');
+
+      const riskCards = (ar.riesgos || []).map(r => `
+        <div class="card ${r.nivel === 'critico' ? 'red' : r.nivel === 'alto' ? 'orange' : 'gray'}">
+          <p class="card-title">${r.descripcion || ''}</p>
+          <p class="card-meta">${r.categoria || ''} · P: ${r.probabilidad || '?'} / I: ${r.impacto || '?'}</p>
+          ${r.mitigacion ? `<p class="card-note">💡 ${r.mitigacion}</p>` : ''}
+        </div>`).join('');
+
+      const kvGrid = Object.entries({
+        'Avance Físico': ar.avance_fisico, 'Avance Financiero': ar.avance_financiero,
+        'Valor': ar.valor, 'Plazo': ar.plazo,
+        'Fecha Inicio': ar.fecha_inicio, 'Fecha Fin': ar.fecha_fin,
+        'Fecha': ar.fecha, 'Lugar': ar.lugar,
+        'Tipo': ar.tipo, 'Radicado': ar.radicado,
+      }).filter(([, v]) => v).map(([k, v]) =>
+        `<div class="kv"><span class="kv-label">${k}</span><span class="kv-val">${v}</span></div>`
+      ).join('');
+
+      const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Análisis — ${item.name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',Calibri,Arial,sans-serif;background:#f4f6f9;color:#1a1a2e;font-size:13px;padding:32px 16px}
+    .wrap{max-width:780px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
+    .hdr{background:#1e3a5f;color:#fff;padding:24px 28px}
+    .hdr h1{font-size:18px;font-weight:700;margin-bottom:4px}
+    .hdr p{font-size:12px;opacity:.7}
+    .body{padding:24px 28px;display:flex;flex-direction:column;gap:16px}
+    .sec{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px}
+    .sec h3{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:8px;font-weight:700}
+    .sec p{font-size:13px;color:#374151;line-height:1.6}
+    ul{padding-left:18px;display:flex;flex-direction:column;gap:4px}
+    li{font-size:12.5px;color:#374151;line-height:1.5}
+    .kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+    .kv{background:#f1f5f9;border-radius:6px;padding:8px 12px}
+    .kv-label{display:block;font-size:10px;color:#9ca3af;margin-bottom:2px}
+    .kv-val{font-size:13px;font-weight:600;color:#1e3a5f}
+    .card{border-radius:8px;padding:10px 14px;margin-bottom:6px}
+    .card.amber{background:#fffbeb;border:1px solid #fde68a}
+    .card.red{background:#fef2f2;border:1px solid #fecaca}
+    .card.orange{background:#fff7ed;border:1px solid #fed7aa}
+    .card.gray{background:#f9fafb;border:1px solid #e5e7eb}
+    .card-title{font-size:12.5px;font-weight:600;color:#1a1a2e;margin-bottom:4px}
+    .card-meta{font-size:11px;color:#6b7280}
+    .card-note{font-size:11px;color:#9ca3af;margin-top:4px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}
+    .pill-sm{display:inline-block;padding:1px 6px;border-radius:4px;background:#d97706;color:#fff;font-size:10px}
+    .footer{padding:16px 28px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:right}
+    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af;margin-bottom:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Análisis de Documento</h1>
+    <p>${docLabel} · ${item.name}</p>
+    <p style="margin-top:6px">${today}</p>
+  </div>
+  <div class="body">
+    ${kvGrid ? `<div class="sec"><h3>Datos Clave</h3><div class="kv-grid">${kvGrid}</div></div>` : ''}
+    ${section('Resumen Ejecutivo', ar.resumen_ejecutivo || ar.summary ? `<p>${ar.resumen_ejecutivo || ar.summary}</p>` : '')}
+    ${ar.objeto ? section('Objeto', `<p>${ar.objeto}</p>`) : ''}
+    ${ar.accion_requerida ? section('Acción Requerida', `<p style="font-weight:600;color:#b45309">${ar.accion_requerida}</p>`) : ''}
+    ${ar.compromisos?.length ? `<div class="sec"><h3>Compromisos (${ar.compromisos.length})</h3>${commitmentCards}</div>` : ''}
+    ${section('Logros del Período', list(ar.logros))}
+    ${section('Alertas', list(ar.alertas))}
+    ${section('Próximas Actividades', list(ar.proximas_actividades))}
+    ${section('Obligaciones del Contratista', list(ar.obligaciones_contratista))}
+    ${section('Puntos Clave', list(ar.puntos_clave))}
+    ${section('Referencias Legales', list(ar.referencias_legales))}
+    ${section('Recomendaciones', list(ar.recomendaciones))}
+    ${section('Inconsistencias', list(ar.inconsistencias))}
+    ${ar.riesgos?.length ? `<div class="sec"><h3>Riesgos (${ar.riesgos.length})</h3>${riskCards}</div>` : ''}
+    ${ar.conclusion ? section('Conclusión', `<p>${ar.conclusion}</p>`) : ''}
+  </div>
+  <div class="footer">Generado por SGIP-IA · ${today}</div>
+</div>
+</body>
+</html>`;
+
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a'); a.href = url; a.download = `analisis_${item.name}.json`; a.click();
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `analisis_${item.name.replace(/\.[^.]+$/, '')}.html`;
+      a.click();
       URL.revokeObjectURL(url);
       return;
     }
@@ -598,7 +849,7 @@ export default function DocumentAnalysisModal({ projectId, item, onClose }) {
                 <div className="bg-red-50 border border-red-100 text-red-700 text-xs p-3 rounded-xl">{actionStep.error}</div>
               )}
               {actionStep.result && (
-                <ActionResult actionType={actionStep.type} result={actionStep.result} />
+                <ActionResult actionType={actionStep.type} result={actionStep.result} projectId={projectId} />
               )}
             </div>
           )}

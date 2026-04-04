@@ -9,7 +9,7 @@ import {
   FileText, Edit3, Shield, ClipboardList, Target, TrendingDown,
   Download, RefreshCw, Copy, Check,
 } from 'lucide-react';
-import { sharepointAPI, committeeCommitmentsAPI } from '../../services/api';
+import { sharepointAPI, committeeCommitmentsAPI, exportsAPI } from '../../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,73 @@ function mdToHtml(text) {
     .split('\n')
     .map(line => line.trim() === '' ? '<br/>' : `<p style="margin:0 0 6px 0">${line}</p>`)
     .join('');
+}
+
+/** Solo acepta fechas YYYY-MM-DD o DD/MM/YYYY; cualquier texto descriptivo → null */
+function sanitizeDate(val) {
+  if (!val) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const m = String(val).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return null; // "No aplica...", "SLA por ticket..." etc → null
+}
+
+/** Convierte el objeto de análisis a texto markdown para exportar a Word */
+function analysisToMarkdown(ar = {}, docLabel = 'Análisis', filename = '') {
+  const today = new Date().toLocaleDateString('es-CO', { dateStyle: 'long' });
+  const lines = [];
+  lines.push(`# ${docLabel}`);
+  lines.push(`**Documento:** ${filename}   |   **Fecha:** ${today}`);
+  lines.push('---');
+
+  const kv = [
+    ['Avance Físico', ar.avance_fisico], ['Avance Financiero', ar.avance_financiero],
+    ['Valor', ar.valor], ['Plazo', ar.plazo],
+    ['Fecha Inicio', ar.fecha_inicio], ['Fecha Fin', ar.fecha_fin],
+    ['Fecha', ar.fecha], ['Lugar', ar.lugar], ['Tipo', ar.tipo], ['Radicado', ar.radicado],
+  ].filter(([, v]) => v);
+  if (kv.length) { kv.forEach(([k, v]) => lines.push(`**${k}:** ${v}`)); lines.push(''); }
+
+  if (ar.resumen_ejecutivo || ar.summary)  { lines.push('## Resumen Ejecutivo'); lines.push(ar.resumen_ejecutivo || ar.summary); lines.push(''); }
+  if (ar.objeto)                           { lines.push('## Objeto'); lines.push(ar.objeto); lines.push(''); }
+  if (ar.accion_requerida)                 { lines.push('## Acción Requerida'); lines.push(ar.accion_requerida); lines.push(''); }
+
+  const section = (title, items) => {
+    if (!items?.length) return;
+    lines.push(`## ${title}`);
+    items.forEach(it => {
+      const txt = typeof it === 'string' ? it : (it.descripcion || it.description || JSON.stringify(it));
+      const extra = typeof it === 'object' ? [
+        it.responsable || it.responsible ? `Responsable: ${it.responsable || it.responsible}` : null,
+        it.fecha_limite || it.due_date    ? `Fecha límite: ${it.fecha_limite || it.due_date}` : null,
+        it.prioridad                      ? `Prioridad: ${it.prioridad}` : null,
+        it.mitigacion                     ? `Mitigación: ${it.mitigacion}` : null,
+        it.nivel                          ? `Nivel: ${it.nivel}` : null,
+        it.categoria                      ? `Categoría: ${it.categoria}` : null,
+      ].filter(Boolean) : [];
+      lines.push(`- ${txt}`);
+      extra.forEach(e => lines.push(`  - ${e}`));
+    });
+    lines.push('');
+  };
+
+  section('Compromisos', ar.compromisos);
+  section('Logros del Período', ar.logros);
+  section('Alertas', ar.alertas);
+  section('Próximas Actividades', ar.proximas_actividades);
+  section('Puntos Clave', ar.puntos_clave);
+  section('Obligaciones del Contratista', ar.obligaciones_contratista);
+  section('Cláusulas de Riesgo', ar.clausulas_riesgo);
+  section('Referencias Legales', ar.referencias_legales);
+  section('Recomendaciones', ar.recomendaciones);
+  section('Inconsistencias', ar.inconsistencias);
+  section('Riesgos', ar.riesgos);
+
+  if (ar.conclusion) { lines.push('## Conclusión'); lines.push(ar.conclusion); lines.push(''); }
+
+  lines.push('---');
+  lines.push(`*Generado por SGIP-IA · ${today}*`);
+  return lines.join('\n');
 }
 
 const ANALYZABLE_EXTS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt', 'csv'];
@@ -368,7 +435,7 @@ function ImportCommitmentsPanel({ result, projectId }) {
         commitments: toImport.map(c => ({
           description:    c.descripcion || c.description || '',
           responsible:    c.responsable || c.responsible || null,
-          due_date:       c.fecha_limite || c.due_date || null,
+          due_date:       sanitizeDate(c.fecha_limite || c.due_date),
           priority:       c.prioridad || 'media',
           origin_date:    today,
           committee_type: 'comite_seguimiento',
@@ -620,120 +687,28 @@ export default function DocumentAnalysisModal({ projectId, item, onClose }) {
       return;
     }
     if (type === 'export') {
-      const docLabel = DOC_TYPE_LABELS[docType] || docType || 'Documento';
-      const today    = new Date().toLocaleDateString('es-CO', { dateStyle: 'long' });
-      const ar       = analysisResult || {};
-
-      const section = (title, body) => body
-        ? `<div class="sec"><h3>${title}</h3>${body}</div>`
-        : '';
-      const list = (items) => items?.length
-        ? `<ul>${items.map(it => `<li>${typeof it === 'string' ? it : (it.descripcion || it.description || JSON.stringify(it))}</li>`).join('')}</ul>`
-        : '';
-      const pill = (txt, color) => `<span class="pill" style="background:${color};color:#fff">${txt}</span>`;
-
-      const commitmentCards = (ar.compromisos || []).map(c => `
-        <div class="card amber">
-          <p class="card-title">${c.descripcion || c.description || ''}</p>
-          <p class="card-meta">
-            ${c.responsable || c.responsible ? `👤 ${c.responsable || c.responsible}` : ''}
-            ${c.fecha_limite || c.due_date ? `&nbsp;📅 ${c.fecha_limite || c.due_date}` : ''}
-            ${c.prioridad ? `&nbsp;<span class="pill-sm">${c.prioridad}</span>` : ''}
-          </p>
-        </div>`).join('');
-
-      const riskCards = (ar.riesgos || []).map(r => `
-        <div class="card ${r.nivel === 'critico' ? 'red' : r.nivel === 'alto' ? 'orange' : 'gray'}">
-          <p class="card-title">${r.descripcion || ''}</p>
-          <p class="card-meta">${r.categoria || ''} · P: ${r.probabilidad || '?'} / I: ${r.impacto || '?'}</p>
-          ${r.mitigacion ? `<p class="card-note">💡 ${r.mitigacion}</p>` : ''}
-        </div>`).join('');
-
-      const kvGrid = Object.entries({
-        'Avance Físico': ar.avance_fisico, 'Avance Financiero': ar.avance_financiero,
-        'Valor': ar.valor, 'Plazo': ar.plazo,
-        'Fecha Inicio': ar.fecha_inicio, 'Fecha Fin': ar.fecha_fin,
-        'Fecha': ar.fecha, 'Lugar': ar.lugar,
-        'Tipo': ar.tipo, 'Radicado': ar.radicado,
-      }).filter(([, v]) => v).map(([k, v]) =>
-        `<div class="kv"><span class="kv-label">${k}</span><span class="kv-val">${v}</span></div>`
-      ).join('');
-
-      const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Análisis — ${item.name}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Calibri,Arial,sans-serif;background:#f4f6f9;color:#1a1a2e;font-size:13px;padding:32px 16px}
-    .wrap{max-width:780px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
-    .hdr{background:#1e3a5f;color:#fff;padding:24px 28px}
-    .hdr h1{font-size:18px;font-weight:700;margin-bottom:4px}
-    .hdr p{font-size:12px;opacity:.7}
-    .body{padding:24px 28px;display:flex;flex-direction:column;gap:16px}
-    .sec{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px}
-    .sec h3{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:8px;font-weight:700}
-    .sec p{font-size:13px;color:#374151;line-height:1.6}
-    ul{padding-left:18px;display:flex;flex-direction:column;gap:4px}
-    li{font-size:12.5px;color:#374151;line-height:1.5}
-    .kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
-    .kv{background:#f1f5f9;border-radius:6px;padding:8px 12px}
-    .kv-label{display:block;font-size:10px;color:#9ca3af;margin-bottom:2px}
-    .kv-val{font-size:13px;font-weight:600;color:#1e3a5f}
-    .card{border-radius:8px;padding:10px 14px;margin-bottom:6px}
-    .card.amber{background:#fffbeb;border:1px solid #fde68a}
-    .card.red{background:#fef2f2;border:1px solid #fecaca}
-    .card.orange{background:#fff7ed;border:1px solid #fed7aa}
-    .card.gray{background:#f9fafb;border:1px solid #e5e7eb}
-    .card-title{font-size:12.5px;font-weight:600;color:#1a1a2e;margin-bottom:4px}
-    .card-meta{font-size:11px;color:#6b7280}
-    .card-note{font-size:11px;color:#9ca3af;margin-top:4px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}
-    .pill-sm{display:inline-block;padding:1px 6px;border-radius:4px;background:#d97706;color:#fff;font-size:10px}
-    .footer{padding:16px 28px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:right}
-    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af;margin-bottom:12px}
-  </style>
-</head>
-<body>
-<div class="wrap">
-  <div class="hdr">
-    <h1>Análisis de Documento</h1>
-    <p>${docLabel} · ${item.name}</p>
-    <p style="margin-top:6px">${today}</p>
-  </div>
-  <div class="body">
-    ${kvGrid ? `<div class="sec"><h3>Datos Clave</h3><div class="kv-grid">${kvGrid}</div></div>` : ''}
-    ${section('Resumen Ejecutivo', ar.resumen_ejecutivo || ar.summary ? `<p>${ar.resumen_ejecutivo || ar.summary}</p>` : '')}
-    ${ar.objeto ? section('Objeto', `<p>${ar.objeto}</p>`) : ''}
-    ${ar.accion_requerida ? section('Acción Requerida', `<p style="font-weight:600;color:#b45309">${ar.accion_requerida}</p>`) : ''}
-    ${ar.compromisos?.length ? `<div class="sec"><h3>Compromisos (${ar.compromisos.length})</h3>${commitmentCards}</div>` : ''}
-    ${section('Logros del Período', list(ar.logros))}
-    ${section('Alertas', list(ar.alertas))}
-    ${section('Próximas Actividades', list(ar.proximas_actividades))}
-    ${section('Obligaciones del Contratista', list(ar.obligaciones_contratista))}
-    ${section('Puntos Clave', list(ar.puntos_clave))}
-    ${section('Referencias Legales', list(ar.referencias_legales))}
-    ${section('Recomendaciones', list(ar.recomendaciones))}
-    ${section('Inconsistencias', list(ar.inconsistencias))}
-    ${ar.riesgos?.length ? `<div class="sec"><h3>Riesgos (${ar.riesgos.length})</h3>${riskCards}</div>` : ''}
-    ${ar.conclusion ? section('Conclusión', `<p>${ar.conclusion}</p>`) : ''}
-  </div>
-  <div class="footer">Generado por SGIP-IA · ${today}</div>
-</div>
-</body>
-</html>`;
-
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url;
-      a.download = `analisis_${item.name.replace(/\.[^.]+$/, '')}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setActionStep({ type, loading: true, result: null, error: null });
+      try {
+        const docLabel = DOC_TYPE_LABELS[docType] || docType || 'Documento';
+        const content  = analysisToMarkdown(analysisResult, docLabel, item.name);
+        const title    = `Análisis — ${item.name.replace(/\.[^.]+$/, '')}`;
+        const resp     = await exportsAPI.aiDocToWord(projectId, { title, content });
+        const blob     = new Blob([resp.data], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href    = url;
+        a.download = `analisis_${item.name.replace(/\.[^.]+$/, '')}.docx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setActionStep(null); // volver al análisis tras descargar
+      } catch (e) {
+        setActionStep({ type, loading: false, result: null, error: e.response?.data?.error || e.message });
+      }
       return;
     }
+
     setActionStep({ type, loading: true, result: null, error: null });
     try {
       const r = await sharepointAPI.analyzeFile(projectId, item.id, {
@@ -750,7 +725,7 @@ export default function DocumentAnalysisModal({ projectId, item, onClose }) {
     { type: 'validate_legal',      icon: Shield,        label: 'Validar normativa',     color: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
     { type: 'import_commitments',  icon: ClipboardList, label: 'Importar compromisos',  color: 'bg-amber-50 text-amber-700 hover:bg-amber-100'   },
     { type: 'risk_analysis',       icon: TrendingDown,  label: 'Análisis de riesgos',   color: 'bg-red-50 text-red-700 hover:bg-red-100'         },
-    { type: 'export',              icon: Download,      label: 'Exportar análisis',     color: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
+    { type: 'export',              icon: Download,      label: 'Exportar a Word',       color: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
   ];
 
   return (

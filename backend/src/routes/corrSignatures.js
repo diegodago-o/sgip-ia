@@ -401,8 +401,8 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   // coordenadas absolutas y se superponen sobre el área de firma).
   // ─────────────────────────────────────────
   if (corr.sender_name || corr.sender_title) {
-    checkPage(100); // espacio firma + nombre + cargo + entidad
-    doc.y += 52;    // espacio en blanco para la imagen de firma digital
+    checkPage(120); // espacio firma + nombre + cargo + entidad
+    doc.y += 70;    // espacio en blanco para la imagen de firma digital (evita solapamiento stamp corrSig)
 
     // Línea de firma (similar a w-40 del preview HTML → ~150 pt)
     doc.moveTo(ML, doc.y)
@@ -422,9 +422,10 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
          .text(corr.sender_title, ML, doc.y, { width: W });
       doc.y += 2;
     }
-    if (corr.project_entity) {
+    const senderEntityText = corr.sender_entity || project.correspondence_sender_name || corr.project_entity;
+    if (senderEntityText) {
       doc.fillColor('#6B7280').fontSize(9).font('Helvetica')
-         .text(corr.project_entity, ML, doc.y, { width: W });
+         .text(senderEntityText, ML, doc.y, { width: W });
     }
     doc.y += 14;
   } else {

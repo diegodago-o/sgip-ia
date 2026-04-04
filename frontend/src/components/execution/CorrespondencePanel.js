@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import DOMPurify from 'dompurify';
 import api, { corrSignaturesAPI, freeSignaturesAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
@@ -118,8 +119,14 @@ function PreviewModal({ projectId, record, onClose }) {
   };
 
   const typeLabel   = TYPE_LABEL_MAP[record.correspondence_type] || 'COMUNICACIÓN';
-  const firstName   = (record.recipient_name || '').split(' ')[0] || 'señor(a)';
-  const bodyLines   = (record.body || '').split('\n').filter(l => l.trim());
+  const firstName = (record.recipient_name || '').split(' ')[0] || 'señor(a)';
+  // Convertir body a HTML seguro (soporta plain text y HTML enriquecido)
+  const bodyHtml = (() => {
+    const b = record.body || '';
+    if (!b) return '';
+    if (/<[a-zA-Z]/.test(b)) return DOMPurify.sanitize(b, { ADD_ATTR: ['target'] });
+    return b.split('\n').map(l => `<p>${l || ''}</p>`).join('');
+  })();
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -212,12 +219,14 @@ function PreviewModal({ projectId, record, onClose }) {
               {/* Saludo */}
               <p>Respetado(a) señor(a) <strong>{firstName}</strong>:</p>
 
-              {/* Cuerpo */}
-              <div className="space-y-3 text-justify leading-relaxed">
-                {bodyLines.map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
-              </div>
+              {/* Cuerpo — rich text con soporte de enlaces */}
+              <div
+                dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                className="space-y-2 text-justify leading-relaxed
+                  [&_a]:text-blue-600 [&_a]:underline
+                  [&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5
+                  [&_p]:mb-1"
+              />
 
               {/* Cierre */}
               <p className="pt-2">{record.closing || 'Cordialmente,'}</p>
@@ -287,6 +296,91 @@ function FieldTextarea({ label, field, form, set, rows = 4, placeholder, classNa
         onChange={e => set(field, e.target.value)}
         placeholder={placeholder}
         className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all resize-y"
+      />
+    </div>
+  );
+}
+
+// ─── Editor de texto enriquecido ─────────────────────────────────────────────
+// Usa contenteditable + execCommand. Debe estar fuera de cualquier componente
+// padre para que React no lo re-cree y pierda el foco al tipear.
+function RichTextEditor({ value, onChange }) {
+  const ref    = useRef(null);
+  const inited = useRef(false);
+
+  // Inicializar contenido solo una vez
+  useEffect(() => {
+    if (!ref.current || inited.current) return;
+    inited.current = true;
+    const v = value || '';
+    // Texto plano → envolver en <p>
+    if (v && !/<[a-zA-Z]/.test(v)) {
+      ref.current.innerHTML = v.split('\n').map(l => `<p>${l || '<br>'}</p>`).join('');
+    } else {
+      ref.current.innerHTML = v;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const emit = () => ref.current && onChange(ref.current.innerHTML);
+
+  const exec = (cmd, val) => {
+    document.execCommand(cmd, false, val || null);
+    ref.current?.focus();
+    emit();
+  };
+
+  const insertLink = e => {
+    e.preventDefault();
+    const sel = window.getSelection()?.toString() || '';
+    const url = window.prompt('URL del enlace (ej: https://...):');
+    if (!url) return;
+    ref.current?.focus();
+    if (sel) {
+      document.execCommand('createLink', false, url);
+    } else {
+      const txt = window.prompt('Texto que se mostrará:', url);
+      if (txt) document.execCommand('insertHTML', false,
+        `<a href="${url}" target="_blank">${txt}</a>`);
+    }
+    // Asegurar target="_blank" en todos los links
+    ref.current?.querySelectorAll('a').forEach(a => a.setAttribute('target', '_blank'));
+    emit();
+  };
+
+  const B = 'px-2 py-1 rounded text-xs text-surface-700 hover:bg-surface-200 transition-colors select-none cursor-pointer';
+
+  return (
+    <div className="border border-surface-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-brand-400 transition-all">
+      {/* Barra de herramientas */}
+      <div className="flex items-center gap-0.5 px-2 py-1.5 bg-surface-50 border-b border-surface-100 flex-wrap">
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('bold'); }}
+          className={`${B} font-bold`} title="Negrita (Ctrl+B)">N</button>
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('italic'); }}
+          className={`${B} italic`} title="Cursiva (Ctrl+I)">K</button>
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('underline'); }}
+          className={`${B} underline`} title="Subrayado (Ctrl+U)">S</button>
+        <div className="w-px h-4 bg-surface-200 mx-1" />
+        <button type="button" onMouseDown={insertLink}
+          className={`${B} text-brand-600 font-medium`} title="Insertar enlace">🔗 Enlace</button>
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('unlink'); }}
+          className={`${B} text-surface-400`} title="Quitar enlace">✕🔗</button>
+        <div className="w-px h-4 bg-surface-200 mx-1" />
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('insertOrderedList'); }}
+          className={B} title="Lista numerada">1.</button>
+        <button type="button" onMouseDown={e => { e.preventDefault(); exec('insertUnorderedList'); }}
+          className={B} title="Lista con viñetas">•</button>
+      </div>
+      {/* Área editable */}
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={emit}
+        className="px-3 py-2.5 text-sm text-gray-800 outline-none overflow-y-auto
+          [&_a]:text-brand-600 [&_a]:underline
+          [&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5
+          [&_p]:mb-1"
+        style={{ minHeight: '14rem' }}
       />
     </div>
   );
@@ -510,8 +604,10 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
             <div className="flex-1 h-px bg-surface-100" />
           </div>
 
-          <FieldTextarea form={form} set={set} label="Cuerpo de la comunicación" field="body" rows={8}
-            placeholder="Redacta el cuerpo completo de la comunicación..." />
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-surface-600">Cuerpo de la comunicación</label>
+            <RichTextEditor value={form.body} onChange={v => set('body', v)} />
+          </div>
           <FieldInput form={form} set={set} label="Cierre" field="closing" placeholder="Ej: Cordialmente," />
 
           {/* Separador Seguimiento */}

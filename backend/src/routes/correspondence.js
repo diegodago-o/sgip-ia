@@ -432,7 +432,7 @@ router.get('/:projectId/correspondence/:id/download',
         Document, Packer, Paragraph, TextRun, AlignmentType,
         BorderStyle, Table, TableRow, TableCell, WidthType,
         ShadingType, HeadingLevel, PageBreak, TabStopType, TabStopLeader,
-        convertInchesToTwip, UnderlineType, ImageRun,
+        convertInchesToTwip, UnderlineType, ImageRun, ExternalHyperlink,
       } = require('docx');
 
       // ─── Helpers ──────────────────────────────────────────────────────────
@@ -631,14 +631,31 @@ router.get('/:projectId/correspondence/:id/download',
         ]})],
       });
 
-      // ─── Cuerpo del documento (párrafos) ──────────────────────────────
-      const bodyParagraphs = (c.body || '').split('\n').map(line =>
-        new Paragraph({
-          children: [new TextRun({ text: line, size: 22, font: 'Calibri', color: '1A1A1A' })],
-          spacing: { after: line.trim() ? 160 : 80 },
+      // ─── Cuerpo del documento (párrafos con rich text / links) ───────
+      const { parseHtml: parseBodyHtml } = require('../utils/htmlParser');
+      const bodyBlocks = parseBodyHtml(c.body || '');
+      const bodyParagraphs = bodyBlocks.map(block => {
+        const children = block.segments.map(seg => {
+          const runProps = {
+            text:      seg.text,
+            bold:      seg.bold      || false,
+            italics:   seg.italic    || false,
+            underline: seg.underline ? { type: UnderlineType.SINGLE } : undefined,
+            font:      'Calibri',
+            size:      22,
+            color:     seg.link ? '0563C1' : '1A1A1A',
+          };
+          if (seg.link) {
+            return new ExternalHyperlink({ link: seg.link, children: [new TextRun(runProps)] });
+          }
+          return new TextRun(runProps);
+        });
+        return new Paragraph({
+          children,
+          spacing:   { after: 160 },
           alignment: AlignmentType.JUSTIFIED,
-        })
-      );
+        });
+      });
 
       // ─── Firma ────────────────────────────────────────────────────────
       // 2 blank rows above the line give ~1 inch of space for the drawn

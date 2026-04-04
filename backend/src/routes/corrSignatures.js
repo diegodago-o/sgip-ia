@@ -374,17 +374,39 @@ async function buildCorrespondencePdf(corr, project, signers, options = {}) {
   doc.y = doc.y + 14;
 
   // ─────────────────────────────────────────
-  // CUERPO DEL DOCUMENTO
+  // CUERPO DEL DOCUMENTO (rich text + links)
   // ─────────────────────────────────────────
-  const bodyText = corr.body || '';
-  const paragraphs = bodyText.split('\n').filter(p => p.trim());
-  for (const para of paragraphs) {
-    checkPage(30);
-    doc.fillColor('#111111').fontSize(10.5).font('Helvetica')
-       .text(para.trim(), ML, doc.y, { width: W, align: 'justify' });
-    doc.y = doc.y + 10;
+  const { parseHtml: parseBodyHtml } = require('../utils/htmlParser');
+  const bodyBlocks = parseBodyHtml(corr.body || '');
+  for (const block of bodyBlocks) {
+    checkPage(40);
+    const segs = block.segments.filter(s => s.text);
+    if (!segs.length) { doc.y += 4; continue; }
+
+    const blockY = doc.y;
+    for (let si = 0; si < segs.length; si++) {
+      const seg    = segs[si];
+      const isLast = si === segs.length - 1;
+      const font   = (seg.bold && seg.italic) ? 'Helvetica-BoldOblique'
+                   : seg.bold   ? 'Helvetica-Bold'
+                   : seg.italic ? 'Helvetica-Oblique'
+                   : 'Helvetica';
+      const opts = { continued: !isLast, width: W, align: 'justify' };
+      if (seg.link) { opts.link = seg.link; opts.underline = true; }
+
+      if (si === 0) {
+        doc.font(font).fontSize(10.5)
+           .fillColor(seg.link ? '#0563C1' : '#111111')
+           .text(seg.text, ML, blockY, opts);
+      } else {
+        doc.font(font).fontSize(10.5)
+           .fillColor(seg.link ? '#0563C1' : '#111111')
+           .text(seg.text, opts);
+      }
+    }
+    doc.y += 10;
   }
-  doc.y = doc.y + 10;
+  doc.y += 10;
 
   // ─────────────────────────────────────────
   // FRASE DE CIERRE

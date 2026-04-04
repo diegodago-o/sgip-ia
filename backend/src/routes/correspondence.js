@@ -657,6 +657,7 @@ router.get('/:projectId/correspondence/:id/download',
             children: [new Paragraph({ children: [new TextRun({ text: '_'.repeat(35), color: COLOR_LINE, size: 22 })], alignment: AlignmentType.LEFT })],
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
           })] }),
+          blankCell(300), // espacio entre línea y nombre para que stamp corrSig no pise el texto
           new TableRow({ children: [new TableCell({
             children: [new Paragraph({ children: [new TextRun({ text: c.sender_name || '', bold: true, size: 22, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { after: 40 } })],
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },

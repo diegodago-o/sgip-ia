@@ -222,9 +222,9 @@ function PreviewModal({ projectId, record, onClose }) {
               {/* Cierre */}
               <p className="pt-2">{record.closing || 'Cordialmente,'}</p>
 
-              {/* Firma — pt-20 da ~5 rem de espacio para la imagen de firma digital */}
+              {/* Firma — pt-20: espacio para imagen, mb-6: espacio bajo línea para metadata corrSig */}
               <div className="pt-20 space-y-1">
-                <div className="w-44 border-b border-gray-500 mb-3" />
+                <div className="w-44 border-b border-gray-500 mb-6" />
                 {record.sender_name   && <p className="font-bold text-[#1E3A5F]">{record.sender_name}</p>}
                 {record.sender_title  && <p className="text-gray-600 text-xs">{record.sender_title}</p>}
                 {record.sender_entity && <p className="text-gray-500 text-xs">{record.sender_entity}</p>}

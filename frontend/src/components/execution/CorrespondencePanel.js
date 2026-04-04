@@ -319,7 +319,7 @@ function RichTextEditor({ value, onChange }) {
     } else {
       ref.current.innerHTML = v;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   const emit = () => ref.current && onChange(ref.current.innerHTML);
 

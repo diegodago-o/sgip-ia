@@ -9,7 +9,7 @@ import {
   FileText, Edit3, Shield, ClipboardList, Target, TrendingDown,
   Download, RefreshCw, Copy, Check,
 } from 'lucide-react';
-import { sharepointAPI, committeeCommitmentsAPI, exportsAPI } from '../../services/api';
+import { sharepointAPI, exportsAPI } from '../../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -411,41 +411,22 @@ function AnalysisDisplay({ docType, analysis }) {
   );
 }
 
-// ── Import commitments panel ─────────────────────────────────────────────────
-function ImportCommitmentsPanel({ result, projectId }) {
+// ── Commitments viewer panel ─────────────────────────────────────────────────
+function CommitmentsPanel({ result }) {
   const { commitments = [] } = result;
-  const allIdx = commitments.map((_, i) => i);
-  const [selected, setSelected] = useState(new Set(allIdx));
-  const [status, setStatus]     = useState(null); // null | 'loading' | 'success' | 'error'
-  const [errMsg, setErrMsg]     = useState('');
+  const [copied, setCopied] = useState(false);
 
-  const toggle = (i) => setSelected(prev => {
-    const next = new Set(prev);
-    next.has(i) ? next.delete(i) : next.add(i);
-    return next;
-  });
-
-  const handleImport = async () => {
-    const toImport = commitments.filter((_, i) => selected.has(i));
-    if (!toImport.length) return;
-    setStatus('loading');
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      await committeeCommitmentsAPI.create(projectId, {
-        commitments: toImport.map(c => ({
-          description:    c.descripcion || c.description || '',
-          responsible:    c.responsable || c.responsible || null,
-          due_date:       sanitizeDate(c.fecha_limite || c.due_date),
-          priority:       c.prioridad || 'media',
-          origin_date:    today,
-          committee_type: 'comite_seguimiento',
-        })),
-      });
-      setStatus('success');
-    } catch (e) {
-      setErrMsg(e.response?.data?.error || e.message);
-      setStatus('error');
-    }
+  const copyAll = () => {
+    const text = commitments.map((c, i) => {
+      const desc  = c.descripcion || c.description || '';
+      const resp  = c.responsable || c.responsible;
+      const fecha = c.fecha_limite || c.due_date;
+      const prio  = c.prioridad;
+      const meta  = [resp && `Responsable: ${resp}`, fecha && `Fecha: ${fecha}`, prio && `Prioridad: ${prio}`]
+        .filter(Boolean).join(' | ');
+      return `${i + 1}. ${desc}${meta ? `\n   ${meta}` : ''}`;
+    }).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
 
   if (commitments.length === 0) {
@@ -457,18 +438,6 @@ function ImportCommitmentsPanel({ result, projectId }) {
     );
   }
 
-  if (status === 'success') {
-    return (
-      <div className="flex flex-col items-center gap-3 py-10">
-        <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-        <p className="text-sm font-semibold text-emerald-700">
-          {selected.size} compromiso{selected.size !== 1 ? 's' : ''} importado{selected.size !== 1 ? 's' : ''} correctamente
-        </p>
-        <p className="text-xs text-surface-400">Ya aparecen en el módulo de Comités del proyecto.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -476,68 +445,44 @@ function ImportCommitmentsPanel({ result, projectId }) {
           {commitments.length} compromiso{commitments.length !== 1 ? 's' : ''} detectado{commitments.length !== 1 ? 's' : ''}
         </h4>
         <button
-          onClick={() => selected.size === commitments.length
-            ? setSelected(new Set())
-            : setSelected(new Set(allIdx))}
-          className="text-[10px] text-brand-600 hover:underline"
+          onClick={copyAll}
+          className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-800 border border-brand-200 rounded-lg px-2 py-1 hover:bg-brand-50 transition-colors"
         >
-          {selected.size === commitments.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? 'Copiado' : 'Copiar lista'}
         </button>
       </div>
 
-      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
         {commitments.map((c, i) => (
-          <label key={i} className={`flex gap-3 items-start p-3 rounded-xl border cursor-pointer transition-colors ${
-            selected.has(i) ? 'bg-amber-50 border-amber-200' : 'bg-surface-50 border-surface-200 opacity-60'
-          }`}>
-            <input
-              type="checkbox"
-              checked={selected.has(i)}
-              onChange={() => toggle(i)}
-              className="mt-0.5 flex-shrink-0 accent-amber-600"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-surface-800">{c.descripcion || c.description}</p>
-              <div className="flex flex-wrap gap-3 mt-1">
-                {(c.responsable || c.responsible) && (
-                  <span className="text-[10px] text-amber-700">👤 {c.responsable || c.responsible}</span>
-                )}
-                {(c.fecha_limite || c.due_date) && (
-                  <span className="text-[10px] text-amber-600">📅 {c.fecha_limite || c.due_date}</span>
-                )}
-                {c.prioridad && (
-                  <Badge className={c.prioridad === 'alta' ? 'bg-red-100 text-red-700' : c.prioridad === 'baja' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
-                    {c.prioridad}
-                  </Badge>
-                )}
-              </div>
+          <div key={i} className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+            <p className="text-xs font-medium text-amber-900">{c.descripcion || c.description}</p>
+            <div className="flex flex-wrap gap-3 mt-1.5">
+              {(c.responsable || c.responsible) && (
+                <span className="text-[10px] text-amber-700">👤 {c.responsable || c.responsible}</span>
+              )}
+              {(c.fecha_limite || c.due_date) && (
+                <span className="text-[10px] text-amber-600">📅 {c.fecha_limite || c.due_date}</span>
+              )}
+              {c.prioridad && (
+                <Badge className={c.prioridad === 'alta' ? 'bg-red-100 text-red-700' : c.prioridad === 'baja' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
+                  {c.prioridad}
+                </Badge>
+              )}
             </div>
-          </label>
+          </div>
         ))}
       </div>
 
-      {status === 'error' && (
-        <div className="bg-red-50 border border-red-100 text-red-700 text-xs p-3 rounded-xl">{errMsg}</div>
-      )}
-
-      <button
-        onClick={handleImport}
-        disabled={!selected.size || status === 'loading'}
-        className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
-      >
-        {status === 'loading'
-          ? <Loader2 className="w-4 h-4 animate-spin" />
-          : <ClipboardList className="w-4 h-4" />}
-        {status === 'loading'
-          ? 'Importando...'
-          : `Importar ${selected.size} compromiso${selected.size !== 1 ? 's' : ''}`}
-      </button>
+      <p className="text-[10px] text-surface-400 text-center">
+        Estos compromisos también se incluyen al exportar a Word.
+      </p>
     </div>
   );
 }
 
 // ── Post-analysis actions ────────────────────────────────────────────────────
-function ActionResult({ actionType, result, projectId }) {
+function ActionResult({ actionType, result }) {
   const [copied, setCopied] = useState(false);
 
   const copy = (text) => {
@@ -564,7 +509,7 @@ function ActionResult({ actionType, result, projectId }) {
   }
 
   if (actionType === 'import_commitments') {
-    return <ImportCommitmentsPanel result={result} projectId={projectId} />;
+    return <CommitmentsPanel result={result} />;
   }
 
   if (actionType === 'validate_legal') {
@@ -723,7 +668,7 @@ export default function DocumentAnalysisModal({ projectId, item, onClose }) {
   const POST_ACTIONS = [
     { type: 'draft_response',      icon: Edit3,         label: 'Redactar respuesta',    color: 'bg-brand-50 text-brand-700 hover:bg-brand-100'   },
     { type: 'validate_legal',      icon: Shield,        label: 'Validar normativa',     color: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
-    { type: 'import_commitments',  icon: ClipboardList, label: 'Importar compromisos',  color: 'bg-amber-50 text-amber-700 hover:bg-amber-100'   },
+    { type: 'import_commitments',  icon: ClipboardList, label: 'Ver compromisos',       color: 'bg-amber-50 text-amber-700 hover:bg-amber-100'   },
     { type: 'risk_analysis',       icon: TrendingDown,  label: 'Análisis de riesgos',   color: 'bg-red-50 text-red-700 hover:bg-red-100'         },
     { type: 'export',              icon: Download,      label: 'Exportar a Word',       color: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
   ];

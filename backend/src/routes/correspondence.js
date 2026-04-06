@@ -4,6 +4,8 @@ const pool = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
 const notifier = require('../services/notifier');
 
+const { resolveAIConfig } = require('../services/aiConfig');
+
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -304,18 +306,9 @@ router.post('/:projectId/correspondence/ai-generate',
 
       if (!proj) return res.status(404).json({ error: 'Proyecto no encontrado' });
 
-      // ── Configuración de IA — igual que ai.js (lee del body o .env) ──
+      // ── Configuración de IA — usa resolveAIConfig (env > DB > body) ──
       const aiEngine = require('../services/ai-engine');
-      const provider = req.body.provider || process.env.AI_PROVIDER || 'anthropic';
-      let apiKey, model;
-      if (provider === 'anthropic') {
-        apiKey = req.body.api_key || process.env.ANTHROPIC_API_KEY;
-        model  = req.body.model   || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
-      } else {
-        apiKey = req.body.api_key || process.env.OPENAI_API_KEY;
-        model  = req.body.model   || process.env.OPENAI_MODEL || 'gpt-4o';
-      }
-      if (!apiKey) return res.status(400).json({ error: `API key no configurada para ${provider}. Configúrala en el Módulo 7 · Motor de IA.` });
+      const { provider, apiKey, model } = await resolveAIConfig(req.body, req.query, req.user?.id);
 
       const today = new Date().toISOString().split('T')[0];
 

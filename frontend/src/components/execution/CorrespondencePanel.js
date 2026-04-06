@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DOMPurify from 'dompurify';
-import api, { corrSignaturesAPI, freeSignaturesAPI } from '../../services/api';
+import api, { corrSignaturesAPI, freeSignaturesAPI, aiAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
@@ -403,6 +403,7 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
   });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiSettings, setAiSettings] = useState(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
   const [aiPanel, setAiPanel] = useState(false);
@@ -410,21 +411,22 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  useEffect(() => {
+    aiAPI.settings().then(r => setAiSettings(r.data?.data || r.data || {})).catch(() => setAiSettings({}));
+  }, []); // eslint-disable-line
+
+  const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
+  const aiProvider   = aiSettings?.default_provider || (aiSettings?.openai_configured ? 'openai' : 'anthropic');
+  const aiModel      = aiProvider === 'anthropic' ? aiSettings?.anthropic_model : aiSettings?.openai_model;
+
   const handleAiGenerate = async () => {
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
     setError('');
     try {
-      // Leer config de IA guardada en el Motor de IA (Módulo 7)
-      const aiProvider = localStorage.getItem('sgip_ai_provider') || 'anthropic';
-      const aiKey      = localStorage.getItem('sgip_ai_key')      || '';
-      const aiModel    = localStorage.getItem('sgip_ai_model')     || '';
-
+      // El backend resuelve el key globalmente (env > DB > body)
       const { data } = await api.post(`/exec/${projectId}/correspondence/ai-generate`, {
-        prompt:   aiPrompt,
-        provider: aiProvider,
-        api_key:  aiKey   || undefined,
-        model:    aiModel || undefined,
+        prompt: aiPrompt,
       });
       const g = data.data;
       // Mezclar campos generados con el formulario
@@ -502,6 +504,18 @@ function FormModal({ projectId, initial, onClose, onSaved }) {
                 {aiPanel ? 'Ocultar' : 'Expandir'}
               </button>
             </div>
+            {/* Motor IA status */}
+            {aiSettings === null
+              ? <div className="h-5 bg-white/50 rounded animate-pulse mb-2" />
+              : aiConfigured
+                ? <p className="text-[10px] text-emerald-700 mb-2 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    <strong>Motor de IA configurado</strong>&nbsp;· {aiModel}&nbsp;· <span className="capitalize">{aiProvider}</span>
+                  </p>
+                : <p className="text-[10px] text-red-600 mb-2">
+                    ⚠ Motor de IA no configurado. Ve a <strong>Configuración → Motor de IA</strong>.
+                  </p>
+            }
             {aiPanel && (
               <div className="space-y-2 mt-2">
                 <p className="text-xs text-surface-500">

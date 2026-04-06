@@ -7,6 +7,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+const { resolveAIConfig } = require('../services/aiConfig');
+
 const router = express.Router();
 router.use(authMiddleware);
 // Verify user has access to the project
@@ -266,11 +268,7 @@ router.post('/:projectId/minutes/auto-generate', roleMiddleware('admin','gerente
     console.log(`[AUTO-MINUTE] Source: ${sourceType}, Raw: ${rawText.length}, Clean: ${cleanText.length} chars`);
 
     // ── Step 3: Call AI ──
-    const provider = req.body.provider || process.env.AI_PROVIDER || 'openai';
-    const apiKey = req.body.api_key || process.env[`${provider.toUpperCase()}_API_KEY`] || process.env.OPENAI_API_KEY;
-    const model = req.body.model || '';
-
-    if (!apiKey) return res.status(400).json({ error: 'API key no configurada. Vaya a Motor IA > Configuración.' });
+    const { provider, apiKey, model } = await resolveAIConfig(req.body, req.query, req.user?.id);
 
     const systemPrompt = `Eres un asistente experto que genera actas de reunión a partir de transcripciones o notas.
 Tu tarea es analizar el texto y extraer información estructurada para un acta profesional.

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { minutesAPI, exportsAPI, signaturesAPI } from '../../services/api';
+import { minutesAPI, exportsAPI, signaturesAPI, aiAPI } from '../../services/api';
 import { Plus, Edit2, Trash2, X, Save, Loader2, FileText, Users, CheckSquare, Check, Square, Download, Upload, Sparkles, Wand2, ChevronDown, PenLine, Shield, UserPlus, AlertTriangle, FolderKanban } from 'lucide-react';
 import SharePointPicker from '../sharepoint/SharePointPicker';
 import SPUploadButton   from '../sharepoint/SPUploadButton';
@@ -166,7 +166,16 @@ function AutoGenerateModal({ projectId, onClose, onExtracted }) {
   const [inputMode, setInputMode] = useState('file');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [aiSettings, setAiSettings] = useState(null);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    aiAPI.settings().then(r => setAiSettings(r.data?.data || r.data || {})).catch(() => setAiSettings({}));
+  }, []); // eslint-disable-line
+
+  const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
+  const aiProvider   = aiSettings?.default_provider || (aiSettings?.openai_configured ? 'openai' : 'anthropic');
+  const aiModel      = aiProvider === 'anthropic' ? aiSettings?.anthropic_model : aiSettings?.openai_model;
 
   const handleGenerate = async () => {
     if (inputMode === 'file' && !file) return setError('Seleccione el archivo de transcripción');
@@ -174,16 +183,9 @@ function AutoGenerateModal({ projectId, onClose, onExtracted }) {
 
     setGenerating(true); setError('');
     try {
-      const provider = localStorage.getItem('sgip_ai_provider') || 'openai';
-      const apiKey = localStorage.getItem('sgip_ai_key') || '';
-      const model = localStorage.getItem('sgip_ai_model') || '';
-
       const fd = new FormData();
       if (inputMode === 'file') fd.append('transcript', file);
       else fd.append('transcript_text', pasteText);
-      fd.append('provider', provider);
-      if (apiKey) fd.append('api_key', apiKey);
-      if (model) fd.append('model', model);
 
       const res = await minutesAPI.autoGenerate(projectId, fd);
       // Success — pass extracted data to parent to open prefilled form
@@ -209,6 +211,20 @@ function AutoGenerateModal({ projectId, onClose, onExtracted }) {
           <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
         </div>
         <div className="p-5 space-y-4">
+          {/* Motor IA status */}
+          {aiSettings === null
+            ? <div className="h-7 bg-surface-100 rounded-lg animate-pulse" />
+            : aiConfigured
+              ? <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                  <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span><strong>Motor de IA configurado</strong> · {aiModel} <span className="text-emerald-500 capitalize">· {aiProvider}</span></span>
+                </div>
+              : <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Motor de IA no configurado. Ve a <strong>Configuración → Motor de IA</strong>.</span>
+                </div>
+          }
+
           <div className="p-3 bg-violet-50 border border-violet-100 rounded-lg">
             <p className="text-xs text-violet-800 leading-relaxed">
               Suba la transcripción de Teams (.vtt, .txt, .docx) o pegue el texto. La IA extraerá asistentes, temas, acuerdos y compromisos para que los revise antes de guardar.

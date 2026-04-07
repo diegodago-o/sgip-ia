@@ -118,9 +118,12 @@ function PreviewModal({ item, projectId, onClose }) {
   }, [projectId, item.id]);
 
   // Step 2: PDFs → blob local para evitar CORS
+  // 'none'   → setLoading(false) inmediato (no hay nada que cargar)
+  // 'office' → espera a Step 3 (cuando llega downloadUrl)
+  // 'pdf'    → espera al fetch del blob
   useEffect(() => {
     if (strategy !== 'pdf' || !downloadUrl) {
-      if (strategy !== 'pdf') setLoading(false);
+      if (strategy === 'none') setLoading(false);
       return;
     }
     let cancelled = false;

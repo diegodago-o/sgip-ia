@@ -83,54 +83,90 @@ function getPreviewStrategy(filename) {
 
 function PreviewModal({ item, projectId, onClose }) {
   const [downloadUrl, setDownloadUrl] = useState(null);
-  const [blobUrl,     setBlobUrl]     = useState(null);  // for PDF blob rendering
-  const [loading, setLoading]         = useState(true);
+  const [blobUrl,     setBlobUrl]     = useState(null);
+  const [loading,     setLoading]     = useState(true);
   const [iframeError, setIframeError] = useState(false);
-  const blobRef = useRef(null);
+  const [iframeLoaded, setIframeLoaded] = useState(false); // Office Viewer confirmó carga
+  const [timedOut,    setTimedOut]    = useState(false);   // timeout de seguridad
+  const blobRef   = useRef(null);
+  const timerRef  = useRef(null);
 
   const strategy = getPreviewStrategy(item.name);
 
-  // Step 1: get the pre-authenticated download URL from backend
+  // Limpiar timer al desmontar
   useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    };
+  }, []);
+
+  // Step 1: obtener URL pre-autenticada del backend
+  useEffect(() => {
+    let cancelled = false;
+    setDownloadUrl(null);
+    setLoading(true);
+    setIframeError(false);
+    setIframeLoaded(false);
+    setTimedOut(false);
+
     sharepointAPI.getDownloadUrl(projectId, item.id)
-      .then(r => setDownloadUrl(r.data?.url || r.data))
-      .catch(() => setDownloadUrl(null));
+      .then(r => { if (!cancelled) setDownloadUrl(r.data?.url || r.data); })
+      .catch(() => { if (!cancelled) { setDownloadUrl(null); setLoading(false); } });
+
+    return () => { cancelled = true; };
   }, [projectId, item.id]);
 
-  // Step 2: for PDFs, fetch the file as a blob and create a local object URL
-  // (iframes can't embed pre-auth URLs directly due to CORS/redirect restrictions)
+  // Step 2: PDFs → blob local para evitar CORS
   useEffect(() => {
     if (strategy !== 'pdf' || !downloadUrl) {
-      setLoading(false);
+      if (strategy !== 'pdf') setLoading(false);
       return;
     }
+    let cancelled = false;
     setLoading(true);
     fetch(downloadUrl)
       .then(r => r.blob())
       .then(blob => {
+        if (cancelled) return;
+        if (blobRef.current) URL.revokeObjectURL(blobRef.current);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
       })
-      .catch(() => setIframeError(true))
-      .finally(() => setLoading(false));
-    return () => {
-      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-    };
+      .catch(() => { if (!cancelled) setIframeError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [downloadUrl, strategy]);
 
-  // For Office files, mark loading done once downloadUrl is ready
+  // Step 3: Office → quitar spinner cuando llega URL; iniciar timeout de 30s
   useEffect(() => {
-    if (strategy === 'office' && downloadUrl !== null) setLoading(false);
+    if (strategy !== 'office' || downloadUrl === null) return;
+    setLoading(false);
+    // Si el Office Viewer no reporta carga en 30s → mostrar fallback
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setTimedOut(true), 30000);
+    return () => clearTimeout(timerRef.current);
   }, [downloadUrl, strategy]);
 
-  // Office Online embed URL
   const officeEmbedUrl = downloadUrl
-    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}`
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}&wdStartOn=1`
     : null;
 
-  const iframeSrc = strategy === 'office' ? officeEmbedUrl : blobUrl;
-  const showIframe = !iframeError && !loading && !!iframeSrc;
+  const iframeSrc  = strategy === 'office' ? officeEmbedUrl : blobUrl;
+  const showIframe = !iframeError && !loading && !!iframeSrc && !timedOut;
+  const showFallback = !loading && (strategy === 'none' || iframeError || !downloadUrl || timedOut);
+
+  const handleRetry = () => {
+    setTimedOut(false);
+    setIframeError(false);
+    setIframeLoaded(false);
+    setDownloadUrl(null);
+    setLoading(true);
+    sharepointAPI.getDownloadUrl(projectId, item.id)
+      .then(r => setDownloadUrl(r.data?.url || r.data))
+      .catch(() => { setDownloadUrl(null); setLoading(false); });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -158,8 +194,9 @@ function PreviewModal({ item, projectId, onClose }) {
 
         {/* Content */}
         <div className="flex-1 overflow-hidden bg-surface-50 relative">
+          {/* Spinner mientras obtiene URL */}
           {loading && (
-            <div className="flex items-center justify-center h-full gap-2 text-surface-400">
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-surface-400 z-10 bg-surface-50">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span className="text-sm">Cargando vista previa...</span>
             </div>
@@ -167,24 +204,50 @@ function PreviewModal({ item, projectId, onClose }) {
 
           {/* Office Online / PDF embed */}
           {showIframe && (
-            <iframe
-              key={iframeSrc}
-              src={iframeSrc}
-              title={item.name}
-              className="w-full h-full border-0"
-              onError={() => setIframeError(true)}
-            />
+            <>
+              {/* Spinner superpuesto mientras el iframe carga contenido */}
+              {!iframeLoaded && strategy === 'office' && (
+                <div className="absolute inset-0 flex items-center justify-center gap-2 text-surface-400 bg-surface-50 z-10 pointer-events-none">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span className="text-sm">Renderizando documento...</span>
+                </div>
+              )}
+              <iframe
+                key={`${item.id}-${iframeSrc}`}
+                src={iframeSrc}
+                title={item.name}
+                className="w-full h-full border-0"
+                allowFullScreen
+                onLoad={() => {
+                  setIframeLoaded(true);
+                  if (timerRef.current) clearTimeout(timerRef.current);
+                }}
+                onError={() => setIframeError(true)}
+              />
+            </>
           )}
 
-          {/* No preview available */}
-          {!loading && (strategy === 'none' || iframeError || !downloadUrl) && (
+          {/* Fallback: no preview / error / timeout */}
+          {showFallback && (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-surface-400">
               <File className="w-12 h-12 text-surface-300" />
               <div className="text-center">
-                <p className="text-sm font-medium text-surface-600">Vista previa no disponible</p>
-                <p className="text-xs text-surface-400 mt-1">Usa los botones de arriba para abrir o descargar el archivo</p>
+                <p className="text-sm font-medium text-surface-600">
+                  {timedOut ? 'El visor tardó demasiado en cargar' : 'Vista previa no disponible'}
+                </p>
+                <p className="text-xs text-surface-400 mt-1">
+                  {timedOut
+                    ? 'Puede ser un problema temporal de Microsoft Office Online'
+                    : 'Usa los botones de arriba para abrir o descargar el archivo'}
+                </p>
               </div>
               <div className="flex gap-3">
+                {timedOut && (
+                  <button onClick={handleRetry}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">
+                    <Loader2 className="w-4 h-4" /> Reintentar
+                  </button>
+                )}
                 <a href={item.webUrl} target="_blank" rel="noreferrer"
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-brand-600 border border-brand-200 rounded-xl hover:bg-brand-50 transition-colors">
                   <ExternalLink className="w-4 h-4" /> Abrir en SharePoint
@@ -459,9 +522,10 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
         />
       )}
 
-      {/* Preview Modal */}
+      {/* Preview Modal — key fuerza remount completo al cambiar de archivo */}
       {previewItem && (
         <PreviewModal
+          key={previewItem.id}
           item={previewItem}
           projectId={projectId}
           onClose={() => setPreviewItem(null)}

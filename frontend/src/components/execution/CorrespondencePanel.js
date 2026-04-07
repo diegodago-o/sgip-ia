@@ -1107,7 +1107,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
               <p className="text-xs text-surface-400 mt-0.5">Comunicaciones recibidas de terceros</p>
             </div>
             <div className="flex items-center gap-2">
-              {perms?.canAdmin && (
+              {(perms?.isAdmin || perms?.isGP) && (
                 <button onClick={() => setShowEmailConfig(v => !v)}
                   title="Configurar bandeja de correo"
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border transition-colors

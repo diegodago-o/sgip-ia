@@ -1,9 +1,11 @@
-const express = require('express');
+const express  = require('express');
+const path     = require('path');
+const fs       = require('fs');
+const multer   = require('multer');
 const { param, body, validationResult } = require('express-validator');
-const pool = require('../config/database');
+const pool     = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
 const notifier = require('../services/notifier');
-
 const { resolveAIConfig } = require('../services/aiConfig');
 
 const router = express.Router();
@@ -19,7 +21,7 @@ function validate(req, res) {
   return true;
 }
 
-// Convierte cualquier fecha (ISO, string, Date) a 'YYYY-MM-DD' o null
+// Convierte cualquier fecha a 'YYYY-MM-DD' o null
 function toSqlDate(val) {
   if (!val) return null;
   if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
@@ -28,73 +30,115 @@ function toSqlDate(val) {
   return d.toISOString().slice(0, 10);
 }
 
-// ─── Tipo → sigla ────────────────────────────────────────────────────────────
+// ─── Tipo → sigla ─────────────────────────────────────────────────────────────
 const TYPE_SIGLA = {
   oficio: 'OF', circular: 'CIR', memorando: 'MEM',
   comunicado: 'COM', carta: 'CA', radicado: 'RAD', derecho_peticion: 'DP',
 };
 
-// ─── Genera código consecutivo ──────────────────────────────────────────────
+// ─── Genera código consecutivo SALIDA ─────────────────────────────────────────
 // Formato: {SIGLAS_PROYECTO}-{TIPO}-{YYYYMMDD}-{NNN}
-// Ejemplo: OC-OF-20260314-001
 async function buildConsecutive(projectId, type, date) {
-  // 1. Siglas del proyecto: tomamos el primer segmento del código del proyecto
   const [[proj]] = await pool.execute('SELECT code FROM projects WHERE id = ?', [projectId]);
-  const rawCode = proj?.code || 'PRJ';
-  // Extraer las primeras letras: OC-2024-001 → OC | SGIP-001 → SGIP
-  const siglas = rawCode.split('-')[0].toUpperCase().slice(0, 6);
-
-  // 2. Fecha YYYYMMDD
+  const siglas = (proj?.code || 'PRJ').split('-')[0].toUpperCase().slice(0, 6);
   const d = date ? new Date(date) : new Date();
-  const year  = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day   = String(d.getDate()).padStart(2, '0');
-  const dateStr = `${year}${month}${day}`;
-
-  // 3. Consecutivo por proyecto
+  const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
   const [[row]] = await pool.execute(
-    'SELECT COALESCE(MAX(consecutive_num), 0) + 1 AS n FROM correspondence WHERE project_id = ?',
+    "SELECT COALESCE(MAX(consecutive_num), 0) + 1 AS n FROM correspondence WHERE project_id = ? AND direction = 'salida'",
     [projectId]
   );
   const n = String(row.n).padStart(3, '0');
-  const typeSigla = TYPE_SIGLA[type] || 'OF';
-
-  return { code: `${siglas}-${typeSigla}-${dateStr}-${n}`, num: row.n };
+  return { code: `${siglas}-${TYPE_SIGLA[type] || 'OF'}-${dateStr}-${n}`, num: row.n };
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GET /:projectId/correspondence — Listar
-// ══════════════════════════════════════════════════════════════════════════════
+// ─── Genera código consecutivo ENTRADA ────────────────────────────────────────
+// Formato: {SIGLAS_PROYECTO}-ENT-{YYYYMMDD}-{NNN}
+async function buildConsecutiveEntrada(projectId, date) {
+  const [[proj]] = await pool.execute('SELECT code FROM projects WHERE id = ?', [projectId]);
+  const siglas = (proj?.code || 'PRJ').split('-')[0].toUpperCase().slice(0, 6);
+  const d = date ? new Date(date) : new Date();
+  const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  const [[row]] = await pool.execute(
+    "SELECT COALESCE(MAX(consecutive_num), 0) + 1 AS n FROM correspondence WHERE project_id = ? AND direction = 'entrada'",
+    [projectId]
+  );
+  const n = String(row.n).padStart(3, '0');
+  return { code: `${siglas}-ENT-${dateStr}-${n}`, num: row.n };
+}
+
+// ─── Multer — adjuntos de correspondencia de entrada ──────────────────────────
+const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads', 'correspondence');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(UPLOAD_DIR, String(req.params.projectId));
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ts   = Date.now();
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${ts}_${safe}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.xlsx', '.xls'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error(`Tipo de archivo no permitido: ${ext}`));
+  },
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence — Listar (acepta ?direction=salida|entrada|all)
+// ════════════════════════════════════════════════════════════════════════════════
 router.get('/:projectId/correspondence', [param('projectId').isInt()], async (req, res) => {
   if (!validate(req, res)) return;
   try {
+    const dir = req.query.direction; // 'salida' | 'entrada' | undefined = all
+    const dirClause = dir && ['salida', 'entrada'].includes(dir)
+      ? `AND c.direction = '${dir}'`
+      : '';
+
     const [rows] = await pool.execute(`
-      SELECT c.*, u.full_name AS created_by_name,
-             p.name AS project_name, p.code AS project_code,
+      SELECT c.*,
+             u.full_name   AS created_by_name,
+             ua.full_name  AS assigned_to_name,
+             p.name        AS project_name,
+             p.code        AS project_code,
              COALESCE(NULLIF(c.project_entity,''), p.client_name) AS project_entity,
-             p.correspondence_sender_name, p.correspondence_logo
+             p.correspondence_sender_name,
+             p.correspondence_logo,
+             -- ¿Tiene hijos? (alguien respondió)
+             (SELECT COUNT(*) FROM correspondence ch WHERE ch.parent_id = c.id) AS reply_count
       FROM correspondence c
-      LEFT JOIN users u ON c.created_by = u.id
+      LEFT JOIN users u  ON c.created_by   = u.id
+      LEFT JOIN users ua ON c.assigned_to  = ua.id
       LEFT JOIN projects p ON c.project_id = p.id
-      WHERE c.project_id = ?
+      WHERE c.project_id = ? ${dirClause}
       ORDER BY c.reference_date DESC, c.consecutive_num DESC
     `, [req.params.projectId]);
     res.json({ data: rows });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Error al listar correspondencia' }); }
 });
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 // GET /:projectId/correspondence/:id — Detalle
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 router.get('/:projectId/correspondence/:id',
   [param('projectId').isInt(), param('id').isInt()],
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
       const [[row]] = await pool.execute(`
-        SELECT c.*, u.full_name AS created_by_name
+        SELECT c.*, u.full_name AS created_by_name, ua.full_name AS assigned_to_name
         FROM correspondence c
-        LEFT JOIN users u ON c.created_by = u.id
+        LEFT JOIN users u  ON c.created_by  = u.id
+        LEFT JOIN users ua ON c.assigned_to = ua.id
         WHERE c.id = ? AND c.project_id = ?
       `, [req.params.id, req.params.projectId]);
       if (!row) return res.status(404).json({ error: 'No encontrado' });
@@ -103,9 +147,53 @@ router.get('/:projectId/correspondence/:id',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
-// POST /:projectId/correspondence — Crear
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/thread — Hilo completo
+// ════════════════════════════════════════════════════════════════════════════════
+router.get('/:projectId/correspondence/:id/thread',
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const id  = Number(req.params.id);
+      const pid = Number(req.params.projectId);
+
+      // 1. Buscar la raíz del hilo (remontarse hasta el primer padre)
+      let rootId = id;
+      let safetyCounter = 0;
+      while (safetyCounter++ < 20) {
+        const [[cur]] = await pool.execute(
+          'SELECT id, parent_id FROM correspondence WHERE id = ? AND project_id = ?',
+          [rootId, pid]
+        );
+        if (!cur) break;
+        if (!cur.parent_id) break;
+        rootId = cur.parent_id;
+      }
+
+      // 2. Traer toda la cadena (raíz + descendientes directos/indirectos)
+      const [rows] = await pool.execute(`
+        WITH RECURSIVE thread AS (
+          SELECT c.id FROM correspondence c WHERE c.id = ? AND c.project_id = ?
+          UNION ALL
+          SELECT c.id FROM correspondence c INNER JOIN thread t ON c.parent_id = t.id WHERE c.project_id = ?
+        )
+        SELECT c.*, u.full_name AS created_by_name, ua.full_name AS assigned_to_name
+        FROM thread th
+        JOIN correspondence c ON c.id = th.id
+        LEFT JOIN users u  ON c.created_by  = u.id
+        LEFT JOIN users ua ON c.assigned_to = ua.id
+        ORDER BY c.reference_date ASC, c.id ASC
+      `, [rootId, pid, pid]);
+
+      res.json({ data: rows });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al obtener hilo' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence — Crear (salida O entrada)
+// ════════════════════════════════════════════════════════════════════════════════
 router.post('/:projectId/correspondence',
   roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
   [
@@ -113,58 +201,76 @@ router.post('/:projectId/correspondence',
     body('subject').trim().notEmpty().withMessage('El asunto es requerido'),
     body('reference_date').isISO8601().withMessage('Fecha inválida'),
     body('correspondence_type').optional().isIn(['oficio','circular','memorando','comunicado','carta','radicado','derecho_peticion']),
+    body('direction').optional().isIn(['salida','entrada']),
   ],
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
-      const b = req.body;
-      const pid = req.params.projectId;
-      const type = b.correspondence_type || 'oficio';
+      const b    = req.body;
+      const pid  = req.params.projectId;
+      const direction = b.direction || 'salida';
+      const type = b.correspondence_type || (direction === 'entrada' ? 'radicado' : 'oficio');
 
-      // Auto-completar datos del proyecto si no vienen
+      // Datos del proyecto
       const [[proj]] = await pool.execute(
-        `SELECT contract_number, client_name, start_date, name, contract_object
-         FROM projects WHERE id = ?`, [pid]
+        `SELECT contract_number, client_name, start_date, name, contract_object FROM projects WHERE id = ?`, [pid]
       );
 
-      const { code, num } = await buildConsecutive(pid, type, b.reference_date);
+      // Código consecutivo según dirección
+      let code, num;
+      if (direction === 'entrada') {
+        ({ code, num } = await buildConsecutiveEntrada(pid, b.reference_date));
+      } else {
+        ({ code, num } = await buildConsecutive(pid, type, b.reference_date));
+      }
+
+      // Estado por defecto según dirección
+      const defaultStatus = direction === 'entrada' ? 'recibido' : 'borrador';
 
       const [r] = await pool.execute(`
         INSERT INTO correspondence
-          (project_id, consecutive_num, consecutive_code, correspondence_type,
+          (project_id, direction, consecutive_num, consecutive_code, correspondence_type,
            subject, reference_date,
            recipient_name, recipient_title, recipient_entity, recipient_address, recipient_city,
            sender_name, sender_title, sender_entity,
            body, closing,
            contract_reference, project_entity, project_start_date, project_object,
            status, radicado_number, sent_date, response_date, notes, ai_prompt,
+           sender_entity_external, sender_name_external, received_date, assigned_to, parent_id,
            created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `, [
-        pid, num, code, type,
+        pid, direction, num, code, type,
         b.subject, toSqlDate(b.reference_date),
-        b.recipient_name  || null, b.recipient_title  || null,
+        b.recipient_name   || null, b.recipient_title   || null,
         b.recipient_entity || proj?.client_name || null,
         b.recipient_address || null, b.recipient_city || 'Bogotá D.C.',
         b.sender_name  || null, b.sender_title  || null, b.sender_entity || null,
-        b.body    || null, b.closing || 'Cordialmente,',
+        b.body    || null, b.closing || (direction === 'salida' ? 'Cordialmente,' : null),
         b.contract_reference || proj?.contract_number || null,
         b.project_entity     || proj?.client_name     || null,
         toSqlDate(b.project_start_date || proj?.start_date || null),
         b.project_object     || proj?.contract_object    || null,
-        b.status || 'borrador',
+        b.status || defaultStatus,
         b.radicado_number || null,
         toSqlDate(b.sent_date),
         toSqlDate(b.response_date),
         b.notes || null,
         b.ai_prompt || null,
+        // campos entrada
+        b.sender_entity_external || null,
+        b.sender_name_external   || null,
+        toSqlDate(b.received_date),
+        b.assigned_to ? Number(b.assigned_to) : null,
+        b.parent_id   ? Number(b.parent_id)   : null,
         req.user.id,
       ]);
 
       const [[created]] = await pool.execute(
         'SELECT * FROM correspondence WHERE id = ?', [r.insertId]
       );
-      // Notify (fire-and-forget)
+
+      // Notificación
       const [projNotify] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
       notifier.notify('correspondence.received', {
         project_id:          Number(pid),
@@ -172,6 +278,7 @@ router.post('/:projectId/correspondence',
         project_name:        projNotify[0]?.name || '',
         subject:             created.subject || '',
         correspondence_type: created.correspondence_type || '',
+        direction:           direction,
         radicado_number:     created.radicado_number || '',
         reference_date:      created.reference_date || null,
       }).catch(() => {});
@@ -186,9 +293,9 @@ router.post('/:projectId/correspondence',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 // PUT /:projectId/correspondence/:id — Actualizar
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 router.put('/:projectId/correspondence/:id',
   roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
   [param('projectId').isInt(), param('id').isInt()],
@@ -198,45 +305,55 @@ router.put('/:projectId/correspondence/:id',
       const b = req.body;
       await pool.execute(`
         UPDATE correspondence SET
-          correspondence_type = COALESCE(?, correspondence_type),
-          subject             = COALESCE(?, subject),
-          reference_date      = COALESCE(?, reference_date),
-          recipient_name      = ?,
-          recipient_title     = ?,
-          recipient_entity    = ?,
-          recipient_address   = ?,
-          recipient_city      = ?,
-          sender_name         = ?,
-          sender_title        = ?,
-          sender_entity       = ?,
-          body                = ?,
-          closing             = ?,
-          contract_reference  = ?,
-          project_entity      = ?,
-          project_start_date  = ?,
-          project_object      = ?,
-          status              = COALESCE(?, status),
-          radicado_number     = ?,
-          sent_date           = ?,
-          response_date       = ?,
-          notes               = ?
+          correspondence_type       = COALESCE(?, correspondence_type),
+          subject                   = COALESCE(?, subject),
+          reference_date            = COALESCE(?, reference_date),
+          recipient_name            = ?,
+          recipient_title           = ?,
+          recipient_entity          = ?,
+          recipient_address         = ?,
+          recipient_city            = ?,
+          sender_name               = ?,
+          sender_title              = ?,
+          sender_entity             = ?,
+          body                      = ?,
+          closing                   = ?,
+          contract_reference        = ?,
+          project_entity            = ?,
+          project_start_date        = ?,
+          project_object            = ?,
+          status                    = COALESCE(?, status),
+          radicado_number           = ?,
+          sent_date                 = ?,
+          response_date             = ?,
+          notes                     = ?,
+          sender_entity_external    = ?,
+          sender_name_external      = ?,
+          received_date             = ?,
+          assigned_to               = ?,
+          parent_id                 = COALESCE(?, parent_id)
         WHERE id = ? AND project_id = ?
       `, [
         b.correspondence_type || null,
-        b.subject || null,
+        b.subject             || null,
         toSqlDate(b.reference_date),
-        b.recipient_name  ?? null, b.recipient_title  ?? null,
-        b.recipient_entity ?? null, b.recipient_address ?? null, b.recipient_city ?? null,
-        b.sender_name ?? null, b.sender_title ?? null, b.sender_entity ?? null,
-        b.body ?? null, b.closing ?? null,
-        b.contract_reference ?? null, b.project_entity ?? null,
+        b.recipient_name    ?? null, b.recipient_title    ?? null,
+        b.recipient_entity  ?? null, b.recipient_address  ?? null, b.recipient_city ?? null,
+        b.sender_name       ?? null, b.sender_title       ?? null, b.sender_entity  ?? null,
+        b.body              ?? null, b.closing            ?? null,
+        b.contract_reference ?? null, b.project_entity   ?? null,
         toSqlDate(b.project_start_date),
-        b.project_object ?? null,
-        b.status || null,
-        b.radicado_number ?? null,
+        b.project_object    ?? null,
+        b.status            || null,
+        b.radicado_number   ?? null,
         toSqlDate(b.sent_date),
         toSqlDate(b.response_date),
-        b.notes ?? null,
+        b.notes             ?? null,
+        b.sender_entity_external ?? null,
+        b.sender_name_external   ?? null,
+        toSqlDate(b.received_date),
+        b.assigned_to ? Number(b.assigned_to) : null,
+        b.parent_id   ? Number(b.parent_id)   : null,
         req.params.id, req.params.projectId,
       ]);
       const [[updated]] = await pool.execute('SELECT * FROM correspondence WHERE id = ?', [req.params.id]);
@@ -245,19 +362,23 @@ router.put('/:projectId/correspondence/:id',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 // PATCH /:projectId/correspondence/:id/status — Cambio rápido de estado
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 router.patch('/:projectId/correspondence/:id/status',
   roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
-  [param('projectId').isInt(), param('id').isInt(), body('status').isIn(['borrador','radicado','enviado','recibido','respondido','archivado'])],
+  [
+    param('projectId').isInt(), param('id').isInt(),
+    body('status').isIn(['borrador','radicado','enviado','recibido','en_atencion','respondido','archivado']),
+  ],
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
       const extra = {};
-      if (req.body.status === 'enviado' && req.body.sent_date)     extra.sent_date     = req.body.sent_date;
+      if (req.body.status === 'enviado'    && req.body.sent_date)     extra.sent_date     = req.body.sent_date;
       if (req.body.status === 'respondido' && req.body.response_date) extra.response_date = req.body.response_date;
-      if (req.body.radicado_number) extra.radicado_number = req.body.radicado_number;
+      if (req.body.radicado_number)  extra.radicado_number  = req.body.radicado_number;
+      if (req.body.assigned_to)      extra.assigned_to      = Number(req.body.assigned_to);
 
       let sql = 'UPDATE correspondence SET status = ?';
       const params = [req.body.status];
@@ -270,15 +391,138 @@ router.patch('/:projectId/correspondence/:id/status',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// PATCH /:projectId/correspondence/:id/assign — Asignar responsable
+// ════════════════════════════════════════════════════════════════════════════════
+router.patch('/:projectId/correspondence/:id/assign',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const assignedTo = req.body.assigned_to ? Number(req.body.assigned_to) : null;
+      await pool.execute(`
+        UPDATE correspondence
+        SET assigned_to = ?,
+            status = CASE WHEN status = 'recibido' THEN 'en_atencion' ELSE status END
+        WHERE id = ? AND project_id = ?
+      `, [assignedTo, req.params.id, req.params.projectId]);
+      res.json({ message: 'Responsable asignado' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al asignar' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence/:id/link — Vincular como respuesta a otro item
+// ════════════════════════════════════════════════════════════════════════════════
+router.post('/:projectId/correspondence/:id/link',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt(), body('parent_id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const id       = Number(req.params.id);
+      const pid      = Number(req.params.projectId);
+      const parentId = Number(req.body.parent_id);
+
+      // Validar que el padre existe y pertenece al mismo proyecto
+      const [[parent]] = await pool.execute(
+        'SELECT id FROM correspondence WHERE id = ? AND project_id = ?', [parentId, pid]
+      );
+      if (!parent) return res.status(404).json({ error: 'Correspondencia padre no encontrada' });
+      if (parentId === id) return res.status(400).json({ error: 'No se puede vincular consigo mismo' });
+
+      await pool.execute(
+        'UPDATE correspondence SET parent_id = ? WHERE id = ? AND project_id = ?',
+        [parentId, id, pid]
+      );
+      // Marcar el padre como respondido
+      await pool.execute(
+        "UPDATE correspondence SET status = 'respondido' WHERE id = ? AND project_id = ? AND status NOT IN ('archivado','respondido')",
+        [parentId, pid]
+      );
+
+      res.json({ message: 'Vinculado correctamente' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al vincular' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence/:id/attachment — Subir adjunto (entrada)
+// ════════════════════════════════════════════════════════════════════════════════
+router.post('/:projectId/correspondence/:id/attachment',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  upload.single('file'),
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    try {
+      // Eliminar adjunto anterior si existía
+      const [[prev]] = await pool.execute(
+        'SELECT attachment_path FROM correspondence WHERE id = ? AND project_id = ?',
+        [req.params.id, req.params.projectId]
+      );
+      if (prev?.attachment_path) {
+        const oldPath = path.join(__dirname, '..', '..', prev.attachment_path);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+
+      const relPath = path.join('uploads', 'correspondence', String(req.params.projectId), req.file.filename)
+        .replace(/\\/g, '/');
+
+      await pool.execute(
+        'UPDATE correspondence SET attachment_path = ?, attachment_original_name = ? WHERE id = ? AND project_id = ?',
+        [relPath, req.file.originalname, req.params.id, req.params.projectId]
+      );
+      res.json({ message: 'Adjunto guardado', path: relPath, original_name: req.file.originalname });
+    } catch (err) {
+      console.error(err);
+      // Limpiar el archivo si falló la BD
+      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      res.status(500).json({ error: 'Error al guardar adjunto' });
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/attachment — Descargar adjunto
+// ════════════════════════════════════════════════════════════════════════════════
+router.get('/:projectId/correspondence/:id/attachment',
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[row]] = await pool.execute(
+        'SELECT attachment_path, attachment_original_name FROM correspondence WHERE id = ? AND project_id = ?',
+        [req.params.id, req.params.projectId]
+      );
+      if (!row?.attachment_path) return res.status(404).json({ error: 'Sin adjunto' });
+      const filePath = path.join(__dirname, '..', '..', row.attachment_path);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado en servidor' });
+      res.download(filePath, row.attachment_original_name || 'adjunto');
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al descargar' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
 // DELETE /:projectId/correspondence/:id
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 router.delete('/:projectId/correspondence/:id',
   roleMiddleware('admin', 'gerente_proyecto'),
   [param('projectId').isInt(), param('id').isInt()],
   async (req, res) => {
     if (!validate(req, res)) return;
     try {
+      // Eliminar adjunto físico
+      const [[row]] = await pool.execute(
+        'SELECT attachment_path FROM correspondence WHERE id = ? AND project_id = ?',
+        [req.params.id, req.params.projectId]
+      );
+      if (row?.attachment_path) {
+        const fp = path.join(__dirname, '..', '..', row.attachment_path);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
       await pool.execute('DELETE FROM correspondence WHERE id = ? AND project_id = ?',
         [req.params.id, req.params.projectId]);
       res.json({ message: 'Eliminado' });
@@ -286,9 +530,9 @@ router.delete('/:projectId/correspondence/:id',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
-// POST /:projectId/correspondence/ai-generate — IA llena los campos
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence/ai-generate — IA llena los campos (salida)
+// ════════════════════════════════════════════════════════════════════════════════
 router.post('/:projectId/correspondence/ai-generate',
   roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
   [param('projectId').isInt(), body('prompt').trim().notEmpty()],
@@ -296,20 +540,15 @@ router.post('/:projectId/correspondence/ai-generate',
     if (!validate(req, res)) return;
     try {
       const pid = req.params.projectId;
-
-      // Datos del proyecto para contexto
       const [[proj]] = await pool.execute(`
         SELECT name, code, contract_number, client_name, start_date,
                execution_term, execution_term_unit, estimated_end_date,
                progress_pct, contract_value, contract_object, sector
         FROM projects WHERE id = ?`, [pid]);
-
       if (!proj) return res.status(404).json({ error: 'Proyecto no encontrado' });
 
-      // ── Configuración de IA — usa resolveAIConfig (env > DB > body) ──
       const aiEngine = require('../services/ai-engine');
       const { provider, apiKey, model } = await resolveAIConfig(req.body, req.query, req.user?.id);
-
       const today = new Date().toISOString().split('T')[0];
 
       const systemPrompt = `Eres un asistente experto en redacción de correspondencia oficial para proyectos de construcción e ingeniería en Colombia. Tu tarea es analizar la instrucción en lenguaje natural del usuario y generar un JSON estructurado con los campos necesarios para una comunicación oficial.
@@ -335,23 +574,16 @@ Genera ÚNICAMENTE un JSON válido con estos campos (sin markdown, sin texto adi
   "recipient_title": "Cargo del destinatario",
   "recipient_entity": "Entidad del destinatario",
   "recipient_city": "Ciudad",
-  "sender_name": "Nombre del remitente (usualmente el gerente de proyecto)",
+  "sender_name": "Nombre del remitente",
   "sender_title": "Cargo del remitente",
-  "body": "Cuerpo completo de la comunicación en formato formal colombiano. Incluir: saludo, párrafo de referencia al contrato, desarrollo del tema, solicitud o información principal, y cierre. Usar lenguaje formal.",
+  "body": "Cuerpo completo de la comunicación en formato formal colombiano.",
   "closing": "Frase de cierre formal (ej: Cordialmente,)",
   "contract_reference": "${proj.contract_number || ''}",
   "project_entity": "${proj.client_name || ''}",
   "notes": "Observaciones internas opcionales"
 }`;
 
-      const result = await aiEngine.callLLM(
-        provider, apiKey, model,
-        systemPrompt,
-        req.body.prompt,
-        { maxTokens: 2000, temperature: 0.3 }
-      );
-
-      // Parsear JSON de respuesta
+      const result = await aiEngine.callLLM(provider, apiKey, model, systemPrompt, req.body.prompt, { maxTokens: 2000, temperature: 0.3 });
       let generated = {};
       try {
         const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -360,7 +592,6 @@ Genera ÚNICAMENTE un JSON válido con estos campos (sin markdown, sin texto adi
         return res.status(422).json({ error: 'La IA no devolvió un JSON válido. Intenta reformular tu instrucción.' });
       }
 
-      // Asegurar datos del proyecto
       generated.contract_reference = generated.contract_reference || proj.contract_number;
       generated.project_entity     = generated.project_entity     || proj.client_name;
       generated.project_start_date = proj.start_date;
@@ -375,9 +606,9 @@ Genera ÚNICAMENTE un JSON válido con estos campos (sin markdown, sin texto adi
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GET /:projectId/correspondence/:id/preview — Vista previa (texto)
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/preview — Vista previa texto
+// ════════════════════════════════════════════════════════════════════════════════
 router.get('/:projectId/correspondence/:id/preview',
   [param('projectId').isInt(), param('id').isInt()],
   async (req, res) => {
@@ -403,9 +634,9 @@ router.get('/:projectId/correspondence/:id/preview',
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GET /:projectId/correspondence/:id/download — Descarga Word (.docx)
-// ══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/download — Descarga Word (.docx) — solo salida
+// ════════════════════════════════════════════════════════════════════════════════
 router.get('/:projectId/correspondence/:id/download',
   [param('projectId').isInt(), param('id').isInt()],
   async (req, res) => {
@@ -424,11 +655,10 @@ router.get('/:projectId/correspondence/:id/download',
       const {
         Document, Packer, Paragraph, TextRun, AlignmentType,
         BorderStyle, Table, TableRow, TableCell, WidthType,
-        ShadingType, HeadingLevel, PageBreak, TabStopType, TabStopLeader,
+        ShadingType, HeadingLevel, TabStopType, TabStopLeader,
         convertInchesToTwip, UnderlineType, ImageRun, ExternalHyperlink,
       } = require('docx');
 
-      // ─── Helpers ──────────────────────────────────────────────────────────
       const TYPE_LABEL = {
         oficio: 'OFICIO', circular: 'CIRCULAR', memorando: 'MEMORANDO',
         comunicado: 'COMUNICADO', carta: 'CARTA', radicado: 'RADICADO',
@@ -443,327 +673,138 @@ router.get('/:projectId/correspondence/:id/download',
         return `${dt.getDate()} de ${months[dt.getMonth()]} de ${dt.getFullYear()}`;
       };
 
-      // Colores corporativos
-      const COLOR_PRIMARY   = '1E3A5F'; // Azul marino
-      const COLOR_SECONDARY = '2E86AB'; // Azul medio
-      const COLOR_ACCENT    = 'F0F4F8'; // Gris claro fondo
-      const COLOR_LINE      = 'CBD5E0'; // Gris borde
+      const COLOR_PRIMARY   = '1E3A5F';
+      const COLOR_SECONDARY = '2E86AB';
+      const COLOR_ACCENT    = 'F0F4F8';
       const COLOR_WHITE     = 'FFFFFF';
 
       const typeLabel = TYPE_LABEL[c.correspondence_type] || 'COMUNICACIÓN';
       const firstName = (c.recipient_name || '').split(' ')[0] || 'señor(a)';
 
-      // ─── Párrafo vacío ──────────────────────────────────────────────────
       const spacer = (lines = 1) => Array.from({ length: lines }, () =>
         new Paragraph({ children: [new TextRun({ text: '', size: 22 })], spacing: { after: 0 } })
       );
 
-      // ─── Celdas de tabla para encabezado ───────────────────────────────
-      const headerCell = (text, opts = {}) => new TableCell({
-        children: [new Paragraph({
-          children: [new TextRun({
-            text,
-            bold: opts.bold || false,
-            color: opts.color || COLOR_WHITE,
-            size: opts.size || 22,
-            font: 'Calibri',
-          })],
-          alignment: opts.align || AlignmentType.LEFT,
-          spacing: { before: 40, after: 40 },
-        })],
-        shading: { type: ShadingType.SOLID, color: opts.bg || COLOR_PRIMARY },
-        margins: { top: 80, bottom: 80, left: 150, right: 150 },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-        columnSpan: opts.span || 1,
-      });
-
-      // ─── Logo del proyecto (si está configurado) ──────────────────────
       let logoImageRun = null;
       if (c.correspondence_logo) {
         try {
           const m = c.correspondence_logo.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/);
           if (m) {
             const imgType = m[1] === 'jpg' ? 'jpeg' : m[1];
-            logoImageRun = new ImageRun({
-              data: Buffer.from(m[2], 'base64'),
-              transformation: { width: 130, height: 45 },
-              type: imgType,
-            });
+            logoImageRun = new ImageRun({ data: Buffer.from(m[2], 'base64'), transformation: { width: 130, height: 45 }, type: imgType });
           }
-        } catch (_) { /* ignorar errores de logo */ }
+        } catch (_) {}
       }
       const headerEntityName = c.correspondence_sender_name || c.project_entity || c.project_name || 'SGIP';
 
-      // ─── Tabla de encabezado corporativo ───────────────────────────────
+      const makeBorderNone = () => ({ top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } });
+
       const headerTable = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
-        rows: [
-          // Fila 1: Logo/Nombre empresa + tipo doc
-          new TableRow({
+        borders: { ...makeBorderNone(), insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
+        rows: [new TableRow({ children: [
+          new TableCell({
+            width: { size: 65, type: WidthType.PERCENTAGE },
             children: [
-              new TableCell({
-                width: { size: 65, type: WidthType.PERCENTAGE },
-                children: [
-                  ...(logoImageRun ? [new Paragraph({
-                    children: [logoImageRun],
-                    spacing: { before: 60, after: 20 },
-                  })] : []),
-                  new Paragraph({
-                    children: [new TextRun({ text: headerEntityName, bold: true, color: COLOR_WHITE, size: 28, font: 'Calibri' })],
-                    spacing: { before: logoImageRun ? 0 : 60, after: 20 },
-                  }),
-                  new Paragraph({
-                    children: [new TextRun({ text: `Proyecto: ${c.project_name || ''}`, color: 'BDD7EE', size: 18, font: 'Calibri' })],
-                    spacing: { after: 20 },
-                  }),
-                  new Paragraph({
-                    children: [new TextRun({ text: `Código: ${c.project_code || ''}`, color: 'BDD7EE', size: 18, font: 'Calibri' })],
-                    spacing: { after: 60 },
-                  }),
-                ],
-                shading: { type: ShadingType.SOLID, color: COLOR_PRIMARY },
-                margins: { top: 100, bottom: 100, left: 200, right: 100 },
-                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-              }),
-              new TableCell({
-                width: { size: 35, type: WidthType.PERCENTAGE },
-                children: [
-                  new Paragraph({
-                    children: [new TextRun({ text: typeLabel, bold: true, color: COLOR_WHITE, size: 26, font: 'Calibri' })],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { before: 60, after: 20 },
-                  }),
-                  new Paragraph({
-                    children: [new TextRun({ text: c.consecutive_code, color: 'BDD7EE', size: 20, font: 'Calibri Mono' })],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 20 },
-                  }),
-                  new Paragraph({
-                    children: [new TextRun({ text: fmtDate(c.reference_date), color: 'BDD7EE', size: 18, font: 'Calibri' })],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 60 },
-                  }),
-                ],
-                shading: { type: ShadingType.SOLID, color: COLOR_SECONDARY },
-                margins: { top: 100, bottom: 100, left: 150, right: 200 },
-                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-              }),
+              ...(logoImageRun ? [new Paragraph({ children: [logoImageRun], spacing: { before: 60, after: 20 } })] : []),
+              new Paragraph({ children: [new TextRun({ text: headerEntityName, bold: true, color: COLOR_WHITE, size: 28, font: 'Calibri' })], spacing: { before: logoImageRun ? 0 : 60, after: 20 } }),
+              new Paragraph({ children: [new TextRun({ text: `Proyecto: ${c.project_name || ''}`, color: 'BDD7EE', size: 18, font: 'Calibri' })], spacing: { after: 20 } }),
+              new Paragraph({ children: [new TextRun({ text: `Código: ${c.project_code || ''}`, color: 'BDD7EE', size: 18, font: 'Calibri' })], spacing: { after: 60 } }),
             ],
+            shading: { type: ShadingType.SOLID, color: COLOR_PRIMARY },
+            margins: { top: 100, bottom: 100, left: 200, right: 100 },
+            borders: makeBorderNone(),
           }),
-        ],
+          new TableCell({
+            width: { size: 35, type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({ children: [new TextRun({ text: typeLabel, bold: true, color: COLOR_WHITE, size: 26, font: 'Calibri' })], alignment: AlignmentType.CENTER, spacing: { before: 60, after: 20 } }),
+              new Paragraph({ children: [new TextRun({ text: c.consecutive_code, color: 'BDD7EE', size: 20, font: 'Calibri' })], alignment: AlignmentType.CENTER, spacing: { after: 20 } }),
+              new Paragraph({ children: [new TextRun({ text: fmtDate(c.reference_date), color: 'BDD7EE', size: 18, font: 'Calibri' })], alignment: AlignmentType.CENTER, spacing: { after: 60 } }),
+            ],
+            shading: { type: ShadingType.SOLID, color: COLOR_SECONDARY },
+            margins: { top: 100, bottom: 100, left: 150, right: 200 },
+            borders: makeBorderNone(),
+          }),
+        ]})],
       });
 
-      // ─── Tabla de referencia al contrato ──────────────────────────────
       const refRows = [];
       if (c.contract_reference) refRows.push(['Contrato N°', c.contract_reference]);
-      if (c.project_start_date)  refRows.push(['Fecha inicio', fmtDate(c.project_start_date)]);
-
+      if (c.project_start_date) refRows.push(['Fecha inicio', fmtDate(c.project_start_date)]);
       const refTable = refRows.length > 0 ? new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
-        rows: [
-          new TableRow({
-            children: refRows.map(([label, value]) => [
-              new TableCell({
-                width: { size: 20, type: WidthType.PERCENTAGE },
-                children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 18, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { before: 60, after: 60 } })],
-                shading: { type: ShadingType.SOLID, color: COLOR_ACCENT },
-                margins: { top: 60, bottom: 60, left: 150, right: 100 },
-                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-              }),
-              new TableCell({
-                width: { size: 30, type: WidthType.PERCENTAGE },
-                children: [new Paragraph({ children: [new TextRun({ text: value, size: 18, font: 'Calibri', color: '333333' })], spacing: { before: 60, after: 60 } })],
-                margins: { top: 60, bottom: 60, left: 100, right: 150 },
-                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-              }),
-            ]).flat(),
-          }),
-        ],
+        borders: { ...makeBorderNone(), insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
+        rows: [new TableRow({ children: refRows.map(([label, value]) => [
+          new TableCell({ width: { size: 20, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 18, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { before: 60, after: 60 } })], shading: { type: ShadingType.SOLID, color: COLOR_ACCENT }, margins: { top: 60, bottom: 60, left: 150, right: 100 }, borders: makeBorderNone() }),
+          new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: value, size: 18, font: 'Calibri', color: '333333' })], spacing: { before: 60, after: 60 } })], margins: { top: 60, bottom: 60, left: 100, right: 150 }, borders: makeBorderNone() }),
+        ]).flat() })],
       }) : null;
 
-      // ─── Línea divisoria (tabla de 1 celda coloreada) ─────────────────
       const divider = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-        rows: [new TableRow({ children: [new TableCell({
-          children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
-          shading: { type: ShadingType.SOLID, color: COLOR_SECONDARY },
-          borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          margins: { top: 0, bottom: 0 },
-        })] })],
+        borders: makeBorderNone(),
+        rows: [new TableRow({ children: [new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '' })] })], shading: { type: ShadingType.SOLID, color: COLOR_SECONDARY }, borders: makeBorderNone(), margins: { top: 0, bottom: 0 } })] })],
       });
 
-      // ─── Bloque destinatario ──────────────────────────────────────────
       const recipientBlock = [
-        new Paragraph({ children: [new TextRun({ text: c.recipient_name || '', bold: true, size: 22, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { after: 40 } }),
-        c.recipient_title ? new Paragraph({ children: [new TextRun({ text: c.recipient_title, size: 20, font: 'Calibri', color: '555555' })], spacing: { after: 40 } }) : null,
-        c.recipient_entity ? new Paragraph({ children: [new TextRun({ text: c.recipient_entity, size: 20, font: 'Calibri', color: '555555' })], spacing: { after: 40 } }) : null,
-        c.recipient_address ? new Paragraph({ children: [new TextRun({ text: c.recipient_address, size: 20, font: 'Calibri', color: '555555' })], spacing: { after: 40 } }) : null,
-        new Paragraph({ children: [new TextRun({ text: c.recipient_city || 'Bogotá D.C.', size: 20, font: 'Calibri', color: '555555' })], spacing: { after: 40 } }),
-      ].filter(Boolean);
+        ...(c.recipient_name    ? [new Paragraph({ children: [new TextRun({ text: c.recipient_name,    bold: true, size: 22, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { after: 40 } })] : []),
+        ...(c.recipient_title   ? [new Paragraph({ children: [new TextRun({ text: c.recipient_title,   size: 20, color: '555555', font: 'Calibri' })], spacing: { after: 20 } })] : []),
+        ...(c.recipient_entity  ? [new Paragraph({ children: [new TextRun({ text: c.recipient_entity,  size: 20, color: '555555', font: 'Calibri' })], spacing: { after: 20 } })] : []),
+        ...(c.recipient_address ? [new Paragraph({ children: [new TextRun({ text: c.recipient_address, size: 18, color: '888888', font: 'Calibri' })], spacing: { after: 20 } })] : []),
+        new Paragraph({ children: [new TextRun({ text: c.recipient_city || 'Bogotá D.C.', size: 18, color: '888888', font: 'Calibri' })], spacing: { after: 20 } }),
+      ];
 
-      // ─── Asunto ──────────────────────────────────────────────────────
       const subjectBlock = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.THICK, color: COLOR_SECONDARY, size: 16 }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
         rows: [new TableRow({ children: [
-          new TableCell({
-            width: { size: 15, type: WidthType.PERCENTAGE },
-            children: [new Paragraph({ children: [new TextRun({ text: 'ASUNTO:', bold: true, size: 20, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { before: 80, after: 80 } })],
-            shading: { type: ShadingType.SOLID, color: COLOR_ACCENT },
-            margins: { top: 80, bottom: 80, left: 150, right: 100 },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          }),
-          new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: c.subject, bold: true, size: 20, font: 'Calibri', color: '1A1A1A' })], spacing: { before: 80, after: 80 } })],
-            margins: { top: 80, bottom: 80, left: 150, right: 150 },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'ASUNTO: ', bold: true, size: 20, color: COLOR_PRIMARY, font: 'Calibri' }), new TextRun({ text: c.subject || '', size: 20, font: 'Calibri', bold: true })], spacing: { before: 80, after: 80 } })], shading: { type: ShadingType.SOLID, color: 'F8FAFB' }, margins: { top: 60, bottom: 60, left: 150, right: 150 }, borders: makeBorderNone() }),
         ]})],
       });
 
-      // ─── Cuerpo del documento (párrafos con rich text / links) ───────
-      const { parseHtml: parseBodyHtml } = require('../utils/htmlParser');
-      const bodyBlocks = parseBodyHtml(c.body || '');
-      const bodyParagraphs = bodyBlocks.map(block => {
-        const children = block.segments.map(seg => {
-          const runProps = {
-            text:      seg.text,
-            bold:      seg.bold      || false,
-            italics:   seg.italic    || false,
-            underline: seg.underline ? { type: UnderlineType.SINGLE } : undefined,
-            font:      'Calibri',
-            size:      22,
-            color:     seg.link ? '0563C1' : '1A1A1A',
-          };
-          if (seg.link) {
-            return new ExternalHyperlink({ link: seg.link, children: [new TextRun(runProps)] });
-          }
-          return new TextRun(runProps);
-        });
-        return new Paragraph({
-          children,
-          spacing:   { after: 160 },
-          alignment: AlignmentType.JUSTIFIED,
-        });
-      });
+      // Parse body HTML → paragraphs
+      const { parseHtmlToParagraphs } = require('../utils/htmlParser');
+      const bodyParagraphs = parseHtmlToParagraphs(c.body || '', { font: 'Calibri', size: 22, color: '1A1A1A' });
 
-      // ─── Firma ────────────────────────────────────────────────────────
-      // 2 blank rows above the line give ~1 inch of space for the drawn
-      // digital signature image (corrSig) so it does not overlap the typed name below.
-      const blankCell = (h = 400) => new TableRow({ children: [new TableCell({
-        children: [new Paragraph({ children: [new TextRun({ text: '' })], spacing: { before: h, after: 0 } })],
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-      })] });
       const signatureTable = new Table({
-        width: { size: 60, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+        width: { size: 40, type: WidthType.PERCENTAGE },
+        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
         rows: [
-          blankCell(500), // space for drawn signature image (~0.35 in)
-          blankCell(500), // extra room (~0.35 in)  — total ≈ 0.7 in above the line
-          new TableRow({ children: [new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: '_'.repeat(35), color: COLOR_LINE, size: 22 })], alignment: AlignmentType.LEFT })],
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          })] }),
-          blankCell(300), // espacio entre línea y nombre para que stamp corrSig no pise el texto
-          new TableRow({ children: [new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: c.sender_name || '', bold: true, size: 22, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { after: 40 } })],
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          })] }),
-          new TableRow({ children: [new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: c.sender_title || '', size: 20, color: '555555', font: 'Calibri' })], spacing: { after: 40 } })],
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          })] }),
-          ...((c.sender_entity || c.project_entity) ? [new TableRow({ children: [new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: c.sender_entity || c.project_entity, size: 20, color: '555555', font: 'Calibri' })] })],
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          })] })] : []),
+          new TableRow({ children: [new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '' })], spacing: { after: 0 } })], borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.SINGLE, color: '999999', size: 4 }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }, margins: { top: 0, bottom: 0, left: 0, right: 0 } })] }),
+          new TableRow({ children: [new TableCell({ children: [
+            ...(c.sender_name   ? [new Paragraph({ children: [new TextRun({ text: c.sender_name,   bold: true, size: 22, color: COLOR_PRIMARY, font: 'Calibri' })], spacing: { before: 60, after: 20 } })] : []),
+            ...(c.sender_title  ? [new Paragraph({ children: [new TextRun({ text: c.sender_title,  size: 18, color: '555555', font: 'Calibri' })], spacing: { after: 20 } })] : []),
+            ...(c.sender_entity ? [new Paragraph({ children: [new TextRun({ text: c.sender_entity, size: 18, color: '888888', font: 'Calibri' })], spacing: { after: 20 } })] : []),
+          ], borders: makeBorderNone() })] }),
         ],
       });
 
-      // ─── Footer ───────────────────────────────────────────────────────
       const footerTable = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+        borders: { top: { style: BorderStyle.SINGLE, color: 'DDDDDD', size: 4 }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE } },
         rows: [new TableRow({ children: [
-          new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: `${typeLabel} No. ${c.consecutive_code}`, size: 16, color: '888888', font: 'Calibri' })] })],
-            shading: { type: ShadingType.SOLID, color: COLOR_ACCENT },
-            margins: { top: 60, bottom: 60, left: 150, right: 100 },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          }),
-          new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: `Generado: ${fmtDate(new Date().toISOString())} · SGIP-IA`, size: 16, color: '888888', font: 'Calibri' })], alignment: AlignmentType.RIGHT })],
-            shading: { type: ShadingType.SOLID, color: COLOR_ACCENT },
-            margins: { top: 60, bottom: 60, left: 100, right: 150 },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-          }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${typeLabel} No. ${c.consecutive_code}`, size: 16, color: '999999', font: 'Calibri' })], spacing: { before: 60, after: 60 } })], borders: makeBorderNone() }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Generado por SGIP-IA', size: 16, color: '999999', font: 'Calibri' })], alignment: AlignmentType.RIGHT, spacing: { before: 60, after: 60 } })], borders: makeBorderNone() }),
         ]})],
       });
 
-      // ─── Armar documento ──────────────────────────────────────────────
       const children = [
-        headerTable,
-        ...spacer(1),
-        divider,
-        ...spacer(1),
-        // Lugar y fecha
-        new Paragraph({
-          children: [new TextRun({ text: `${c.recipient_city || 'Bogotá D.C.'}, ${fmtDate(c.reference_date)}`, size: 20, font: 'Calibri', color: '444444' })],
-          alignment: AlignmentType.RIGHT,
-          spacing: { after: 200 },
-        }),
-        // Destinatario
-        ...recipientBlock,
-        ...spacer(1),
-        // Asunto y ref
+        headerTable, ...spacer(1), divider, ...spacer(1),
+        new Paragraph({ children: [new TextRun({ text: `${c.recipient_city || 'Bogotá D.C.'}, ${fmtDate(c.reference_date)}`, size: 20, font: 'Calibri', color: '444444' })], alignment: AlignmentType.RIGHT, spacing: { after: 200 } }),
+        ...recipientBlock, ...spacer(1),
         subjectBlock,
         ...(refTable ? [...spacer(1), refTable] : []),
         ...spacer(1),
-        // Saludo
-        new Paragraph({
-          children: [new TextRun({ text: `Respetado(a) señor(a) ${firstName}:`, size: 22, font: 'Calibri', color: '1A1A1A' })],
-          spacing: { after: 200 },
-        }),
-        // Cuerpo
-        ...bodyParagraphs,
-        ...spacer(1),
-        // Cierre
-        new Paragraph({
-          children: [new TextRun({ text: c.closing || 'Cordialmente,', size: 22, font: 'Calibri', color: '1A1A1A' })],
-          spacing: { after: 600 },
-        }),
-        // Firma
-        signatureTable,
-        ...spacer(2),
-        // Footer
-        footerTable,
+        new Paragraph({ children: [new TextRun({ text: `Respetado(a) señor(a) ${firstName}:`, size: 22, font: 'Calibri', color: '1A1A1A' })], spacing: { after: 200 } }),
+        ...bodyParagraphs, ...spacer(1),
+        new Paragraph({ children: [new TextRun({ text: c.closing || 'Cordialmente,', size: 22, font: 'Calibri', color: '1A1A1A' })], spacing: { after: 600 } }),
+        signatureTable, ...spacer(2), footerTable,
       ];
 
       const doc = new Document({
-        styles: {
-          default: {
-            document: {
-              run: { font: 'Calibri', size: 22, color: '1A1A1A' },
-              paragraph: { spacing: { line: 276 } },
-            },
-          },
-        },
-        sections: [{
-          properties: {
-            page: {
-              margin: {
-                top: convertInchesToTwip(1),
-                bottom: convertInchesToTwip(1),
-                left: convertInchesToTwip(1.2),
-                right: convertInchesToTwip(1.2),
-              },
-            },
-          },
-          children,
-        }],
+        styles: { default: { document: { run: { font: 'Calibri', size: 22, color: '1A1A1A' }, paragraph: { spacing: { line: 276 } } } } },
+        sections: [{ properties: { page: { margin: { top: convertInchesToTwip(1), bottom: convertInchesToTwip(1), left: convertInchesToTwip(1.2), right: convertInchesToTwip(1.2) } } }, children }],
       });
 
       const buffer = await Packer.toBuffer(doc);

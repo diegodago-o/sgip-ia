@@ -338,6 +338,29 @@ export const signaturesAPI = {
   },
 };
 
+// ═══ CORRESPONDENCE — métodos extendidos ═══
+export const correspondenceAPI = {
+  list:   (pid, direction) => api.get(`/exec/${pid}/correspondence`, { params: direction ? { direction } : {} }),
+  get:    (pid, id)        => api.get(`/exec/${pid}/correspondence/${id}`),
+  create: (pid, data)      => api.post(`/exec/${pid}/correspondence`, data),
+  update: (pid, id, data)  => api.put(`/exec/${pid}/correspondence/${id}`, data),
+  remove: (pid, id)        => api.delete(`/exec/${pid}/correspondence/${id}`),
+  changeStatus: (pid, id, data) => api.patch(`/exec/${pid}/correspondence/${id}/status`, data),
+  assign: (pid, id, userId)     => api.patch(`/exec/${pid}/correspondence/${id}/assign`, { assigned_to: userId }),
+  link:   (pid, id, parentId)   => api.post(`/exec/${pid}/correspondence/${id}/link`, { parent_id: parentId }),
+  thread: (pid, id)             => api.get(`/exec/${pid}/correspondence/${id}/thread`),
+  uploadAttachment: (pid, id, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/exec/${pid}/correspondence/${id}/attachment`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  downloadAttachmentUrl: (pid, id) =>
+    `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachment`,
+  aiGenerate: (pid, data) => api.post(`/exec/${pid}/correspondence/ai-generate`, data),
+};
+
 // ═══ CORRESPONDENCE DIGITAL SIGNATURES ═══
 export const corrSignaturesAPI = {
   // Get active signature request + signers for a correspondence

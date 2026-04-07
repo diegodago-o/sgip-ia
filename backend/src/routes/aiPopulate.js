@@ -335,8 +335,54 @@ router.post('/:projectId/analyze', [param('projectId').isInt()], async (req, res
       } else if (['.txt', '.md', '.csv'].includes(ext)) {
         const text = fs.readFileSync(filePath, 'utf-8');
         allText += `\n\n=== DOCUMENTO: ${doc.file_name} ===\n${text}`;
+      } else if (['.xls', '.xlsx'].includes(ext)) {
+        try {
+          const XLSX = require('xlsx');
+          const wb = XLSX.readFile(filePath);
+          let excelText = `=== DOCUMENTO EXCEL: ${doc.file_name} ===\n`;
+          for (const sheetName of wb.SheetNames) {
+            const ws = wb.Sheets[sheetName];
+            const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+            if (csv.trim().length > 10) {
+              excelText += `\n--- Hoja: ${sheetName} ---\n${csv}\n`;
+            }
+          }
+          if (excelText.length > 100) {
+            allText += `\n\n${excelText}`;
+            console.log(`   → Excel OK: ${wb.SheetNames.length} hojas, ${excelText.length} chars`);
+          } else {
+            readErrors.push(`${doc.file_name}: Excel sin contenido legible`);
+          }
+        } catch (xlsErr) {
+          console.log(`   Excel error: ${xlsErr.message}`);
+          readErrors.push(`${doc.file_name}: error leyendo Excel — ${xlsErr.message}`);
+        }
       } else if (['.doc', '.docx'].includes(ext)) {
-        readErrors.push(`${doc.file_name}: formato .docx no soportado aún, convierta a PDF`);
+        try {
+          const AdmZip = require('adm-zip');
+          const zip = new AdmZip(filePath);
+          const entry = zip.getEntry('word/document.xml');
+          if (entry) {
+            const xml = entry.getData().toString('utf-8');
+            const text = xml
+              .replace(/<w:br[^>]*\/>/gi, '\n')
+              .replace(/<w:p[ >][^]*?<\/w:p>/gi, m => {
+                const inner = m.replace(/<[^>]+>/g, '');
+                return inner.trim() ? inner.trim() + '\n' : '\n';
+              })
+              .replace(/<[^>]+>/g, '')
+              .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+              .replace(/\n{3,}/g, '\n\n').trim();
+            if (text.length > 50) {
+              allText += `\n\n=== DOCUMENTO: ${doc.file_name} ===\n${text}`;
+              console.log(`   → DOCX OK: ${text.length} chars`);
+            } else {
+              readErrors.push(`${doc.file_name}: .docx sin texto extraíble, convierta a PDF`);
+            }
+          }
+        } catch {
+          readErrors.push(`${doc.file_name}: formato .docx no soportado, convierta a PDF`);
+        }
       }
     }
 

@@ -296,6 +296,7 @@ export const committeeCommitmentsAPI = {
 // ═══ BI DASHBOARD ═══
 export const dashboardAPI = {
   bi: () => api.get('/dashboard/bi'),
+  aiQuery: (data) => api.post('/dashboard/ai-query', data),
 };
 
 // ═══ INDICATORS & KPIs ═══

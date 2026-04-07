@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { dashboardAPI, projectsAPI } from '../../services/api';
+import { dashboardAPI, projectsAPI, aiAPI } from '../../services/api';
 import {
   FolderKanban, PlayCircle, CheckCircle2, AlertTriangle, DollarSign, Users,
   ShieldAlert, Clock, Plus, TrendingUp, TrendingDown, Filter, X, Download,
   RefreshCw, Loader2, ChevronRight, Eye, Target, Shield, AlertCircle,
-  FileText, Activity, Zap, BarChart3,
+  FileText, Activity, Zap, BarChart3, Sparkles, Send, Bot, Copy, ChevronDown,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -223,6 +223,262 @@ function PMOPanel({ pmo, projects }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── AI BI Panel ────────────────────────────────────────────────
+const SUGGESTIONS = [
+  'Dame un resumen ejecutivo del portafolio',
+  '¿Qué proyectos tienen mayor riesgo crítico?',
+  '¿Cómo va el recaudo y facturación del portafolio?',
+  '¿Qué proyectos están atrasados o en rojo?',
+  '¿Hay pólizas o contratos próximos a vencer?',
+  '¿Cuál es el estado de las obligaciones vencidas?',
+];
+
+function AIBIPanel() {
+  const [messages, setMessages]   = useState([]);
+  const [question, setQuestion]   = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [aiReady, setAiReady]     = useState(null); // null=loading, true, false
+  const [collapsed, setCollapsed] = useState(false);
+  const bottomRef  = useRef(null);
+  const inputRef   = useRef(null);
+
+  // Check AI config on mount
+  useEffect(() => {
+    aiAPI.settings()
+      .then(r => {
+        const s = r.data;
+        setAiReady(s.anthropic_configured || s.openai_configured);
+      })
+      .catch(() => setAiReady(false));
+  }, []);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const send = useCallback(async (q) => {
+    const text = (q || question).trim();
+    if (!text || loading) return;
+    setQuestion('');
+    setMessages(m => [...m, { role: 'user', content: text }]);
+    setLoading(true);
+    try {
+      const { data } = await dashboardAPI.aiQuery({ question: text });
+      setMessages(m => [...m, { role: 'assistant', content: data.answer }]);
+    } catch (err) {
+      setMessages(m => [...m, { role: 'error', content: err.response?.data?.error || 'Error al consultar la IA' }]);
+    } finally {
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [question, loading]);
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  const copyMsg = (text) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  // Render markdown-lite: **bold**, *italic*, bullet lists, numbered lists
+  const renderMarkdown = (text) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+    const elements = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      // Section headers (##)
+      if (/^##\s/.test(line)) {
+        elements.push(<p key={i} className="font-bold text-brand-800 text-xs mt-3 mb-1 uppercase tracking-wide">{line.replace(/^##\s/, '')}</p>);
+      } else if (/^###\s/.test(line)) {
+        elements.push(<p key={i} className="font-semibold text-brand-700 text-xs mt-2 mb-0.5">{line.replace(/^###\s/, '')}</p>);
+      } else if (/^[-*]\s/.test(line)) {
+        // Bullet list item
+        const content = line.replace(/^[-*]\s/, '');
+        elements.push(
+          <div key={i} className="flex gap-1.5 text-[11px] text-brand-900 leading-relaxed">
+            <span className="text-brand-400 mt-0.5 flex-shrink-0">•</span>
+            <span dangerouslySetInnerHTML={{ __html: inlineFormat(content) }} />
+          </div>
+        );
+      } else if (/^\d+\.\s/.test(line)) {
+        // Numbered list
+        const [num, ...rest] = line.split(/\.\s/);
+        elements.push(
+          <div key={i} className="flex gap-1.5 text-[11px] text-brand-900 leading-relaxed">
+            <span className="text-brand-500 font-bold flex-shrink-0 w-4">{num}.</span>
+            <span dangerouslySetInnerHTML={{ __html: inlineFormat(rest.join('. ')) }} />
+          </div>
+        );
+      } else if (line.trim() === '') {
+        if (i > 0 && lines[i-1]?.trim() !== '') elements.push(<div key={i} className="h-1.5" />);
+      } else {
+        elements.push(<p key={i} className="text-[11px] text-brand-900 leading-relaxed" dangerouslySetInnerHTML={{ __html: inlineFormat(line) }} />);
+      }
+      i++;
+    }
+    return elements;
+  };
+
+  const inlineFormat = (text) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code class="bg-surface-100 px-1 rounded text-[10px] font-mono">$1</code>');
+
+  return (
+    <div className="bg-white rounded-xl shadow-card overflow-hidden border border-violet-100">
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-violet-50 to-blue-50 border-b border-violet-100 cursor-pointer"
+        onClick={() => setCollapsed(v => !v)}
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center">
+            <Sparkles className="w-3.5 h-3.5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-brand-900 text-sm">BI con Inteligencia Artificial</h3>
+            <p className="text-[10px] text-surface-500">Pregunta sobre tu portafolio en lenguaje natural</p>
+          </div>
+          {aiReady === false && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+              IA no configurada
+            </span>
+          )}
+          {aiReady === true && (
+            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />IA activa
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-surface-400 transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`} />
+      </div>
+
+      {!collapsed && (
+        <div className="p-4 space-y-3">
+          {/* Suggestions */}
+          {messages.length === 0 && (
+            <div>
+              <p className="text-[10px] text-surface-400 font-medium mb-2">Sugerencias rápidas:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {SUGGESTIONS.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => send(s)}
+                    disabled={loading || aiReady === false}
+                    className="text-[11px] bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 hover:border-violet-400 rounded-lg px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Messages */}
+          {messages.length > 0 && (
+            <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'assistant' && (
+                    <div className="w-6 h-6 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Bot className="w-3 h-3 text-white" />
+                    </div>
+                  )}
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2.5 relative group ${
+                    msg.role === 'user'
+                      ? 'bg-brand-600 text-white text-[11px] rounded-br-sm'
+                      : msg.role === 'error'
+                        ? 'bg-red-50 border border-red-200 text-red-700 text-[11px]'
+                        : 'bg-surface-50 border border-surface-100 rounded-bl-sm'
+                  }`}>
+                    {msg.role === 'user' ? (
+                      <p className="text-[11px] leading-relaxed">{msg.content}</p>
+                    ) : msg.role === 'error' ? (
+                      <p className="text-[11px]">{msg.content}</p>
+                    ) : (
+                      <>
+                        <div className="space-y-0.5">{renderMarkdown(msg.content)}</div>
+                        <button
+                          onClick={() => copyMsg(msg.content)}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-200"
+                          title="Copiar respuesta"
+                        >
+                          <Copy className="w-3 h-3 text-surface-400" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex gap-2.5 justify-start">
+                  <div className="w-6 h-6 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Bot className="w-3 h-3 text-white" />
+                  </div>
+                  <div className="bg-surface-50 border border-surface-100 rounded-xl rounded-bl-sm px-3 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="flex gap-2 pt-1 border-t border-surface-100">
+            <textarea
+              ref={inputRef}
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder={aiReady === false ? 'Configura la API key de IA en Ajustes para usar esta función...' : 'Pregunta sobre el portafolio... (Enter para enviar)'}
+              disabled={loading || aiReady === false}
+              rows={2}
+              className="flex-1 text-[11px] border border-surface-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-violet-300 focus:border-violet-400 disabled:bg-surface-50 disabled:text-surface-400 placeholder:text-surface-300"
+            />
+            <button
+              type="button"
+              onClick={() => send()}
+              disabled={loading || !question.trim() || aiReady === false}
+              className="w-9 h-9 self-end flex-shrink-0 flex items-center justify-center rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+              title="Enviar"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {/* Quick suggestion chips (shown after first message) */}
+          {messages.length > 0 && !loading && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {SUGGESTIONS.slice(0, 3).map((s, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => send(s)}
+                  disabled={loading || aiReady === false}
+                  className="text-[10px] bg-violet-50 hover:bg-violet-100 text-violet-600 border border-violet-100 rounded-full px-2 py-0.5 transition-colors disabled:opacity-40"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -494,7 +750,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* KPI Row */}
+      {/* ── SECCIÓN 1: KPIs resumen (afectados por filtro global) ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <KPI label="Total Proyectos" value={fProjects.length} icon={FolderKanban} color="bg-brand-600"
           onClick={() => setDrillView({ title:'Todos los Proyectos', rows: fProjects,
@@ -514,10 +770,8 @@ export default function DashboardPage() {
         <KPI label="Equipo Activo" value={filterByProject(data.team).reduce((s,t)=>s+parseInt(t.activos||0),0)} icon={Users} color="bg-purple-500" />
       </div>
 
-      {/* PMO Indicators */}
-      {data.pmo && <PMOPanel pmo={data.pmo} projects={data.projects} />}
-
-      {/* Row 1: Status + Type + Priority */}
+      {/* ── SECCIÓN 2: Gráficos (afectados por filtro global) ── */}
+      {/* Row 1: Status + Type + Financial */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <ChartCard title="Por Estado" onExport={() => exportCSV(statusData, 'proyectos_estado')}>
           <ResponsiveContainer width="100%" height={200}>
@@ -572,7 +826,7 @@ export default function DashboardPage() {
         </ChartCard>
       </div>
 
-      {/* Row 2: Progress Comparison + Obligations */}
+      {/* Row 2: Progress + Obligations */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChartCard title="Avance Físico vs Tiempo" onExport={() => exportCSV(progressData, 'avance')}>
           <ResponsiveContainer width="100%" height={250}>
@@ -640,7 +894,7 @@ export default function DashboardPage() {
         </ChartCard>
       </div>
 
-      {/* Projects Table */}
+      {/* ── SECCIÓN 3: Tabla de proyectos (afectada por filtro global) ── */}
       <div className="bg-white rounded-xl shadow-card overflow-hidden">
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <h3 className="font-display font-semibold text-brand-900 text-sm">Proyectos {isFiltered && `(${fProjects.length} filtrados)`}</h3>
@@ -705,7 +959,22 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Timeline */}
+      {/* ── SECCIÓN 4: Indicadores PMO (análisis financiero detallado, selector propio) ── */}
+      {data.pmo && (
+        <div>
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="h-px flex-1 bg-surface-200" />
+            <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-widest px-2">Análisis PMO — Indicadores Financieros Avanzados</span>
+            <div className="h-px flex-1 bg-surface-200" />
+          </div>
+          <PMOPanel pmo={data.pmo} projects={data.projects} />
+        </div>
+      )}
+
+      {/* ── SECCIÓN 5: BI con IA (análisis conversacional) ── */}
+      <AIBIPanel />
+
+      {/* ── SECCIÓN 6: Actividad reciente (últimos 30 días) ── */}
       {data.timeline?.length > 0 && (
         <ChartCard title="Actividad Reciente (30 días)" onExport={() => exportCSV(data.timeline, 'actividad')}>
           <div className="space-y-1.5 max-h-60 overflow-y-auto">

@@ -1,6 +1,8 @@
 const express = require('express');
 const pool = require('../config/database');
 const { authMiddleware, getVisibleProjectIds } = require('../middleware/auth');
+const { resolveAIConfig } = require('../services/aiConfig');
+const aiEngine = require('../services/ai-engine');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -558,5 +560,136 @@ function pmoIndicators(income, costs, numMonths) {
   const vpn = computeVPN(income, costs, numMonths);
   return { income, costs, rentabilidad, margen, tir, vpn };
 }
+
+// ═══════════════════════════════════════════════════════════════
+// POST /api/dashboard/ai-query — Conversational BI with AI
+// ═══════════════════════════════════════════════════════════════
+router.post('/ai-query', async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question?.trim()) return res.status(400).json({ error: 'Pregunta requerida' });
+
+    // ─ Resolve AI config ─
+    const { provider, apiKey, model } = await resolveAIConfig(req.body, req.query, req.user?.id);
+    if (!apiKey) return res.status(400).json({ error: 'Motor de IA no configurado. Configure la API key en Ajustes del sistema.' });
+
+    // ─ Collect compact BI snapshot ─
+    const visibleIds = await getVisibleProjectIds(req.user.id, req.user.role);
+    let projectFilter = '';
+    let filterParams = [];
+    if (visibleIds !== null) {
+      if (visibleIds.length === 0) return res.json({ answer: 'No tienes proyectos visibles en el portafolio.' });
+      projectFilter = `WHERE p.id IN (${visibleIds.map(() => '?').join(',')})`;
+      filterParams = [...visibleIds];
+    }
+
+    const [projects] = await pool.execute(`
+      SELECT p.id, p.name, p.code, p.project_type, p.status, p.priority,
+        p.client_name, p.sector, p.contract_value, p.start_date,
+        p.progress_pct,
+        DATEDIFF(CURDATE(), p.start_date) as elapsed_days,
+        CASE
+          WHEN p.execution_term_unit IN ('dias_calendario','dias_habiles') THEN DATEDIFF(DATE_ADD(p.start_date, INTERVAL p.execution_term DAY), CURDATE())
+          WHEN p.execution_term_unit = 'meses' THEN DATEDIFF(DATE_ADD(p.start_date, INTERVAL p.execution_term MONTH), CURDATE())
+          WHEN p.execution_term_unit = 'anos' THEN DATEDIFF(DATE_ADD(p.start_date, INTERVAL p.execution_term YEAR), CURDATE())
+          ELSE NULL
+        END as days_remaining
+      FROM projects p ${projectFilter} ORDER BY p.created_at DESC`, filterParams);
+
+    const [obStats] = await pool.execute(`
+      SELECT COUNT(*) as total, SUM(o.status='vencida') as vencidas,
+        SUM(o.status='pendiente') as pendientes, SUM(o.status='cumplida') as cumplidas
+      FROM obligations o JOIN projects p ON o.project_id=p.id
+      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE o.project_id') : ''
+        .replace('WHERE p.id', 'WHERE o.project_id')}`, filterParams);
+
+    const [riskStats] = await pool.execute(`
+      SELECT COUNT(*) as total, SUM(r.risk_score >= 15) as criticos,
+        SUM(r.risk_score >= 8 AND r.risk_score < 15) as altos,
+        SUM(r.status='materializado') as materializados
+      FROM risks r JOIN projects p ON r.project_id=p.id
+      WHERE r.status NOT IN ('cerrado')
+      ${visibleIds !== null && visibleIds.length > 0 ? `AND p.id IN (${visibleIds.map(() => '?').join(',')})` : ''}`, visibleIds ? filterParams : []);
+
+    const [payStats] = await pool.execute(`
+      SELECT COUNT(*) as total, SUM(pay.status='pagado') as pagados,
+        COALESCE(SUM(CASE WHEN pay.status='pagado' THEN pay.net_value ELSE 0 END),0) as recaudado,
+        COALESCE(SUM(pay.gross_value),0) as facturado
+      FROM payments pay JOIN projects p ON pay.project_id=p.id
+      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pay.project_id') : ''}`, filterParams);
+
+    const [policyStats] = await pool.execute(`
+      SELECT COUNT(*) as total, SUM(pol.status='vencida') as vencidas, SUM(pol.status='por_vencer') as por_vencer
+      FROM policies pol JOIN projects p ON pol.project_id=p.id
+      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pol.project_id') : ''}`, filterParams);
+
+    // Per-project financial summary
+    const financialLines = [];
+    for (const p of projects.slice(0, 20)) {
+      try {
+        const [inc] = await pool.execute('SELECT COALESCE(SUM(CASE WHEN estado IN (\'pagado\',\'facturado\') THEN valor_con_iva ELSE 0 END),0) as recaudado, COALESCE(SUM(valor_con_iva),0) as total FROM budget_income_schedule WHERE project_id=?', [p.id]);
+        const [costs] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=? UNION ALL SELECT COALESCE(SUM(costo_total),0) FROM budget_contractors WHERE project_id=? UNION ALL SELECT COALESCE(SUM(valor_total),0) FROM budget_expenses WHERE project_id=?', [p.id, p.id, p.id]);
+        const totalCosts = costs.reduce((s, r) => s + parseFloat(r.t || 0), 0);
+        const cv = parseFloat(p.contract_value || 0);
+        financialLines.push(`  - ${p.code} | ${p.name} | Contrato: $${(cv/1e6).toFixed(1)}M | Recaudado: $${(parseFloat(inc[0].recaudado)/1e6).toFixed(1)}M | Presup.costos: $${(totalCosts/1e6).toFixed(1)}M | Avance: ${parseFloat(p.progress_pct||0).toFixed(1)}% | Días restantes: ${p.days_remaining ?? 'N/A'} | Estado: ${p.status}`);
+      } catch { /* skip */ }
+    }
+
+    const fmt = v => v >= 1e9 ? `$${(v/1e9).toFixed(1)} MM` : v >= 1e6 ? `$${(v/1e6).toFixed(0)} M` : `$${v}`;
+    const totalValue = projects.reduce((s, p) => s + parseFloat(p.contract_value || 0), 0);
+    const avgProgress = projects.length > 0 ? projects.reduce((s, p) => s + parseFloat(p.progress_pct || 0), 0) / projects.length : 0;
+
+    // ─ Build context for AI ─
+    const context = `
+DATOS DEL PORTAFOLIO DE PROYECTOS — ${new Date().toLocaleDateString('es-CO')}
+===========================================================================
+
+RESUMEN GENERAL:
+- Total proyectos visibles: ${projects.length}
+- Valor total del portafolio: ${fmt(totalValue)}
+- Avance físico promedio: ${avgProgress.toFixed(1)}%
+- Por estado: ${Object.entries(projects.reduce((m, p) => { m[p.status] = (m[p.status]||0)+1; return m; }, {})).map(([k,v]) => `${k}(${v})`).join(', ')}
+- Por prioridad: ${Object.entries(projects.reduce((m, p) => { m[p.priority||'N/A'] = (m[p.priority||'N/A']||0)+1; return m; }, {})).map(([k,v]) => `${k}(${v})`).join(', ')}
+
+OBLIGACIONES:
+- Total: ${obStats[0]?.total || 0} | Cumplidas: ${obStats[0]?.cumplidas || 0} | Pendientes: ${obStats[0]?.pendientes || 0} | Vencidas: ${obStats[0]?.vencidas || 0}
+
+RIESGOS (activos):
+- Total: ${riskStats[0]?.total || 0} | Críticos(≥15): ${riskStats[0]?.criticos || 0} | Altos(8-14): ${riskStats[0]?.altos || 0} | Materializados: ${riskStats[0]?.materializados || 0}
+
+PAGOS Y FACTURACIÓN:
+- Total pagos: ${payStats[0]?.total || 0} | Pagados: ${payStats[0]?.pagados || 0}
+- Total recaudado: ${fmt(parseFloat(payStats[0]?.recaudado || 0))} | Total facturado: ${fmt(parseFloat(payStats[0]?.facturado || 0))}
+
+PÓLIZAS:
+- Total: ${policyStats[0]?.total || 0} | Vencidas: ${policyStats[0]?.vencidas || 0} | Por vencer: ${policyStats[0]?.por_vencer || 0}
+
+DETALLE POR PROYECTO:
+${financialLines.join('\n') || '(sin detalle disponible)'}
+`.trim();
+
+    // ─ AI system prompt ─
+    const systemPrompt = `Eres un analista de BI experto en gestión de proyectos para SGIP-IA.
+Tienes acceso a datos en tiempo real del portafolio de proyectos de la empresa.
+Responde en español, de forma ejecutiva, clara y concisa.
+Usa cifras concretas del contexto.
+Cuando detectes alertas críticas (riesgos altos, obligaciones vencidas, pólizas vencidas), resáltalas.
+Si el usuario pide un resumen ejecutivo, estructura la respuesta con secciones: Estado General, Financiero, Riesgos/Alertas, Recomendaciones.
+No inventes datos que no estén en el contexto. Si no tienes información suficiente dilo.
+Responde de forma directa sin saludos innecesarios.`;
+
+    const userMessage = `Contexto de datos del portafolio:
+${context}
+
+Pregunta del usuario: ${question.trim()}`;
+
+    const answer = await aiEngine.callLLM(provider, apiKey, model, systemPrompt, userMessage, { maxTokens: 1500 });
+
+    res.json({ answer, generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('BI AI Query error:', err);
+    res.status(500).json({ error: err.message || 'Error procesando consulta con IA' });
+  }
+});
 
 module.exports = router;

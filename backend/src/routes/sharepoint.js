@@ -222,8 +222,7 @@ router.get('/projects/:id/coverage', [param('id').isInt()], async (req, res) => 
       pool.execute(`
         SELECT d.id, d.name, d.sp_item_id
         FROM deliverables d
-        JOIN milestones m ON d.milestone_id = m.id
-        WHERE m.project_id = ? AND COALESCE(d.status,'') NOT IN ('cancelado')
+        WHERE d.project_id = ? AND COALESCE(d.status,'') NOT IN ('cancelado')
       `, [pid]),
       pool.execute(`
         SELECT id,

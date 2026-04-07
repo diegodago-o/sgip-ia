@@ -483,6 +483,16 @@ function ContractorsTab({ projectId, projectMonths, onUpdate }) {
             ))}
             {items.length===0 && <tr><td colSpan={8} className="text-center py-6 text-surface-400 text-sm">Sin personal por honorarios</td></tr>}
           </tbody>
+          {items.length > 0 && (
+          <tfoot><tr className="bg-surface-100 font-bold text-xs border-t-2 border-surface-200">
+            <td className="px-3 py-2 text-brand-800">TOTALES ({items.length})</td>
+            <td className="px-3 py-2 text-center">{items.reduce((s,i)=>s+(parseInt(i.cantidad)||1),0)}</td>
+            <td colSpan={3}></td>
+            <td className="px-3 py-2 text-right font-mono text-brand-700">{fm(items.reduce((s,i)=>s+(parseFloat(i.costo_mensual)||0)*(parseInt(i.cantidad)||1),0))}</td>
+            <td className="px-3 py-2 text-right font-mono text-brand-900">{fm(items.reduce((s,i)=>s+(parseFloat(i.costo_total)||0),0))}</td>
+            <td></td>
+          </tr></tfoot>
+          )}
         </table>
       </div>
       <div className="p-3"><button onClick={()=>setModal('new')} className="btn-primary text-sm flex items-center gap-1.5"><Plus className="w-3.5 h-3.5"/> Agregar contratista</button></div>

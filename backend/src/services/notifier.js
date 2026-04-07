@@ -120,6 +120,7 @@ async function markSent(type, refType, refId) {
 // ─── Email HTML templates ─────────────────────────────────────────────────────
 const BRAND = '#1e3a5f';
 const BRAND_LIGHT = '#e8f0fb';
+const APP_URL = (process.env.APP_URL || 'https://sigp.tecnofactory.net.co').replace(/\/$/, '');
 
 function wrap(content) {
   return `<!DOCTYPE html>
@@ -156,7 +157,11 @@ function row(label, value) {
 
 function buildTemplate(type, data) {
   const { project_name = '', project_code = '' } = data;
-  const projLabel = project_code ? `[${project_code}] ${project_name}` : project_name;
+  const projLabel  = project_code ? `[${project_code}] ${project_name}` : project_name;
+  const projectUrl = data.project_id ? `${APP_URL}/adjudicacion/${data.project_id}` : null;
+  const viewBtn    = (label = 'Ver proyecto →') => projectUrl
+    ? `<a href="${projectUrl}" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">${label}</a>`
+    : '';
 
   switch (type) {
 
@@ -173,7 +178,7 @@ function buildTemplate(type, data) {
             ${row('Título', data.title || '')}
             ${row('Fecha', data.meeting_date ? new Date(data.meeting_date).toLocaleDateString('es-CO') : '')}
           </table>
-          <a href="#" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">Ver proyecto →</a>
+          ${viewBtn()}
         `),
       };
 
@@ -191,7 +196,7 @@ function buildTemplate(type, data) {
             ${row('Fecha límite', data.due_date ? new Date(data.due_date).toLocaleDateString('es-CO') : '')}
             ${row('Prioridad', data.priority || '')}
           </table>
-          <a href="#" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">Ver proyecto →</a>
+          ${viewBtn()}
         `),
       };
 
@@ -209,7 +214,7 @@ function buildTemplate(type, data) {
             ${row('Radicado', data.radicado_number || '')}
             ${row('Fecha', data.reference_date ? new Date(data.reference_date).toLocaleDateString('es-CO') : '')}
           </table>
-          <a href="#" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">Ver proyecto →</a>
+          ${viewBtn()}
         `),
       };
 
@@ -226,7 +231,7 @@ function buildTemplate(type, data) {
             ${row('Valor neto', data.net_value ? `$${Number(data.net_value).toLocaleString('es-CO')}` : '')}
             ${row('Período', data.period_to ? new Date(data.period_to).toLocaleDateString('es-CO') : '')}
           </table>
-          <a href="#" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">Ver proyecto →</a>
+          ${viewBtn()}
         `),
       };
 
@@ -248,6 +253,7 @@ function buildTemplate(type, data) {
           <div style="margin-top:18px;padding:12px 16px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:4px">
             <p style="margin:0;font-size:13px;color:#92400e">Actualiza el estado del compromiso antes de la fecha límite.</p>
           </div>
+          ${viewBtn()}
         `),
       };
     }
@@ -298,6 +304,7 @@ function buildTemplate(type, data) {
             ${row('Fin de período', data.period_to ? new Date(data.period_to).toLocaleDateString('es-CO') : '')}
             ${row('Estado', data.status || '')}
           </table>
+          ${viewBtn()}
         `),
       };
     }
@@ -321,6 +328,7 @@ function buildTemplate(type, data) {
           <div style="margin-top:18px;padding:12px 16px;background:#fef9c3;border-left:3px solid ${urgency};border-radius:4px">
             <p style="margin:0;font-size:13px;color:#92400e">Gestione la renovación de la póliza antes de su vencimiento para evitar incumplimientos contractuales.</p>
           </div>
+          ${viewBtn()}
         `),
       };
     }
@@ -370,6 +378,7 @@ function buildTemplate(type, data) {
           <div style="margin-top:18px;padding:12px 16px;background:#fef9c3;border-left:3px solid ${urgency};border-radius:4px">
             <p style="margin:0;font-size:13px;color:#92400e">Verifique el estado de avance y gestione una prórroga si es necesario antes del vencimiento del plazo.</p>
           </div>
+          ${viewBtn()}
         `),
       };
     }

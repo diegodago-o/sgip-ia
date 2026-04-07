@@ -377,8 +377,8 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
         <CountCard icon={FileText}      label="Documentos"    count={c.documents || 0}     color="bg-brand-500"   active={activeTab==='documents'}   onClick={() => setActiveTab('documents')} />
         <CountCard icon={ClipboardList} label="Obligaciones"  count={c.obligations || 0}   color="bg-amber-500"   active={activeTab==='obligations'} onClick={() => setActiveTab('obligations')} />
-        <CountCard icon={Package}       label="Entregables"   count={c.deliverables || 0}  color="bg-emerald-500" active={false} onClick={() => {}} />
-        <CountCard icon={Flag}          label="Hitos"         count={c.milestones || 0}    color="bg-violet-500"  active={false} onClick={() => {}} />
+        <CountCard icon={Package}       label="Entregables"   count={c.deliverables || 0}  color="bg-emerald-500" active={activeTab==='milestones'}   onClick={() => setActiveTab('milestones')} />
+        <CountCard icon={Flag}          label="Hitos"         count={c.milestones || 0}    color="bg-violet-500"  active={activeTab==='milestones'}   onClick={() => setActiveTab('milestones')} />
         <CountCard icon={Shield}        label="Pólizas"       count={c.policies || 0}      color="bg-orange-500"  active={activeTab==='policies'}    onClick={() => setActiveTab('policies')} />
         <CountCard icon={DollarSign}    label="Presupuesto"   count={c.budget_items || 0}  color="bg-teal-500"    active={activeTab==='budget'}      onClick={() => setActiveTab('budget')} />
         <CountCard icon={Users}         label="Equipo"        count={c.team_members || 0}  color="bg-pink-500"    active={activeTab==='team'}        onClick={() => setActiveTab('team')} />

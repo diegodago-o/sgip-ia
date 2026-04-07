@@ -201,7 +201,7 @@ router.get('/:id', [param('id').isInt()], async (req, res) => {
     // Counts
     const countQueries = [
       ['documents', 'documents'], ['obligations', 'obligations'], ['deliverables', 'deliverables'],
-      ['milestones', 'milestones'], ['policies', 'policies'], ['budget_items', 'budget_items'],
+      ['milestones', 'milestones'], ['policies', 'policies'],
     ];
     const counts = {};
     for (const [table, key] of countQueries) {
@@ -210,6 +210,13 @@ router.get('/:id', [param('id').isInt()], async (req, res) => {
         counts[key] = c[0].n;
       } catch { counts[key] = 0; }
     }
+    // Presupuesto: suma de ítems en nómina + contratistas + gastos
+    try {
+      const [cp] = await pool.execute('SELECT COUNT(*) as n FROM budget_payroll WHERE project_id = ?', [req.params.id]);
+      const [cc] = await pool.execute('SELECT COUNT(*) as n FROM budget_contractors WHERE project_id = ?', [req.params.id]);
+      const [ce] = await pool.execute('SELECT COUNT(*) as n FROM budget_expenses WHERE project_id = ?', [req.params.id]);
+      counts.budget_items = (cp[0].n || 0) + (cc[0].n || 0) + (ce[0].n || 0);
+    } catch { counts.budget_items = 0; }
     try {
       const [c] = await pool.execute("SELECT COUNT(*) as n FROM team_members WHERE project_id = ? AND status = 'activo'", [req.params.id]);
       counts.team_members = c[0].n;

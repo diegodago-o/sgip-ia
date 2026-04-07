@@ -596,108 +596,261 @@ router.post('/ai-query', async (req, res) => {
         END as days_remaining
       FROM projects p ${projectFilter} ORDER BY p.created_at DESC`, filterParams);
 
+    // ── Obligaciones: totales + detalle de vencidas ──
+    const obFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND o.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
+
     const [obStats] = await pool.execute(`
-      SELECT COUNT(*) as total, SUM(o.status='vencida') as vencidas,
-        SUM(o.status='pendiente') as pendientes, SUM(o.status='cumplida') as cumplidas
+      SELECT COUNT(*) as total,
+        SUM(o.status='vencida') as vencidas,
+        SUM(o.status='pendiente') as pendientes,
+        SUM(o.status='en_curso') as en_curso,
+        SUM(o.status='cumplida') as cumplidas
+      FROM obligations o WHERE 1=1 ${obFilterSuffix}`, filterParams);
+
+    const [overdueObs] = await pool.execute(`
+      SELECT o.code, o.description, o.due_date, o.risk_level,
+        DATEDIFF(CURDATE(), o.due_date) as days_overdue,
+        p.code as project_code, p.name as project_name
       FROM obligations o JOIN projects p ON o.project_id=p.id
-      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE o.project_id') : ''
-        .replace('WHERE p.id', 'WHERE o.project_id')}`, filterParams);
+      WHERE o.status='vencida' ${obFilterSuffix.replace('o.project_id', 'p.id')}
+      ORDER BY days_overdue DESC LIMIT 10`, filterParams);
+
+    const [pendingObs] = await pool.execute(`
+      SELECT o.description, o.due_date, o.risk_level,
+        DATEDIFF(o.due_date, CURDATE()) as days_until_due,
+        p.code as project_code
+      FROM obligations o JOIN projects p ON o.project_id=p.id
+      WHERE o.status IN ('pendiente','en_curso') AND o.due_date IS NOT NULL
+        AND o.due_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+        ${obFilterSuffix.replace('o.project_id', 'p.id')}
+      ORDER BY o.due_date ASC LIMIT 10`, filterParams);
+
+    // ── Riesgos: totales + detalle de críticos/altos ──
+    const riskFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND r.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
 
     const [riskStats] = await pool.execute(`
-      SELECT COUNT(*) as total, SUM(r.risk_score >= 15) as criticos,
+      SELECT COUNT(*) as total,
+        SUM(r.risk_score >= 15) as criticos,
         SUM(r.risk_score >= 8 AND r.risk_score < 15) as altos,
-        SUM(r.status='materializado') as materializados
+        SUM(r.status='materializado') as materializados,
+        SUM(r.status='mitigando') as mitigando
+      FROM risks r WHERE r.status NOT IN ('cerrado') ${riskFilterSuffix}`, filterParams);
+
+    const [topRisks] = await pool.execute(`
+      SELECT r.risk_code, r.description, r.risk_score, r.risk_level, r.category, r.status,
+        p.code as project_code
       FROM risks r JOIN projects p ON r.project_id=p.id
-      WHERE r.status NOT IN ('cerrado')
-      ${visibleIds !== null && visibleIds.length > 0 ? `AND p.id IN (${visibleIds.map(() => '?').join(',')})` : ''}`, visibleIds ? filterParams : []);
+      WHERE r.status NOT IN ('cerrado') AND r.risk_score >= 8
+        ${riskFilterSuffix.replace('r.project_id', 'p.id')}
+      ORDER BY r.risk_score DESC LIMIT 12`, filterParams);
+
+    // ── Pagos: totales + detalle por proyecto ──
+    const payFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND pay.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
 
     const [payStats] = await pool.execute(`
-      SELECT COUNT(*) as total, SUM(pay.status='pagado') as pagados,
+      SELECT COUNT(*) as total,
+        SUM(pay.status='pagado') as pagados,
+        SUM(pay.status IN ('pendiente','en_revision','aprobado')) as pendientes,
         COALESCE(SUM(CASE WHEN pay.status='pagado' THEN pay.net_value ELSE 0 END),0) as recaudado,
-        COALESCE(SUM(pay.gross_value),0) as facturado
+        COALESCE(SUM(CASE WHEN pay.status NOT IN ('pagado') THEN pay.gross_value ELSE 0 END),0) as por_cobrar,
+        COALESCE(SUM(pay.gross_value),0) as facturado_total
+      FROM payments pay WHERE 1=1 ${payFilterSuffix}`, filterParams);
+
+    const [payByProject] = await pool.execute(`
+      SELECT p.code as project_code, p.name as project_name,
+        COUNT(*) as total_pagos,
+        SUM(pay.status='pagado') as pagados,
+        COALESCE(SUM(CASE WHEN pay.status='pagado' THEN pay.net_value ELSE 0 END),0) as recaudado,
+        COALESCE(SUM(pay.gross_value),0) as facturado_total,
+        COALESCE(SUM(CASE WHEN pay.status NOT IN ('pagado') THEN pay.gross_value ELSE 0 END),0) as por_cobrar
       FROM payments pay JOIN projects p ON pay.project_id=p.id
-      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pay.project_id') : ''}`, filterParams);
+      WHERE 1=1 ${payFilterSuffix.replace('pay.project_id', 'p.id')}
+      GROUP BY p.id, p.code, p.name`, filterParams);
+
+    // ── Pólizas: totales + detalle próximas a vencer ──
+    const polFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND pol.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
 
     const [policyStats] = await pool.execute(`
       SELECT COUNT(*) as total,
         SUM(pol.status='vencida') as vencidas,
         SUM(pol.status='por_vencer') as por_vencer,
-        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)) as proximas_90d,
-        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) as proximas_30d
-      FROM policies pol JOIN projects p ON pol.project_id=p.id
-      ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pol.project_id') : ''}`, filterParams);
+        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL
+          AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)) as proximas_90d,
+        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL
+          AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) as proximas_30d
+      FROM policies pol WHERE 1=1 ${polFilterSuffix}`, filterParams);
 
-    // Detalle de pólizas próximas a vencer (misma lógica que KPI del dashboard)
-    const expiringPoliciesFilterParams = visibleIds !== null && visibleIds.length > 0 ? filterParams : [];
     const [expiringPolicies] = await pool.execute(`
       SELECT pol.policy_type, pol.insurer, pol.expiry_date, pol.status,
-        p.name as project_name, p.code as project_code,
+        pol.insured_value, p.code as project_code,
         DATEDIFF(pol.expiry_date, CURDATE()) as days_to_expire
       FROM policies pol JOIN projects p ON pol.project_id=p.id
-      WHERE pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL
-      ${visibleIds !== null && visibleIds.length > 0 ? `AND pol.project_id IN (${visibleIds.map(() => '?').join(',')})` : ''}
-      ORDER BY pol.expiry_date ASC LIMIT 15`, expiringPoliciesFilterParams);
+      WHERE pol.expiry_date IS NOT NULL ${polFilterSuffix.replace('pol.project_id', 'p.id')}
+        AND pol.status NOT IN ('cancelada')
+      ORDER BY pol.expiry_date ASC LIMIT 15`, filterParams);
 
-    // Per-project financial summary
-    const financialLines = [];
-    for (const p of projects.slice(0, 20)) {
-      try {
-        const [inc] = await pool.execute('SELECT COALESCE(SUM(CASE WHEN estado IN (\'pagado\',\'facturado\') THEN valor_con_iva ELSE 0 END),0) as recaudado, COALESCE(SUM(valor_con_iva),0) as total FROM budget_income_schedule WHERE project_id=?', [p.id]);
-        const [costs] = await pool.execute('SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=? UNION ALL SELECT COALESCE(SUM(costo_total),0) FROM budget_contractors WHERE project_id=? UNION ALL SELECT COALESCE(SUM(valor_total),0) FROM budget_expenses WHERE project_id=?', [p.id, p.id, p.id]);
-        const totalCosts = costs.reduce((s, r) => s + parseFloat(r.t || 0), 0);
-        const cv = parseFloat(p.contract_value || 0);
-        financialLines.push(`  - ${p.code} | ${p.name} | Contrato: $${(cv/1e6).toFixed(1)}M | Recaudado: $${(parseFloat(inc[0].recaudado)/1e6).toFixed(1)}M | Presup.costos: $${(totalCosts/1e6).toFixed(1)}M | Avance: ${parseFloat(p.progress_pct||0).toFixed(1)}% | Días restantes: ${p.days_remaining ?? 'N/A'} | Estado: ${p.status}`);
-      } catch { /* skip */ }
-    }
+    // ── Cronograma: actividades atrasadas por proyecto ──
+    const schedFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND sa.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
 
-    const fmt = v => v >= 1e9 ? `$${(v/1e9).toFixed(1)} MM` : v >= 1e6 ? `$${(v/1e6).toFixed(0)} M` : `$${v}`;
+    const [schedStats] = await pool.execute(`
+      SELECT p.code as project_code,
+        COUNT(*) as total_tareas,
+        SUM(sa.status='completada') as completadas,
+        SUM(sa.end_date < CURDATE() AND sa.progress_pct < 100 AND sa.activity_type='task') as atrasadas,
+        ROUND(AVG(CASE WHEN sa.activity_type='task' THEN sa.progress_pct END),1) as avance_cronograma
+      FROM schedule_activities sa JOIN projects p ON sa.project_id=p.id
+      WHERE sa.activity_type='task' ${schedFilterSuffix.replace('sa.project_id', 'p.id')}
+      GROUP BY p.id, p.code`, filterParams);
+
+    // ── Equipo ──
+    const teamFilterSuffix = visibleIds !== null && visibleIds.length > 0
+      ? `AND tm.project_id IN (${visibleIds.map(() => '?').join(',')})` : '';
+
+    const [teamStats] = await pool.execute(`
+      SELECT p.code as project_code,
+        COUNT(*) as total,
+        SUM(tm.status='activo') as activos,
+        SUM(tm.profile_compliant=1) as cumplen_perfil,
+        SUM(tm.profile_compliant=0) as no_cumplen_perfil
+      FROM team_members tm JOIN projects p ON tm.project_id=p.id
+      WHERE 1=1 ${teamFilterSuffix.replace('tm.project_id', 'p.id')}
+      GROUP BY p.id, p.code`, filterParams);
+
+    // ── Detalle financiero por proyecto ──
+    const fmt = v => v >= 1e9 ? `$${(v/1e9).toFixed(1)} MM` : v >= 1e6 ? `$${(v/1e6).toFixed(0)} M` : `$${(parseFloat(v)||0).toFixed(0)}`;
     const totalValue = projects.reduce((s, p) => s + parseFloat(p.contract_value || 0), 0);
     const avgProgress = projects.length > 0 ? projects.reduce((s, p) => s + parseFloat(p.progress_pct || 0), 0) / projects.length : 0;
 
-    // ─ Build context for AI ─
+    const projectLines = [];
+    for (const p of projects.slice(0, 25)) {
+      try {
+        const [inc] = await pool.execute(
+          `SELECT COALESCE(SUM(CASE WHEN estado IN ('pagado','facturado') THEN valor_con_iva ELSE 0 END),0) as recaudado,
+                  COALESCE(SUM(valor_con_iva),0) as presupuestado
+           FROM budget_income_schedule WHERE project_id=?`, [p.id]);
+        const [costs] = await pool.execute(
+          `SELECT COALESCE(SUM(costo_total),0) as t FROM budget_payroll WHERE project_id=?
+           UNION ALL SELECT COALESCE(SUM(costo_total),0) FROM budget_contractors WHERE project_id=?
+           UNION ALL SELECT COALESCE(SUM(valor_total),0) FROM budget_expenses WHERE project_id=?`,
+          [p.id, p.id, p.id]);
+        const [pagosProy] = await pool.execute(
+          `SELECT COALESCE(SUM(CASE WHEN status='pagado' THEN net_value ELSE 0 END),0) as pagado,
+                  COALESCE(SUM(gross_value),0) as total_fact
+           FROM payments WHERE project_id=?`, [p.id]);
+        const [obProy] = await pool.execute(
+          `SELECT SUM(status='vencida') as vencidas, SUM(status IN ('pendiente','en_curso')) as activas
+           FROM obligations WHERE project_id=?`, [p.id]);
+        const [riskProy] = await pool.execute(
+          `SELECT SUM(risk_score >= 15) as criticos, SUM(risk_score >= 8 AND risk_score < 15) as altos
+           FROM risks WHERE project_id=? AND status NOT IN ('cerrado')`, [p.id]);
+        const sched = schedStats.find(s => s.project_code === p.code);
+
+        const cv = parseFloat(p.contract_value || 0);
+        const presup = parseFloat(inc[0].presupuestado || 0);
+        const recaudadoInc = parseFloat(inc[0].recaudado || 0);
+        const pagadoPay = parseFloat(pagosProy[0].pagado || 0);
+        const totalCosts = costs.reduce((s, r) => s + parseFloat(r.t || 0), 0);
+        const recaudoPct = cv > 0 ? ((pagadoPay / cv) * 100).toFixed(1) : 'N/A';
+        const atrasadas = sched ? parseInt(sched.atrasadas || 0) : 0;
+        const totalTareas = sched ? parseInt(sched.total_tareas || 0) : 0;
+
+        projectLines.push(
+          `  [${p.code}] ${p.name} (${p.status} | Prioridad: ${p.priority || 'N/A'} | Cliente: ${p.client_name || 'N/A'})\n` +
+          `    Contrato: ${fmt(cv)} | Avance físico: ${parseFloat(p.progress_pct||0).toFixed(1)}% | Días restantes: ${p.days_remaining ?? 'N/A'}\n` +
+          `    Recaudo: ${fmt(pagadoPay)} (${recaudoPct}% del contrato) | Facturado total: ${fmt(parseFloat(pagosProy[0].total_fact||0))}\n` +
+          `    Presup. ingresos: ${fmt(presup)} | Cobrado/facturado: ${fmt(recaudadoInc)} | Presup. costos: ${fmt(totalCosts)}\n` +
+          `    Obligaciones: ${obProy[0].activas || 0} activas | ${obProy[0].vencidas || 0} vencidas\n` +
+          `    Riesgos activos: ${riskProy[0].criticos || 0} críticos | ${riskProy[0].altos || 0} altos\n` +
+          `    Cronograma: ${totalTareas} tareas | ${atrasadas} atrasadas${totalTareas > 0 ? ` (${((atrasadas/totalTareas)*100).toFixed(0)}%)` : ''}`
+        );
+      } catch { /* skip */ }
+    }
+
+    // ── Build AI context ──
     const context = `
-DATOS DEL PORTAFOLIO DE PROYECTOS — ${new Date().toLocaleDateString('es-CO')}
-===========================================================================
+DATOS DEL PORTAFOLIO — ${new Date().toLocaleDateString('es-CO')}
+================================================================
 
-RESUMEN GENERAL:
-- Total proyectos visibles: ${projects.length}
-- Valor total del portafolio: ${fmt(totalValue)}
-- Avance físico promedio: ${avgProgress.toFixed(1)}%
-- Por estado: ${Object.entries(projects.reduce((m, p) => { m[p.status] = (m[p.status]||0)+1; return m; }, {})).map(([k,v]) => `${k}(${v})`).join(', ')}
-- Por prioridad: ${Object.entries(projects.reduce((m, p) => { m[p.priority||'N/A'] = (m[p.priority||'N/A']||0)+1; return m; }, {})).map(([k,v]) => `${k}(${v})`).join(', ')}
+RESUMEN EJECUTIVO:
+- Proyectos en portafolio: ${projects.length} | Valor total: ${fmt(totalValue)} | Avance promedio: ${avgProgress.toFixed(1)}%
+- Por estado: ${Object.entries(projects.reduce((m,p)=>{ m[p.status]=(m[p.status]||0)+1; return m; },{})).map(([k,v])=>`${k}(${v})`).join(', ')}
+- Por prioridad: ${Object.entries(projects.reduce((m,p)=>{ m[p.priority||'sin']=(m[p.priority||'sin']||0)+1; return m; },{})).map(([k,v])=>`${k}(${v})`).join(', ')}
+- Sectores: ${Object.entries(projects.reduce((m,p)=>{ m[p.sector||'N/A']=(m[p.sector||'N/A']||0)+1; return m; },{})).map(([k,v])=>`${k}(${v})`).join(', ')}
 
-OBLIGACIONES:
-- Total: ${obStats[0]?.total || 0} | Cumplidas: ${obStats[0]?.cumplidas || 0} | Pendientes: ${obStats[0]?.pendientes || 0} | Vencidas: ${obStats[0]?.vencidas || 0}
+OBLIGACIONES CONTRACTUALES:
+- Total: ${obStats[0]?.total||0} | Cumplidas: ${obStats[0]?.cumplidas||0} | En curso: ${obStats[0]?.en_curso||0} | Pendientes: ${obStats[0]?.pendientes||0} | VENCIDAS: ${obStats[0]?.vencidas||0}
+${overdueObs.length > 0
+  ? '- Obligaciones vencidas (top 10 por días de mora):\n' + overdueObs.map(o =>
+      `  · [${o.project_code}] ${o.description?.substring(0,80)}... | Venció: ${o.due_date ? new Date(o.due_date).toLocaleDateString('es-CO') : 'N/A'} | ${o.days_overdue} días de mora | Riesgo: ${o.risk_level||'N/A'}`
+    ).join('\n')
+  : '- Sin obligaciones vencidas'}
+${pendingObs.length > 0
+  ? '- Obligaciones próximas a vencer (≤30 días):\n' + pendingObs.map(o =>
+      `  · [${o.project_code}] ${o.description?.substring(0,60)}... | Vence en ${o.days_until_due} días`
+    ).join('\n')
+  : ''}
 
-RIESGOS (activos):
-- Total: ${riskStats[0]?.total || 0} | Críticos(≥15): ${riskStats[0]?.criticos || 0} | Altos(8-14): ${riskStats[0]?.altos || 0} | Materializados: ${riskStats[0]?.materializados || 0}
+RIESGOS ACTIVOS:
+- Total: ${riskStats[0]?.total||0} | Críticos(score≥15): ${riskStats[0]?.criticos||0} | Altos(8-14): ${riskStats[0]?.altos||0} | Materializados: ${riskStats[0]?.materializados||0} | Mitigando: ${riskStats[0]?.mitigando||0}
+${topRisks.length > 0
+  ? '- Riesgos críticos/altos:\n' + topRisks.map(r =>
+      `  · [${r.project_code}] ${r.risk_code||''} Score:${r.risk_score} (${r.risk_level}) | ${r.category} | ${r.description?.substring(0,80)}... | Estado: ${r.status}`
+    ).join('\n')
+  : '- Sin riesgos críticos o altos activos'}
 
-PAGOS Y FACTURACIÓN:
-- Total pagos: ${payStats[0]?.total || 0} | Pagados: ${payStats[0]?.pagados || 0}
-- Total recaudado: ${fmt(parseFloat(payStats[0]?.recaudado || 0))} | Total facturado: ${fmt(parseFloat(payStats[0]?.facturado || 0))}
+PAGOS Y RECAUDO:
+- Total pagos registrados: ${payStats[0]?.total||0} | Pagados: ${payStats[0]?.pagados||0} | Pendientes: ${payStats[0]?.pendientes||0}
+- Total recaudado: ${fmt(parseFloat(payStats[0]?.recaudado||0))} | Por cobrar (pendiente): ${fmt(parseFloat(payStats[0]?.por_cobrar||0))} | Facturación total: ${fmt(parseFloat(payStats[0]?.facturado_total||0))}
+${payByProject.length > 0
+  ? '- Recaudo por proyecto:\n' + payByProject.map(py =>
+      `  · [${py.project_code}] Recaudado: ${fmt(parseFloat(py.recaudado||0))} / ${fmt(parseFloat(py.facturado_total||0))} facturado | Por cobrar: ${fmt(parseFloat(py.por_cobrar||0))} | Pagos: ${py.pagados}/${py.total_pagos}`
+    ).join('\n')
+  : ''}
 
-PÓLIZAS:
-- Total: ${policyStats[0]?.total || 0} | Vencidas: ${policyStats[0]?.vencidas || 0} | Estado "por_vencer": ${policyStats[0]?.por_vencer || 0}
-- Próximas a vencer (≤30 días): ${policyStats[0]?.proximas_30d || 0} | Próximas a vencer (≤90 días): ${policyStats[0]?.proximas_90d || 0}
+PÓLIZAS DE SEGUROS:
+- Total: ${policyStats[0]?.total||0} | Vencidas: ${policyStats[0]?.vencidas||0} | Por vencer (estado): ${policyStats[0]?.por_vencer||0}
+- Con vencimiento próximo ≤30 días: ${policyStats[0]?.proximas_30d||0} | ≤90 días: ${policyStats[0]?.proximas_90d||0}
 ${expiringPolicies.length > 0
-  ? '- Detalle pólizas con vencimiento próximo:\n' + expiringPolicies.map(pol =>
-      `  · [${pol.project_code}] ${pol.policy_type} — ${pol.insurer || 'N/A'} | Vence: ${pol.expiry_date ? new Date(pol.expiry_date).toLocaleDateString('es-CO') : 'N/A'} | Días restantes: ${pol.days_to_expire ?? 'N/A'} | Estado: ${pol.status}`
+  ? '- Detalle pólizas (ordenadas por vencimiento):\n' + expiringPolicies.map(pol =>
+      `  · [${pol.project_code}] ${pol.policy_type} — ${pol.insurer||'N/A'} | Vence: ${pol.expiry_date ? new Date(pol.expiry_date).toLocaleDateString('es-CO') : 'N/A'} | Días: ${pol.days_to_expire??'N/A'} | Estado: ${pol.status}${pol.insured_value ? ` | Valor asegurado: ${fmt(parseFloat(pol.insured_value))}` : ''}`
     ).join('\n')
   : '- Sin pólizas con fecha de vencimiento registrada'}
 
-DETALLE POR PROYECTO:
-${financialLines.join('\n') || '(sin detalle disponible)'}
+CRONOGRAMA (actividades atrasadas por proyecto):
+${schedStats.length > 0
+  ? schedStats.map(s =>
+      `  · [${s.project_code}] ${s.total_tareas} tareas | ${s.completadas} completadas | ${s.atrasadas} atrasadas${s.total_tareas > 0 ? ` (${((parseInt(s.atrasadas||0)/parseInt(s.total_tareas))*100).toFixed(0)}%)` : ''} | Avance cronograma: ${s.avance_cronograma||0}%`
+    ).join('\n')
+  : '- Sin datos de cronograma'}
+
+EQUIPO DE TRABAJO:
+${teamStats.length > 0
+  ? teamStats.map(t =>
+      `  · [${t.project_code}] ${t.total} integrantes | ${t.activos} activos | Cumplen perfil: ${t.cumplen_perfil} | No cumplen: ${t.no_cumplen_perfil}`
+    ).join('\n')
+  : '- Sin datos de equipo'}
+
+DETALLE COMPLETO POR PROYECTO:
+${projectLines.join('\n\n') || '(sin detalle disponible)'}
 `.trim();
 
     // ─ AI system prompt ─
-    const systemPrompt = `Eres un analista de BI experto en gestión de proyectos para SGIP-IA.
-Tienes acceso a datos en tiempo real del portafolio de proyectos de la empresa.
-Responde en español, de forma ejecutiva, clara y concisa.
-Usa cifras concretas del contexto.
-Cuando detectes alertas críticas (riesgos altos, obligaciones vencidas, pólizas vencidas), resáltalas.
-Si el usuario pide un resumen ejecutivo, estructura la respuesta con secciones: Estado General, Financiero, Riesgos/Alertas, Recomendaciones.
-No inventes datos que no estén en el contexto. Si no tienes información suficiente dilo.
-Responde de forma directa sin saludos innecesarios.`;
+    const systemPrompt = `Eres el analista de BI del sistema SGIP-IA, experto en gestión y supervisión de proyectos de contratación pública y privada.
+Tienes acceso a datos en tiempo real del portafolio. RESPONDE SIEMPRE USANDO LOS DATOS DEL CONTEXTO.
+Reglas:
+- Responde en español, de forma ejecutiva y concisa.
+- Usa las cifras exactas del contexto. No redondees si el dato es preciso.
+- Si el dato solicitado está en el contexto, siempre respóndelo aunque parezca trivial (ej: "0 vencidas" es una respuesta válida).
+- Si hay alertas críticas (riesgos críticos, obligaciones vencidas, pólizas vencidas/por vencer, pagos pendientes), menciónalas aunque no se pregunten directamente.
+- Para preguntas de resumen ejecutivo usa estas secciones: Estado General del Portafolio | Situación Financiera | Riesgos y Alertas | Cronograma | Recomendaciones.
+- Para preguntas específicas (ej: "¿hay pólizas por vencer?") responde directo con los datos del contexto de PÓLIZAS.
+- No inventes datos ni hagas suposiciones. Si un dato no está en el contexto, dilo claramente.
+- No uses saludos ni cierres. Ve directo al punto.`;
 
     const userMessage = `Contexto de datos del portafolio:
 ${context}

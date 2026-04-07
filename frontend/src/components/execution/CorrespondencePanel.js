@@ -6,10 +6,11 @@ import {
   ChevronRight, Search, Filter, FileText, Clock,
   CheckCircle, Send, Archive, RotateCcw, AlertCircle, PenLine,
   Shield, Loader2, Ban, Activity, Inbox, ArrowUpRight, ArrowDownLeft,
-  Link2, GitBranch, User, Paperclip, UserCheck, Reply,
+  Link2, GitBranch, User, Paperclip, UserCheck, Reply, Settings,
 } from 'lucide-react';
 import CorrSignatureModal from './CorrSignatureModal';
 import FirmaLibreModal from './FirmaLibreModal';
+import EmailInboxConfig from './EmailInboxConfig';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const TYPES = [
@@ -898,6 +899,9 @@ export default function CorrespondencePanel({ projectId, perms }) {
   // Thread modal
   const [threadItem, setThreadItem] = useState(null);
 
+  // Email inbox config panel
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+
   // Firmas libres
   const [freeRequests, setFreeRequests]   = useState([]);
   const [freeLoading, setFreeLoading]     = useState(false);
@@ -1102,13 +1106,34 @@ export default function CorrespondencePanel({ projectId, perms }) {
               </h3>
               <p className="text-xs text-surface-400 mt-0.5">Comunicaciones recibidas de terceros</p>
             </div>
-            {perms?.canEdit && (
-              <button onClick={() => { setEditEntradaItem(null); setReplyEntradaTo(null); setShowEntradaForm(true); }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 shadow-sm transition-colors">
-                <Plus className="w-4 h-4" />Radicar
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {perms?.canAdmin && (
+                <button onClick={() => setShowEmailConfig(v => !v)}
+                  title="Configurar bandeja de correo"
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border transition-colors
+                    ${showEmailConfig
+                      ? 'bg-teal-50 border-teal-300 text-teal-700'
+                      : 'bg-white border-surface-200 text-surface-500 hover:text-teal-700 hover:border-teal-300'}`}>
+                  <Mail className="w-4 h-4" />
+                  <span className="hidden sm:inline">Bandeja</span>
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {perms?.canEdit && (
+                <button onClick={() => { setEditEntradaItem(null); setReplyEntradaTo(null); setShowEntradaForm(true); }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 shadow-sm transition-colors">
+                  <Plus className="w-4 h-4" />Radicar
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* ── Configuración de bandeja de correo ── */}
+          {showEmailConfig && (
+            <div className="rounded-2xl border border-teal-200 bg-teal-50/40 overflow-hidden">
+              <EmailInboxConfig projectId={projectId} />
+            </div>
+          )}
 
           {/* Resumen estados entrada */}
           {entrada.length > 0 && (

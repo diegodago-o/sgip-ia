@@ -452,4 +452,14 @@ export const sharepointAPI = {
       { params: filename ? { filename } : {}, timeout: 90000 }),
 };
 
+// ═══ EMAIL INBOX PER PROJECT ═══
+export const emailInboxAPI = {
+  get:    (pid)        => api.get(`/exec/${pid}/email-inbox`),
+  save:   (pid, data)  => api.post(`/exec/${pid}/email-inbox`, data),
+  remove: (pid)        => api.delete(`/exec/${pid}/email-inbox`),
+  toggle: (pid, enabled) => api.patch(`/exec/${pid}/email-inbox/toggle`, enabled !== undefined ? { enabled } : {}),
+  test:   (pid, data)  => api.post(`/exec/${pid}/email-inbox/test`, data || {}),
+  sync:   (pid)        => api.post(`/exec/${pid}/email-inbox/sync`),
+};
+
 export default api;

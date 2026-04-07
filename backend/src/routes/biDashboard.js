@@ -619,9 +619,24 @@ router.post('/ai-query', async (req, res) => {
       ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pay.project_id') : ''}`, filterParams);
 
     const [policyStats] = await pool.execute(`
-      SELECT COUNT(*) as total, SUM(pol.status='vencida') as vencidas, SUM(pol.status='por_vencer') as por_vencer
+      SELECT COUNT(*) as total,
+        SUM(pol.status='vencida') as vencidas,
+        SUM(pol.status='por_vencer') as por_vencer,
+        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)) as proximas_90d,
+        SUM(pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL AND pol.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) as proximas_30d
       FROM policies pol JOIN projects p ON pol.project_id=p.id
       ${projectFilter ? projectFilter.replace('WHERE p.id', 'WHERE pol.project_id') : ''}`, filterParams);
+
+    // Detalle de pólizas próximas a vencer (misma lógica que KPI del dashboard)
+    const expiringPoliciesFilterParams = visibleIds !== null && visibleIds.length > 0 ? filterParams : [];
+    const [expiringPolicies] = await pool.execute(`
+      SELECT pol.policy_type, pol.insurer, pol.expiry_date, pol.status,
+        p.name as project_name, p.code as project_code,
+        DATEDIFF(pol.expiry_date, CURDATE()) as days_to_expire
+      FROM policies pol JOIN projects p ON pol.project_id=p.id
+      WHERE pol.status IN ('vigente','por_vencer') AND pol.expiry_date IS NOT NULL
+      ${visibleIds !== null && visibleIds.length > 0 ? `AND pol.project_id IN (${visibleIds.map(() => '?').join(',')})` : ''}
+      ORDER BY pol.expiry_date ASC LIMIT 15`, expiringPoliciesFilterParams);
 
     // Per-project financial summary
     const financialLines = [];
@@ -662,7 +677,13 @@ PAGOS Y FACTURACIÓN:
 - Total recaudado: ${fmt(parseFloat(payStats[0]?.recaudado || 0))} | Total facturado: ${fmt(parseFloat(payStats[0]?.facturado || 0))}
 
 PÓLIZAS:
-- Total: ${policyStats[0]?.total || 0} | Vencidas: ${policyStats[0]?.vencidas || 0} | Por vencer: ${policyStats[0]?.por_vencer || 0}
+- Total: ${policyStats[0]?.total || 0} | Vencidas: ${policyStats[0]?.vencidas || 0} | Estado "por_vencer": ${policyStats[0]?.por_vencer || 0}
+- Próximas a vencer (≤30 días): ${policyStats[0]?.proximas_30d || 0} | Próximas a vencer (≤90 días): ${policyStats[0]?.proximas_90d || 0}
+${expiringPolicies.length > 0
+  ? '- Detalle pólizas con vencimiento próximo:\n' + expiringPolicies.map(pol =>
+      `  · [${pol.project_code}] ${pol.policy_type} — ${pol.insurer || 'N/A'} | Vence: ${pol.expiry_date ? new Date(pol.expiry_date).toLocaleDateString('es-CO') : 'N/A'} | Días restantes: ${pol.days_to_expire ?? 'N/A'} | Estado: ${pol.status}`
+    ).join('\n')
+  : '- Sin pólizas con fecha de vencimiento registrada'}
 
 DETALLE POR PROYECTO:
 ${financialLines.join('\n') || '(sin detalle disponible)'}

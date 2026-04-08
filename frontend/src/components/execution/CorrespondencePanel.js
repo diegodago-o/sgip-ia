@@ -6,11 +6,10 @@ import {
   ChevronRight, Search, Filter, FileText, Clock,
   CheckCircle, Send, Archive, RotateCcw, AlertCircle, PenLine,
   Shield, Loader2, Ban, Activity, Inbox, ArrowUpRight, ArrowDownLeft,
-  Link2, GitBranch, User, Paperclip, UserCheck, Reply, Settings,
+  Link2, GitBranch, User, Paperclip, UserCheck, Reply,
 } from 'lucide-react';
 import CorrSignatureModal from './CorrSignatureModal';
 import FirmaLibreModal from './FirmaLibreModal';
-import EmailInboxConfig from './EmailInboxConfig';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const TYPES = [
@@ -1009,9 +1008,6 @@ export default function CorrespondencePanel({ projectId, perms }) {
   // Thread modal
   const [threadItem, setThreadItem] = useState(null);
 
-  // Email inbox config panel
-  const [showEmailConfig, setShowEmailConfig] = useState(false);
-
   // Firmas libres
   const [freeRequests, setFreeRequests]   = useState([]);
   const [freeLoading, setFreeLoading]     = useState(false);
@@ -1246,15 +1242,6 @@ export default function CorrespondencePanel({ projectId, perms }) {
                   className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-surface-200 bg-white text-surface-500 hover:text-teal-700 hover:border-teal-300 disabled:opacity-50 transition-colors">
                   <RotateCcw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>
-                </button>
-              )}
-              {(perms?.isAdmin || perms?.isGP) && (
-                <button onClick={() => setShowEmailConfig(true)}
-                  title="Configurar bandeja de correo"
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border transition-colors bg-white border-surface-200 text-surface-500 hover:text-teal-700 hover:border-teal-300">
-                  <Mail className="w-4 h-4" />
-                  <span className="hidden sm:inline">Bandeja</span>
-                  <Settings className="w-3.5 h-3.5" />
                 </button>
               )}
               {perms?.canEdit && (
@@ -1550,13 +1537,6 @@ export default function CorrespondencePanel({ projectId, perms }) {
         );
       })()}
 
-      {/* ── Modal de configuración de bandeja de correo ── */}
-      {showEmailConfig && (
-        <EmailInboxConfig
-          projectId={projectId}
-          onClose={() => { setShowEmailConfig(false); loadInboxStatus(); }}
-        />
-      )}
     </div>
   );
 }

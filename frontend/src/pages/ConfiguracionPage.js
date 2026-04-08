@@ -4,10 +4,11 @@ import {
   Loader2, Shield, Server, User, Lock, Settings, ChevronRight,
   AlertTriangle, Info, Zap, Key, Plus, Trash2, Edit2, Copy, RefreshCw,
   ToggleLeft, ToggleRight, Link, ExternalLink, Clock, Bell, LogIn,
-  FolderKanban, X,
+  FolderKanban, X, Inbox,
 } from 'lucide-react';
 import api from '../services/api';
-import { sharepointConnectionsAPI } from '../services/api';
+import { sharepointConnectionsAPI, emailInboxAPI } from '../services/api';
+import EmailInboxConfig from '../components/execution/EmailInboxConfig';
 
 // ─── settingsAPI ─────────────────────────────────────────────────────────────
 const settingsAPI = {
@@ -126,6 +127,7 @@ const NAV = [
   { id: 'ia',              label: 'Motor de IA',            icon: Key          },
   { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn        },
   { id: 'sharepoint',      label: 'SharePoint',             icon: FolderKanban },
+  { id: 'bandeja_correo', label: 'Bandeja de correo',      icon: Inbox        },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1613,6 +1615,99 @@ function SharePointSection() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// BANDEJA DE CORREO SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+function BandejaCorreoSection() {
+  const [projects, setProjects]           = useState([]);
+  const [openProjectId, setOpenProjectId] = useState(null);
+  const [statuses, setStatuses]           = useState({});
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const r = await api.get('/projects');
+      const list = r.data?.data || r.data || [];
+      setProjects(list);
+      return list;
+    } catch { return []; }
+  }, []);
+
+  const loadStatuses = useCallback(async (list) => {
+    const results = await Promise.allSettled(
+      list.map(p => emailInboxAPI.get(p.id).then(r => ({ id: p.id, data: r.data?.data || r.data || {} })))
+    );
+    const map = {};
+    results.forEach(res => {
+      if (res.status === 'fulfilled') {
+        const { id, data } = res.value;
+        map[id] = { enabled: data.enabled, email: data.imap_user || data.email, last_polled_at: data.last_polled_at };
+      }
+    });
+    setStatuses(map);
+  }, []);
+
+  const reload = useCallback(async () => {
+    const list = await loadProjects();
+    if (list.length) await loadStatuses(list);
+  }, [loadProjects, loadStatuses]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      {projects.length === 0 && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
+        </div>
+      )}
+      {projects.map(p => {
+        const st = statuses[p.id];
+        const active = st?.enabled;
+        return (
+          <div key={p.id}
+            className="bg-white border border-surface-200 rounded-xl p-4 flex items-center gap-4 hover:border-brand-300 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
+              <Inbox className="w-5 h-5 text-teal-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-surface-400">{p.code || p.project_code || ''}</span>
+                <span className="text-sm font-semibold text-brand-900 truncate">{p.name}</span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5">
+                {active ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0" />
+                    <span className="text-xs text-teal-700 font-medium">Activa</span>
+                    {st.email && <span className="text-xs text-surface-400">— {st.email}</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-surface-300 flex-shrink-0" />
+                    <span className="text-xs text-surface-400">Sin configurar</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setOpenProjectId(p.id)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-surface-200 bg-white text-surface-600 hover:text-brand-700 hover:border-brand-300 transition-colors flex-shrink-0">
+              Configurar
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
+
+      {openProjectId && (
+        <EmailInboxConfig
+          projectId={openProjectId}
+          onClose={() => { setOpenProjectId(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // Main ConfiguracionPage
 // ══════════════════════════════════════════════════════════════════════════════
 export default function ConfiguracionPage() {
@@ -1625,6 +1720,7 @@ export default function ConfiguracionPage() {
     ia:              { h: 'Motor de IA — Claves del sistema', sub: 'Configura las API Keys de Claude y GPT para todos los usuarios sin que cada uno tenga que ingresar la suya' },
     sso:             { h: 'Inicio de sesión único (SSO)', sub: 'Configura Google y Microsoft 365 para que los usuarios inicien sesión con sus cuentas corporativas' },
     sharepoint:      { h: 'Integración SharePoint',       sub: 'Conecta SGIP-IA con SharePoint Online para gestionar documentos de cada proyecto directamente desde el sistema' },
+    bandeja_correo:  { h: 'Bandeja de correo por proyecto', sub: 'Configura el correo entrante de cada proyecto para importar correspondencia automáticamente' },
   };
 
   return (
@@ -1671,6 +1767,7 @@ export default function ConfiguracionPage() {
         {active === 'ia'             && <AISection />}
         {active === 'sso'            && <SSOSection />}
         {active === 'sharepoint'     && <SharePointSection />}
+        {active === 'bandeja_correo' && <BandejaCorreoSection />}
       </main>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DOMPurify from 'dompurify';
-import api, { correspondenceAPI, corrSignaturesAPI, freeSignaturesAPI, aiAPI } from '../../services/api';
+import api, { correspondenceAPI, corrSignaturesAPI, freeSignaturesAPI, aiAPI, emailInboxAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
@@ -1022,6 +1022,25 @@ export default function CorrespondencePanel({ projectId, perms }) {
   // Delete
   const [deleting, setDeleting] = useState(null);
 
+  // Inbox status (para botón sincronizar rápido)
+  const [inboxEnabled, setInboxEnabled] = useState(false);
+  const [syncing, setSyncing]           = useState(false);
+
+  const loadInboxStatus = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const r = await emailInboxAPI.get(projectId);
+      setInboxEnabled(!!(r.data?.data?.enabled));
+    } catch { setInboxEnabled(false); }
+  }, [projectId]);
+
+  const handleQuickSync = async () => {
+    setSyncing(true);
+    try { await emailInboxAPI.sync(projectId); await load(); }
+    catch { }
+    finally { setSyncing(false); }
+  };
+
   // ── Carga datos ────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -1062,7 +1081,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
     finally { setFreeLoading(false); }
   }, [projectId]);
 
-  useEffect(() => { load(); loadTeam(); }, [load, loadTeam]);
+  useEffect(() => { load(); loadTeam(); loadInboxStatus(); }, [load, loadTeam, loadInboxStatus]);
   useEffect(() => { if (activeTab === 'firmas') loadFreeRequests(); }, [activeTab, loadFreeRequests]);
 
   // ── Delete ─────────────────────────────────────────────────────────────────
@@ -1217,6 +1236,15 @@ export default function CorrespondencePanel({ projectId, perms }) {
               <p className="text-xs text-surface-400 mt-0.5">Comunicaciones recibidas de terceros</p>
             </div>
             <div className="flex items-center gap-2">
+              {/* Sincronizar rápido — visible cuando la bandeja está activa */}
+              {inboxEnabled && (
+                <button onClick={handleQuickSync} disabled={syncing}
+                  title="Sincronizar correos ahora"
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-surface-200 bg-white text-surface-500 hover:text-teal-700 hover:border-teal-300 disabled:opacity-50 transition-colors">
+                  <RotateCcw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+                </button>
+              )}
               {(perms?.isAdmin || perms?.isGP) && (
                 <button onClick={() => setShowEmailConfig(v => !v)}
                   title="Configurar bandeja de correo"

@@ -348,10 +348,13 @@ async function pollGraphApi(inbox) {
   //    - Syncs siguientes: desde el último poll exitoso
   //    Nota: NO usamos delta API porque ignora $filter y traería TODO el historial.
   //    Usamos /messages con $filter=receivedDateTime ge {fecha} — funciona correctamente.
-  // last_polled_at viene de MySQL como string sin zona → añadir 'Z' para forzar UTC
-  const since = inbox.last_polled_at
-    ? new Date(String(inbox.last_polled_at).replace(' ', 'T') + 'Z').toISOString()
-    : new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  // last_polled_at puede llegar como Date object o string MySQL '2026-04-07 20:58:00'
+  const since = (() => {
+    if (!inbox.last_polled_at) return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const v = inbox.last_polled_at;
+    const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + 'Z');
+    return isNaN(d.getTime()) ? new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() : d.toISOString();
+  })();
 
   const SELECT = 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId';
   let url = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages`

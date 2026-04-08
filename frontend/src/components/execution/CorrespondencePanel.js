@@ -935,9 +935,9 @@ function AttachmentPreviewModal({ preview, onClose }) {
   const isOffice  = OFFICE_EXTS.includes(ext);
   const isNoPreview = NO_PREVIEW_EXTS.includes(ext);
 
-  // Para Office usamos Google Docs Viewer con la viewUrl del servidor (token en query param)
-  const googleViewerUrl = preview.viewUrl
-    ? `https://docs.google.com/viewer?url=${encodeURIComponent(preview.viewUrl)}&embedded=true`
+  // Para Office usamos Microsoft Office Online con la viewUrl del servidor (token en query param)
+  const officeViewerUrl = preview.viewUrl
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.viewUrl)}&wdStartOn=1`
     : null;
 
   return (
@@ -948,7 +948,7 @@ function AttachmentPreviewModal({ preview, onClose }) {
           <div className="flex items-center gap-2 min-w-0">
             <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
             <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
-            {isOffice && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Google Docs</span>}
+            {isOffice && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Office Online</span>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {preview.url && (
@@ -968,8 +968,8 @@ function AttachmentPreviewModal({ preview, onClose }) {
           <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
         ) : isPdf ? (
           <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
-        ) : isOffice && googleViewerUrl ? (
-          <iframe src={googleViewerUrl} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
+        ) : isOffice && officeViewerUrl ? (
+          <iframe src={officeViewerUrl} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
         ) : isNoPreview ? (
           <div className="flex flex-col items-center justify-center gap-4 py-14 px-8 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-100 flex items-center justify-center">

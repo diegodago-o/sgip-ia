@@ -994,28 +994,19 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               </span>
             )}
           </div>
-          {/* Adjuntos múltiples */}
+          {/* Adjuntos — solo contador */}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {attachments.slice(0, 3).map(att => (
-                <button key={att.id} onClick={() => openPreview(att)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
-                  title={att.original_name}>
-                  <Paperclip className="w-3 h-3 flex-shrink-0" />
-                  <span className="max-w-[120px] truncate">{att.original_name}</span>
-                </button>
-              ))}
-              {attachments.length > 3 && (
-                <button onClick={() => openPreview(attachments[3])}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-50 border border-teal-200 rounded text-xs text-teal-700 hover:bg-teal-100 transition-colors">
-                  <Paperclip className="w-3 h-3" />+{attachments.length - 3} más
-                </button>
-              )}
+            <div className="mt-2">
+              <button onClick={() => openPreview(attachments[0])}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
+                <Paperclip className="w-3 h-3 flex-shrink-0" />
+                {attachments.length} adjunto{attachments.length !== 1 ? 's' : ''}
+              </button>
             </div>
           )}
-          {/* Adjunto legacy */}
+          {/* Adjunto legacy — contador */}
           {attachments.length === 0 && item.attachment_original_name && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
+            <div className="mt-2">
               <button onClick={() => {
                   api.get(`/exec/${projectId}/correspondence/${item.id}/attachment`, { responseType: 'blob' })
                     .then(r => {
@@ -1024,10 +1015,8 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
                       setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: item.attachment_original_name, mime });
                     }).catch(() => {});
                 }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
-                title={item.attachment_original_name}>
-                <Paperclip className="w-3 h-3 flex-shrink-0" />
-                <span className="max-w-[140px] truncate">{item.attachment_original_name}</span>
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
+                <Paperclip className="w-3 h-3 flex-shrink-0" />1 adjunto
               </button>
             </div>
           )}

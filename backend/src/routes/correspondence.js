@@ -270,6 +270,14 @@ router.post('/:projectId/correspondence',
         'SELECT * FROM correspondence WHERE id = ?', [r.insertId]
       );
 
+      // Si tiene parent, marcar el parent como 'respondido'
+      if (b.parent_id) {
+        await pool.execute(
+          "UPDATE correspondence SET status = 'respondido' WHERE id = ? AND project_id = ?",
+          [Number(b.parent_id), pid]
+        ).catch(() => {});
+      }
+
       // Notificación
       const [projNotify] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
       notifier.notify('correspondence.received', {

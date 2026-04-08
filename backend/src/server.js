@@ -423,6 +423,19 @@ async function runMigrations() {
       INDEX idx_proc_date (processed_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  // ── Backfill: marcar como 'respondido' entradas que ya tienen replies ─────────
+  try {
+    await pool.execute(`
+      UPDATE correspondence c
+      SET status = 'respondido'
+      WHERE direction = 'entrada'
+        AND status NOT IN ('archivado')
+        AND EXISTS (
+          SELECT 1 FROM correspondence ch WHERE ch.parent_id = c.id LIMIT 1
+        )
+    `);
+  } catch (_) {}
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

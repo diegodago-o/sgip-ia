@@ -820,4 +820,41 @@ router.get('/:projectId/correspondence/:id/download',
   }
 );
 
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/attachments — Listar todos los adjuntos
+// ════════════════════════════════════════════════════════════════════════════════
+router.get('/:projectId/correspondence/:id/attachments',
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [rows] = await pool.execute(
+        'SELECT id, original_name, file_size, mime_type, created_at FROM correspondence_attachments WHERE correspondence_id = ?',
+        [req.params.id]
+      );
+      res.json({ data: rows });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al listar adjuntos' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/attachments/:attId — Descargar adjunto específico
+// ════════════════════════════════════════════════════════════════════════════════
+router.get('/:projectId/correspondence/:id/attachments/:attId',
+  [param('projectId').isInt(), param('id').isInt(), param('attId').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[att]] = await pool.execute(
+        'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
+        [req.params.attId, req.params.id]
+      );
+      if (!att) return res.status(404).json({ error: 'Adjunto no encontrado' });
+      const absPath = path.join(__dirname, '..', '..', att.file_path);
+      if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+      res.download(absPath, att.original_name);
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al descargar adjunto' }); }
+  }
+);
+
 module.exports = router;

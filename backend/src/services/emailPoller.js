@@ -118,6 +118,11 @@ async function createEntrada(projectId, data, userId) {
     const n    = String(row.n).padStart(3, '0');
     const code = `${siglas}-ENT-${dateStr}-${n}`;
 
+    // Soporte legacy: primer adjunto en campos de la tabla principal
+    const attachments  = data.attachments || [];
+    const legacyPath   = attachments[0]?.path || data.attachmentPath || null;
+    const legacyName   = attachments[0]?.name || data.attachmentName || null;
+
     const [r] = await pool.execute(`
       INSERT INTO correspondence
         (project_id, direction, consecutive_num, consecutive_code, correspondence_type,
@@ -139,15 +144,28 @@ async function createEntrada(projectId, data, userId) {
       safeText(data.senderEntity, 290),
       safeText(data.senderName,   190),
       safeText(data.notes, 2000),
-      data.attachmentPath   || null,
-      data.attachmentName   || null,
+      legacyPath,
+      legacyName,
       proj.contract_number  || null,
       proj.client_name      || null,
       toSqlDate(proj.start_date),
       'recibido',
       userId || 1,
     ]);
-    return r.insertId;
+
+    const correspondenceId = r.insertId;
+
+    // Insertar todos los adjuntos en la tabla de adjuntos múltiples
+    if (attachments.length > 0) {
+      for (const att of attachments) {
+        await pool.execute(
+          'INSERT INTO correspondence_attachments (correspondence_id, file_path, original_name, file_size, mime_type) VALUES (?, ?, ?, ?, ?)',
+          [correspondenceId, att.path, att.name, att.size || null, att.mimeType || null]
+        ).catch(e => console.warn('[emailPoller] Error guardando adjunto en tabla:', e.message));
+      }
+    }
+
+    return correspondenceId;
   } catch (err) {
     console.error(`[emailPoller] Error creando correspondencia para proyecto ${projectId}:`, err.message);
     return null;
@@ -227,18 +245,23 @@ async function pollImap(inbox) {
           const senderName   = fromAddr?.name    || senderEmail.split('@')[0] || '';
           const senderEntity = senderEmail.split('@')[1]?.replace(/\.(com|co|gov|org|net|edu).*/, '') || senderName;
 
-          // Adjunto principal (primer PDF o Word)
-          let attachmentPath = null, attachmentName = null;
+          // Adjuntos: guardar TODOS los válidos
+          const attachments = [];
           if (parsed.attachments?.length > 0) {
             const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls'];
-            const main = parsed.attachments.find(a => {
+            const validAtts = parsed.attachments.filter(a => {
               const ext = path.extname(a.filename || '').toLowerCase();
               return ALLOWED_EXTS.includes(ext) && a.size < 30 * 1024 * 1024;
-            }) || parsed.attachments[0];
-
-            if (main?.content) {
-              attachmentPath = await saveAttachment(inbox.project_id, main.filename || 'adjunto', main.content);
-              attachmentName = main.filename || 'adjunto';
+            });
+            for (const att of validAtts) {
+              if (att.content) {
+                try {
+                  const filePath = await saveAttachment(inbox.project_id, att.filename || 'adjunto', att.content);
+                  attachments.push({ path: filePath, name: att.filename || 'adjunto', size: att.size, mimeType: att.contentType || null });
+                } catch (saveErr) {
+                  console.warn('[emailPoller] Error guardando adjunto IMAP:', saveErr.message);
+                }
+              }
             }
           }
 
@@ -256,8 +279,7 @@ async function pollImap(inbox) {
             senderEntity:   senderEntity || senderEmail,
             senderName:     senderName,
             notes,
-            attachmentPath,
-            attachmentName,
+            attachments,
           }, null);
 
           if (entradaId) {
@@ -342,8 +364,8 @@ async function pollGraphApi(inbox) {
       const fromName   = msg.from?.emailAddress?.name    || fromEmail.split('@')[0] || '';
       const fromEntity = fromEmail.split('@')[1]?.replace(/\.(com|co|gov|org|net|edu).*/, '') || fromName;
 
-      // Adjuntos
-      let attachmentPath = null, attachmentName = null;
+      // Adjuntos: guardar TODOS los válidos
+      const attachments = [];
       if (msg.hasAttachments) {
         try {
           const attRes = await axios.get(
@@ -351,14 +373,18 @@ async function pollGraphApi(inbox) {
             { headers: graphHeaders }
           );
           const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls'];
-          const main = (attRes.data.value || []).find(a => {
+          const validAtts = (attRes.data.value || []).filter(a => {
             const ext = path.extname(a.name || '').toLowerCase();
             return ALLOWED_EXTS.includes(ext) && a.size < 30 * 1024 * 1024 && a.contentBytes;
           });
-          if (main) {
-            const buf = Buffer.from(main.contentBytes, 'base64');
-            attachmentPath = await saveAttachment(inbox.project_id, main.name, buf);
-            attachmentName = main.name;
+          for (const att of validAtts) {
+            try {
+              const buf = Buffer.from(att.contentBytes, 'base64');
+              const filePath = await saveAttachment(inbox.project_id, att.name, buf);
+              attachments.push({ path: filePath, name: att.name, size: att.size, mimeType: att['@odata.mediaContentType'] || null });
+            } catch (saveErr) {
+              console.warn('[emailPoller] Error guardando adjunto Graph:', saveErr.message);
+            }
           }
         } catch (attErr) {
           console.warn(`[emailPoller] Error descargando adjuntos Graph:`, attErr.message);
@@ -377,8 +403,7 @@ async function pollGraphApi(inbox) {
         senderEntity: fromEntity || fromEmail,
         senderName:   fromName,
         notes,
-        attachmentPath,
-        attachmentName,
+        attachments,
       }, null);
 
       if (entradaId) {

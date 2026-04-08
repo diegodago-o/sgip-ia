@@ -804,7 +804,15 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
 // ─── Card de item ENTRADA ─────────────────────────────────────────────────────
 function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onAssign, deleting }) {
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
-  const token = localStorage.getItem('sgip_token') || '';
+  const [attachments, setAttachments] = useState([]);
+
+  useEffect(() => {
+    if (!item.id) return;
+    correspondenceAPI.listAttachments(projectId, item.id)
+      .then(r => setAttachments(r.data?.data || []))
+      .catch(() => setAttachments([]));
+  }, [item.id, projectId]);
+
   return (
     <div className="group bg-white border border-surface-100 rounded-xl hover:border-teal-200 hover:shadow-sm transition-all">
       <div className="flex items-start gap-4 p-4">
@@ -835,16 +843,35 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               </span>
             )}
           </div>
+          {/* Adjuntos múltiples */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {attachments.map(att => (
+                <a key={att.id}
+                  href={correspondenceAPI.downloadAttachmentByIdUrl(projectId, item.id, att.id)}
+                  target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
+                  title={att.original_name}>
+                  <Paperclip className="w-3 h-3 flex-shrink-0" />
+                  <span className="max-w-[140px] truncate">{att.original_name}</span>
+                </a>
+              ))}
+            </div>
+          )}
+          {/* Adjunto legacy (sin entrada en tabla de adjuntos) */}
+          {attachments.length === 0 && item.attachment_original_name && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              <a href={`${process.env.REACT_APP_API_URL || 'http://localhost:4000/api'}/exec/${projectId}/correspondence/${item.id}/attachment`}
+                target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
+                title={item.attachment_original_name}>
+                <Paperclip className="w-3 h-3 flex-shrink-0" />
+                <span className="max-w-[140px] truncate">{item.attachment_original_name}</span>
+              </a>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          {/* Adjunto */}
-          {item.attachment_original_name && (
-            <a href={`${process.env.REACT_APP_API_URL || 'http://localhost:4000/api'}/exec/${projectId}/correspondence/${item.id}/attachment`}
-              target="_blank" rel="noreferrer"
-              className="p-1.5 hover:bg-surface-100 rounded-lg transition-colors text-surface-400 hover:text-brand-600" title="Descargar adjunto">
-              <Paperclip className="w-4 h-4" />
-            </a>
-          )}
           {/* Hilo */}
           {(hasThread) && (
             <button onClick={() => onThread(item)} title="Ver hilo"

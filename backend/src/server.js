@@ -368,6 +368,21 @@ async function runMigrations() {
   try { await pool.execute('ALTER TABLE correspondence ADD CONSTRAINT fk_corr_parent FOREIGN KEY (parent_id) REFERENCES correspondence(id) ON DELETE SET NULL'); } catch (_) {}
   try { await pool.execute('ALTER TABLE correspondence ADD CONSTRAINT fk_corr_assigned FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL'); } catch (_) {}
 
+  // ── Adjuntos múltiples de correspondencia ────────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS correspondence_attachments (
+      id                INT AUTO_INCREMENT PRIMARY KEY,
+      correspondence_id INT NOT NULL,
+      file_path         VARCHAR(500) NOT NULL,
+      original_name     VARCHAR(255) NOT NULL,
+      file_size         INT NULL,
+      mime_type         VARCHAR(100) NULL,
+      created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (correspondence_id) REFERENCES correspondence(id) ON DELETE CASCADE,
+      INDEX idx_corr_att (correspondence_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   // ── Email inbox por proyecto ─────────────────────────────────────
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS project_email_inbox (

@@ -172,11 +172,25 @@ async function createEntrada(projectId, data, userId) {
   }
 }
 
-/** Actualiza estado del inbox en BD */
+/** Actualiza estado del inbox en BD.
+ *  last_polled_at se actualiza con UTC_TIMESTAMP() de MySQL para evitar
+ *  desfases de zona horaria entre Node.js (toISOString=UTC) y MySQL NOW(). */
 async function updateInboxState(inboxId, updates) {
-  const sets   = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  const values = [...Object.values(updates), inboxId];
-  await pool.execute(`UPDATE project_email_inbox SET ${sets} WHERE id = ?`, values).catch(() => {});
+  const otherKeys = Object.keys(updates).filter(k => k !== 'last_polled_at');
+  const hasPolledAt = 'last_polled_at' in updates;
+
+  let sql, values;
+  if (otherKeys.length > 0 && hasPolledAt) {
+    sql    = `UPDATE project_email_inbox SET ${otherKeys.map(k => `${k} = ?`).join(', ')}, last_polled_at = UTC_TIMESTAMP() WHERE id = ?`;
+    values = [...otherKeys.map(k => updates[k]), inboxId];
+  } else if (hasPolledAt) {
+    sql    = `UPDATE project_email_inbox SET last_polled_at = UTC_TIMESTAMP() WHERE id = ?`;
+    values = [inboxId];
+  } else {
+    sql    = `UPDATE project_email_inbox SET ${otherKeys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`;
+    values = [...otherKeys.map(k => updates[k]), inboxId];
+  }
+  await pool.execute(sql, values).catch(() => {});
 }
 
 // ─── IMAP polling (imap, gmail, m365_basic) ───────────────────────────────────
@@ -334,8 +348,9 @@ async function pollGraphApi(inbox) {
   //    - Syncs siguientes: desde el último poll exitoso
   //    Nota: NO usamos delta API porque ignora $filter y traería TODO el historial.
   //    Usamos /messages con $filter=receivedDateTime ge {fecha} — funciona correctamente.
+  // last_polled_at viene de MySQL como string sin zona → añadir 'Z' para forzar UTC
   const since = inbox.last_polled_at
-    ? new Date(inbox.last_polled_at).toISOString()
+    ? new Date(String(inbox.last_polled_at).replace(' ', 'T') + 'Z').toISOString()
     : new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
   const SELECT = 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId';
@@ -453,7 +468,7 @@ async function runEmailPolling() {
       WHERE enabled = TRUE
         AND (
           last_polled_at IS NULL
-          OR last_polled_at < DATE_SUB(NOW(), INTERVAL poll_interval_min MINUTE)
+          OR last_polled_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL poll_interval_min MINUTE)
         )
     `);
     if (inboxes.length === 0) return;

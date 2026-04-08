@@ -36,6 +36,7 @@ const committeeCommitmentsRoutes = require('./routes/committeeCommitments');
 const biDashboardRoutes = require('./routes/biDashboard');
 const indicatorsRoutes = require('./routes/indicators');
 const correspondenceRoutes = require('./routes/correspondence');
+const emailInboxRoutes     = require('./routes/emailInbox');
 const settingsRoutes       = require('./routes/settings');
 const apiKeysRoutes        = require('./routes/apiKeys');
 const notificationsRoutes  = require('./routes/notifications');
@@ -46,6 +47,7 @@ const oauthRoutes          = require('./routes/oauth');
 const sharepointRoutes     = require('./routes/sharepoint');
 const sharepointConnRoutes = require('./routes/sharepoint-connections');
 const { startScheduler }   = require('./jobs/notificationScheduler');
+const { runEmailPolling }  = require('./services/emailPoller');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -170,6 +172,7 @@ app.use('/api/exec', minutesRoutes);
 app.use('/api/exec', changesRoutes);
 app.use('/api/exec', risksRoutes);
 app.use('/api/exec', correspondenceRoutes);
+app.use('/api/exec', emailInboxRoutes);
 app.use('/api/close', closureRoutes);
 app.use('/api/close', liquidationRoutes);
 app.use('/api/close', lessonsRoutes);
@@ -338,6 +341,47 @@ async function runMigrations() {
     'ALTER TABLE projects ADD COLUMN correspondence_sender_name VARCHAR(255) NULL DEFAULT NULL');
   await run('projects.correspondence_logo',
     'ALTER TABLE projects ADD COLUMN correspondence_logo MEDIUMTEXT NULL DEFAULT NULL');
+
+  // ── Email inbox por proyecto ─────────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS project_email_inbox (
+      id                  INT AUTO_INCREMENT PRIMARY KEY,
+      project_id          INT NOT NULL UNIQUE,
+      provider            ENUM('imap','gmail','m365_basic','m365_modern') NOT NULL DEFAULT 'imap',
+      email               VARCHAR(255) NOT NULL,
+      imap_host           VARCHAR(255) NULL,
+      imap_port           INT NULL DEFAULT 993,
+      imap_use_ssl        TINYINT(1) DEFAULT 1,
+      imap_folder         VARCHAR(100) DEFAULT 'INBOX',
+      username            VARCHAR(255) NULL,
+      password_enc        TEXT NULL,
+      tenant_id           VARCHAR(200) NULL,
+      client_id           VARCHAR(200) NULL,
+      client_secret_enc   TEXT NULL,
+      poll_interval_min   INT DEFAULT 15,
+      enabled             TINYINT(1) DEFAULT 0,
+      last_polled_at      DATETIME NULL,
+      last_uid            BIGINT DEFAULT 0,
+      graph_delta_link    TEXT NULL,
+      emails_imported     INT DEFAULT 0,
+      last_error          TEXT NULL,
+      created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS email_inbox_processed (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      project_id    INT NOT NULL,
+      message_id    VARCHAR(220) NOT NULL,
+      processed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_project_msg (project_id, message_id),
+      INDEX idx_proc_project (project_id),
+      INDEX idx_proc_date (processed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));
@@ -347,6 +391,16 @@ runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));
 // ══════════════════════════════════════════════
 // Start notification scheduler
 startScheduler();
+
+// ── Email inbox polling — revisa cada 1 min si hay bandejas vencidas ──
+setTimeout(async () => {
+  console.log('[emailPoller] Primera revisión de bandejas...');
+  await runEmailPolling().catch(e => console.error('[emailPoller]', e.message));
+}, 45_000); // 45s después del arranque
+
+setInterval(async () => {
+  await runEmailPolling().catch(e => console.error('[emailPoller]', e.message));
+}, 60 * 1000); // cada 1 minuto (la frecuencia real la controla poll_interval_min por inbox)
 
 const server = app.listen(PORT, () => {
   console.log(`

@@ -27,16 +27,18 @@
     "express-validator": "^7.2.1",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
+    "imapflow": "^1.2.18",
     "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.9.6",
     "mime-types": "^2.1.35",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.12.0",
     "nodemailer": "^8.0.2",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
-    "xlsx": "^0.18.5",
     "pdfkit": "^0.18.0",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

@@ -363,6 +363,8 @@ export const correspondenceAPI = {
     api.get(`/exec/${pid}/correspondence/${id}/attachments/${attId}`, { responseType: 'blob' }),
   attachmentViewUrl: (pid, id, attId) =>
     `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachments/${attId}/view`,
+  deleteAttachment: (pid, id, attId) =>
+    api.delete(`/exec/${pid}/correspondence/${id}/attachments/${attId}`),
   aiGenerate: (pid, data) => api.post(`/exec/${pid}/correspondence/ai-generate`, data),
 };
 

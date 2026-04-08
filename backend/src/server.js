@@ -154,6 +154,39 @@ app.use((req, _res, next) => {
 });
 
 // ══════════════════════════════════════════════
+// RUTA PÚBLICA — adjunto inline para Office Online Viewer
+// Registrada ANTES de cualquier router autenticado para que
+// los servidores de Microsoft puedan descargar el archivo sin JWT.
+// ══════════════════════════════════════════════
+{
+  const _pool = require('./config/database');
+  const _fs   = require('fs');
+  const _path = require('path');
+  const MIME_MAP = { '.pdf':'application/pdf', '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc':'application/msword', '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls':'application/vnd.ms-excel', '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.ppt':'application/vnd.ms-powerpoint', '.odt':'application/vnd.oasis.opendocument.text', '.ods':'application/vnd.oasis.opendocument.spreadsheet', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.svg':'image/svg+xml', '.csv':'text/csv' };
+  app.get('/api/exec/:projectId/correspondence/:corrId/attachments/:attId/view', async (req, res) => {
+    try {
+      const [[att]] = await _pool.execute(
+        'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
+        [req.params.attId, req.params.corrId]
+      );
+      if (!att) return res.status(404).send('Adjunto no encontrado');
+      const absPath = _path.join(__dirname, '..', 'uploads', ...att.file_path.replace(/^uploads[\\/]/, '').split(/[\\/]/));
+      if (!_fs.existsSync(absPath)) return res.status(404).send('Archivo no encontrado en disco');
+      const ext  = _path.extname(att.original_name || '').toLowerCase();
+      const mime = att.mime_type || MIME_MAP[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.original_name)}`);
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      _fs.createReadStream(absPath).pipe(res);
+    } catch (err) {
+      console.error('[view-attachment]', err.message);
+      res.status(500).send('Error interno');
+    }
+  });
+}
+
+// ══════════════════════════════════════════════
 // ROUTES
 // ══════════════════════════════════════════════
 app.use('/api/auth', oauthRoutes);         // SSO OAuth redirects (no rate limit — they're browser redirects)

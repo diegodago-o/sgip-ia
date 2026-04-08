@@ -10,34 +10,6 @@ const { resolveAIConfig } = require('../services/aiConfig');
 
 const router = express.Router();
 
-// ── Ruta pública: sirve adjunto inline para Office Online Viewer ──────────────
-// DEBE registrarse ANTES de router.use(authMiddleware) para que no requiera auth.
-// Office Online descarga el archivo desde sus servidores y no puede enviar JWT.
-router.get('/:projectId/correspondence/:id/attachments/:attId/view', async (req, res) => {
-  try {
-    const [[att]] = await pool.execute(
-      'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
-      [req.params.attId, req.params.id]
-    );
-    if (!att) return res.status(404).send('Adjunto no encontrado');
-    const absPath = path.join(__dirname, '..', '..', att.file_path);
-    if (!fs.existsSync(absPath)) return res.status(404).send('Archivo no encontrado');
-
-    const ext     = path.extname(att.original_name || '').toLowerCase();
-    const mimeMap = { '.pdf':'application/pdf', '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc':'application/msword', '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls':'application/vnd.ms-excel', '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.ppt':'application/vnd.ms-powerpoint', '.odt':'application/vnd.oasis.opendocument.text', '.ods':'application/vnd.oasis.opendocument.spreadsheet', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.csv':'text/csv' };
-    const mime    = att.mime_type || mimeMap[ext] || 'application/octet-stream';
-
-    res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.original_name)}`);
-    res.setHeader('Cache-Control', 'public, max-age=300');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    fs.createReadStream(absPath).pipe(res);
-  } catch (err) {
-    console.error('[view attachment]', err.message);
-    res.status(500).send('Error al servir archivo');
-  }
-});
-
 router.use(authMiddleware);
 
 router.param('projectId', async (req, res, next, val) => {
@@ -917,6 +889,30 @@ router.get('/:projectId/correspondence/:id/attachments/:attId',
       if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Archivo no encontrado' });
       res.download(absPath, att.original_name);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al descargar adjunto' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// DELETE /:projectId/correspondence/:id/attachments/:attId — Eliminar adjunto
+// ════════════════════════════════════════════════════════════════════════════════
+router.delete('/:projectId/correspondence/:id/attachments/:attId',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt(), param('attId').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[att]] = await pool.execute(
+        'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
+        [req.params.attId, req.params.id]
+      );
+      if (!att) return res.status(404).json({ error: 'Adjunto no encontrado' });
+      // Eliminar archivo físico
+      const absPath = path.join(__dirname, '..', '..', att.file_path);
+      if (fs.existsSync(absPath)) { try { fs.unlinkSync(absPath); } catch (_) {} }
+      // Eliminar registro
+      await pool.execute('DELETE FROM correspondence_attachments WHERE id = ?', [att.id]);
+      res.json({ message: 'Adjunto eliminado' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al eliminar adjunto' }); }
   }
 );
 

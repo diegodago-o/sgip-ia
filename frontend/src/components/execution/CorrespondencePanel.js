@@ -600,6 +600,14 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
                       className="text-brand-600 hover:underline text-xs flex-shrink-0">
                       Ver
                     </button>
+                    <button onClick={async () => {
+                        if (!window.confirm(`¿Eliminar "${att.original_name}"?`)) return;
+                        await correspondenceAPI.deleteAttachment(projectId, initial.id, att.id).catch(() => {});
+                        setAllAtts(prev => prev.filter(a => a.id !== att.id));
+                      }}
+                      className="text-red-400 hover:text-red-600 flex-shrink-0" title="Eliminar adjunto">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>

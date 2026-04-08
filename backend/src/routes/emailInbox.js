@@ -209,16 +209,17 @@ router.post('/:projectId/email-inbox/test',
   [param('projectId').isInt()],
   async (req, res) => {
     if (!validate(req, res)) return;
+    const b = req.body;
+    let provider = b.provider;
     try {
       const pid = req.params.projectId;
-      const b   = req.body;
 
       // Recuperar config guardada como base; el request puede sobreescribir
       const [[saved]] = await pool.execute(
         'SELECT * FROM project_email_inbox WHERE project_id = ?', [pid]
       );
 
-      const provider = b.provider || saved?.provider;
+      provider       = b.provider || saved?.provider;
       const email    = b.email    || saved?.email;
 
       if (provider === 'm365_modern') {

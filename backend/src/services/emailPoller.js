@@ -249,7 +249,7 @@ async function pollImap(inbox) {
             bodyText ? `\n${bodyText}` : '',
           ].filter(Boolean).join('');
 
-          await createEntrada(inbox.project_id, {
+          const entradaId = await createEntrada(inbox.project_id, {
             type:           'radicado',
             subject:        parsed.subject || '(Sin asunto)',
             date:           parsed.date,
@@ -260,9 +260,11 @@ async function pollImap(inbox) {
             attachmentName,
           }, null);
 
-          await markProcessed(inbox.project_id, messageId);
+          if (entradaId) {
+            await markProcessed(inbox.project_id, messageId);
+            imported++;
+          }
           maxUid = Math.max(maxUid, uid);
-          imported++;
         } catch (msgErr) {
           console.warn(`[emailPoller] Error procesando UID ${uid}:`, msgErr.message);
         }
@@ -368,7 +370,7 @@ async function pollGraphApi(inbox) {
         msg.bodyPreview ? `\n${msg.bodyPreview.slice(0, 500)}` : '',
       ].filter(Boolean).join('');
 
-      await createEntrada(inbox.project_id, {
+      const entradaId = await createEntrada(inbox.project_id, {
         type:         'radicado',
         subject:      msg.subject || '(Sin asunto)',
         date:         msg.receivedDateTime,
@@ -379,8 +381,10 @@ async function pollGraphApi(inbox) {
         attachmentName,
       }, null);
 
-      await markProcessed(inbox.project_id, messageId);
-      imported++;
+      if (entradaId) {
+        await markProcessed(inbox.project_id, messageId);
+        imported++;
+      }
     }
   }
 

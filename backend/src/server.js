@@ -342,6 +342,32 @@ async function runMigrations() {
   await run('projects.correspondence_logo',
     'ALTER TABLE projects ADD COLUMN correspondence_logo MEDIUMTEXT NULL DEFAULT NULL');
 
+  // ── Correspondencia v2: Entrada/Salida ──────────────────────────────
+  await run('correspondence.direction',
+    "ALTER TABLE correspondence ADD COLUMN direction ENUM('salida','entrada') NOT NULL DEFAULT 'salida' AFTER project_id");
+  await run('correspondence.consecutive_num',
+    'ALTER TABLE correspondence ADD COLUMN consecutive_num INT NULL AFTER direction');
+  await run('correspondence.consecutive_code',
+    'ALTER TABLE correspondence ADD COLUMN consecutive_code VARCHAR(60) NULL AFTER consecutive_num');
+  await run('correspondence.radicado_entrada',
+    'ALTER TABLE correspondence ADD COLUMN radicado_entrada VARCHAR(100) NULL');
+  await run('correspondence.sender_entity_external',
+    'ALTER TABLE correspondence ADD COLUMN sender_entity_external VARCHAR(255) NULL');
+  await run('correspondence.sender_name_external',
+    'ALTER TABLE correspondence ADD COLUMN sender_name_external VARCHAR(255) NULL');
+  await run('correspondence.received_date',
+    'ALTER TABLE correspondence ADD COLUMN received_date DATE NULL');
+  await run('correspondence.attachment_path',
+    'ALTER TABLE correspondence ADD COLUMN attachment_path VARCHAR(500) NULL');
+  await run('correspondence.attachment_original_name',
+    'ALTER TABLE correspondence ADD COLUMN attachment_original_name VARCHAR(255) NULL');
+  await run('correspondence.assigned_to',
+    'ALTER TABLE correspondence ADD COLUMN assigned_to INT NULL');
+  await run('correspondence.parent_id',
+    'ALTER TABLE correspondence ADD COLUMN parent_id INT NULL');
+  try { await pool.execute('ALTER TABLE correspondence ADD CONSTRAINT fk_corr_parent FOREIGN KEY (parent_id) REFERENCES correspondence(id) ON DELETE SET NULL'); } catch (_) {}
+  try { await pool.execute('ALTER TABLE correspondence ADD CONSTRAINT fk_corr_assigned FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL'); } catch (_) {}
+
   // ── Email inbox por proyecto ─────────────────────────────────────
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS project_email_inbox (

@@ -1023,15 +1023,18 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const [deleting, setDeleting] = useState(null);
 
   // Inbox status (para botón sincronizar rápido)
-  const [inboxEnabled, setInboxEnabled] = useState(false);
-  const [syncing, setSyncing]           = useState(false);
+  const [inboxEnabled, setInboxEnabled]   = useState(false);
+  const [inboxLastSync, setInboxLastSync] = useState(null);
+  const [syncing, setSyncing]             = useState(false);
 
   const loadInboxStatus = useCallback(async () => {
     if (!projectId) return;
     try {
       const r = await emailInboxAPI.get(projectId);
-      setInboxEnabled(!!(r.data?.data?.enabled));
-    } catch { setInboxEnabled(false); }
+      const d = r.data?.data;
+      setInboxEnabled(!!(d?.enabled));
+      setInboxLastSync(d?.last_polled_at || null);
+    } catch { setInboxEnabled(false); setInboxLastSync(null); }
   }, [projectId]);
 
   const handleQuickSync = async () => {
@@ -1246,12 +1249,9 @@ export default function CorrespondencePanel({ projectId, perms }) {
                 </button>
               )}
               {(perms?.isAdmin || perms?.isGP) && (
-                <button onClick={() => setShowEmailConfig(v => !v)}
+                <button onClick={() => setShowEmailConfig(true)}
                   title="Configurar bandeja de correo"
-                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border transition-colors
-                    ${showEmailConfig
-                      ? 'bg-teal-50 border-teal-300 text-teal-700'
-                      : 'bg-white border-surface-200 text-surface-500 hover:text-teal-700 hover:border-teal-300'}`}>
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border transition-colors bg-white border-surface-200 text-surface-500 hover:text-teal-700 hover:border-teal-300">
                   <Mail className="w-4 h-4" />
                   <span className="hidden sm:inline">Bandeja</span>
                   <Settings className="w-3.5 h-3.5" />
@@ -1266,10 +1266,16 @@ export default function CorrespondencePanel({ projectId, perms }) {
             </div>
           </div>
 
-          {/* ── Configuración de bandeja de correo ── */}
-          {showEmailConfig && (
-            <div className="rounded-2xl border border-teal-200 bg-teal-50/40 overflow-hidden">
-              <EmailInboxConfig projectId={projectId} />
+          {/* ── Status bar compacto cuando la bandeja está activa ── */}
+          {inboxEnabled && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-teal-50 border border-teal-100 rounded-xl text-sm">
+              <span className="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0 animate-pulse" />
+              <span className="text-teal-700 font-medium">Bandeja activa</span>
+              {inboxLastSync && (
+                <span className="text-teal-500 text-xs">
+                  · Última sincronización: {new Date(inboxLastSync).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
             </div>
           )}
 
@@ -1543,6 +1549,14 @@ export default function CorrespondencePanel({ projectId, perms }) {
           </div>
         );
       })()}
+
+      {/* ── Modal de configuración de bandeja de correo ── */}
+      {showEmailConfig && (
+        <EmailInboxConfig
+          projectId={projectId}
+          onClose={() => { setShowEmailConfig(false); loadInboxStatus(); }}
+        />
+      )}
     </div>
   );
 }

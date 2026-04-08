@@ -576,6 +576,10 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
             </>
           )}
 
+          {/* Observaciones */}
+          <FieldTextarea form={form} set={set} label="Observaciones / Cuerpo del correo" field="notes" rows={5}
+            placeholder="Contexto, urgencia, acciones requeridas o cuerpo del correo recibido..." />
+
           {/* Adjuntos */}
           <div className="flex items-center gap-2">
             <div className="flex-1 h-px bg-surface-100" />
@@ -629,9 +633,6 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
             )}
           </div>
 
-          {/* Observaciones */}
-          <FieldTextarea form={form} set={set} label="Observaciones internas" field="notes" rows={2}
-            placeholder="Contexto, urgencia, acciones requeridas..." />
         </div>
 
         {/* Footer */}
@@ -996,14 +997,20 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           {/* Adjuntos múltiples */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {attachments.map(att => (
+              {attachments.slice(0, 3).map(att => (
                 <button key={att.id} onClick={() => openPreview(att)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
                   title={att.original_name}>
                   <Paperclip className="w-3 h-3 flex-shrink-0" />
-                  <span className="max-w-[140px] truncate">{att.original_name}</span>
+                  <span className="max-w-[120px] truncate">{att.original_name}</span>
                 </button>
               ))}
+              {attachments.length > 3 && (
+                <button onClick={() => openPreview(attachments[3])}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-50 border border-teal-200 rounded text-xs text-teal-700 hover:bg-teal-100 transition-colors">
+                  <Paperclip className="w-3 h-3" />+{attachments.length - 3} más
+                </button>
+              )}
             </div>
           )}
           {/* Adjunto legacy */}

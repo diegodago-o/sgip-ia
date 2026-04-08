@@ -143,7 +143,7 @@ async function createEntrada(projectId, data, userId) {
       toSqlDate(new Date()),
       safeText(data.senderEntity, 290),
       safeText(data.senderName,   190),
-      safeText(data.notes, 2000),
+      safeText(data.notes, 60000),
       legacyPath,
       legacyName,
       proj.contract_number  || null,
@@ -279,8 +279,9 @@ async function pollImap(inbox) {
             }
           }
 
-          // Notas: extracto del texto del correo
-          const bodyText = (parsed.text || '').slice(0, 1000).trim();
+          // Notas: cuerpo completo del correo (texto plano preferido, HTML como fallback)
+          const rawBody = parsed.text || parsed.textAsHtml || '';
+          const bodyText = rawBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
           const notes = [
             `📧 De: ${senderName} <${senderEmail}>`,
             bodyText ? `\n${bodyText}` : '',
@@ -356,7 +357,7 @@ async function pollGraphApi(inbox) {
     return isNaN(d.getTime()) ? new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() : d.toISOString();
   })();
 
-  const SELECT = 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId';
+  const SELECT = 'id,subject,from,receivedDateTime,body,hasAttachments,internetMessageId';
   let url = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages`
           + `?$filter=receivedDateTime ge ${since}`
           + `&$orderby=receivedDateTime asc`
@@ -409,9 +410,13 @@ async function pollGraphApi(inbox) {
         }
       }
 
+      const rawBody = msg.body?.content || '';
+      const bodyText = msg.body?.contentType === 'html'
+        ? rawBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+        : rawBody.trim();
       const notes = [
         `📧 De: ${fromName} <${fromEmail}>`,
-        msg.bodyPreview ? `\n${msg.bodyPreview.slice(0, 500)}` : '',
+        bodyText ? `\n${bodyText}` : '',
       ].filter(Boolean).join('');
 
       const entradaId = await createEntrada(inbox.project_id, {

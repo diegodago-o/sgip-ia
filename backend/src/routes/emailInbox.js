@@ -245,10 +245,29 @@ router.post('/:projectId/email-inbox/test',
         const token = tokenRes.data.access_token;
 
         // Verificar acceso al buzón
-        const mailRes = await axios.get(
-          `https://graph.microsoft.com/v1.0/users/${email}/mailFolders/inbox`,
-          { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 }
-        );
+        let mailRes;
+        try {
+          mailRes = await axios.get(
+            `https://graph.microsoft.com/v1.0/users/${email}/mailFolders/inbox`,
+            { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 }
+          );
+        } catch (graphErr) {
+          const status = graphErr.response?.status;
+          const graphMsg = graphErr.response?.data?.error?.message || graphErr.message;
+          if (status === 403) {
+            return res.status(400).json({
+              ok: false,
+              error: `Permiso denegado (403). El App registration no tiene el permiso Mail.Read con admin consent.\n\nPasos en Azure Portal:\n1. App registrations → tu app → API permissions\n2. Add a permission → Microsoft Graph → Application permissions\n3. Buscar y agregar: Mail.Read\n4. Click "Grant admin consent for [tenant]" ✓\n\nNota: el token se obtuvo correctamente — solo falta el permiso.`,
+            });
+          }
+          if (status === 404) {
+            return res.status(400).json({
+              ok: false,
+              error: `Buzón no encontrado (404). Verifica que el email "${email}" exista en el tenant y que el App registration tenga acceso a él.`,
+            });
+          }
+          throw graphErr;
+        }
         const totalItems = mailRes.data.totalItemCount || 0;
         res.json({ ok: true, message: `Conexión exitosa. Buzón accesible (${totalItems} mensajes en bandeja).` });
 

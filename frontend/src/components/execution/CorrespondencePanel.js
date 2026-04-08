@@ -365,11 +365,30 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
     } : {}),
     ...(replyTo ? { parent_id: replyTo.id } : {}),
   }));
-  const [file, setFile]       = useState(null);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState('');
+  const [file, setFile]           = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
+  const [allAtts, setAllAtts]     = useState([]);
+  const [preview, setPreview]     = useState(null); // { url, name }
   const isEdit = !!initial?.id;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    if (isEdit && initial?.id) {
+      correspondenceAPI.listAttachments(projectId, initial.id)
+        .then(r => setAllAtts(r.data?.data || []))
+        .catch(() => setAllAtts([]));
+    }
+  }, [isEdit, initial?.id, projectId]);
+
+  const openPreview = (pid, cid, att) => {
+    correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
+      .then(r => {
+        const mime = att.mime_type || (att.original_name?.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+        const blob = new Blob([r.data], { type: mime });
+        setPreview({ url: URL.createObjectURL(blob), name: att.original_name, mime });
+      }).catch(() => {});
+  };
 
   const handleSave = async () => {
     if (!form.subject.trim())   { setError('El asunto es requerido'); return; }
@@ -485,27 +504,46 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
             </>
           )}
 
-          {/* Adjunto */}
+          {/* Adjuntos */}
           <div className="flex items-center gap-2">
             <div className="flex-1 h-px bg-surface-100" />
             <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Documento adjunto</span>
             <div className="flex-1 h-px bg-surface-100" />
           </div>
           <div className="space-y-2">
-            {initial?.attachment_original_name && !file && (
+            {/* Adjuntos múltiples (tabla correspondence_attachments) */}
+            {allAtts.length > 0 && (
+              <div className="space-y-1">
+                {allAtts.map(att => (
+                  <div key={att.id} className="flex items-center gap-2 p-2 bg-surface-50 border border-surface-200 rounded-lg text-sm">
+                    <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
+                    <span className="text-surface-600 truncate flex-1">{att.original_name}</span>
+                    <button onClick={() => openPreview(projectId, initial.id, att)}
+                      className="text-brand-600 hover:underline text-xs flex-shrink-0">
+                      Ver
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Adjunto legacy cuando no hay tabla */}
+            {allAtts.length === 0 && initial?.attachment_original_name && !file && (
               <div className="flex items-center gap-2 p-2 bg-surface-50 border border-surface-200 rounded-lg text-sm">
                 <Paperclip className="w-4 h-4 text-surface-400" />
-                <span className="text-surface-600">{initial.attachment_original_name}</span>
-                <a href={correspondenceAPI.downloadAttachmentUrl(projectId, initial.id)}
-                  className="ml-auto text-brand-600 hover:underline text-xs" target="_blank" rel="noreferrer">
-                  Descargar
-                </a>
+                <span className="text-surface-600 truncate flex-1">{initial.attachment_original_name}</span>
+                <button onClick={() => {
+                  api.get(`/exec/${projectId}/correspondence/${initial.id}/attachment`, { responseType: 'blob' })
+                    .then(r => {
+                      const mime = initial.attachment_original_name?.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream';
+                      setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: initial.attachment_original_name, mime });
+                    }).catch(() => {});
+                }} className="text-brand-600 hover:underline text-xs flex-shrink-0">Ver</button>
               </div>
             )}
             <label className="flex items-center gap-2 px-4 py-2.5 border-2 border-dashed border-surface-200 rounded-xl cursor-pointer hover:border-brand-300 hover:bg-brand-50 transition-colors">
               <Paperclip className="w-4 h-4 text-surface-400" />
               <span className="text-sm text-surface-500">
-                {file ? file.name : (initial?.attachment_original_name ? 'Reemplazar adjunto...' : 'Adjuntar documento recibido (PDF, Word, imagen)')}
+                {file ? file.name : (isEdit ? 'Agregar adjunto...' : 'Adjuntar documento recibido (PDF, Word, imagen)')}
               </span>
               <input type="file" className="hidden" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff,.xlsx"
                 onChange={e => setFile(e.target.files[0] || null)} />
@@ -535,6 +573,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
           </button>
         </div>
       </div>
+      <AttachmentPreviewModal preview={preview} onClose={() => { URL.revokeObjectURL(preview?.url); setPreview(null); }} />
     </div>
   );
 }
@@ -802,9 +841,37 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
 }
 
 // ─── Card de item ENTRADA ─────────────────────────────────────────────────────
+function AttachmentPreviewModal({ preview, onClose }) {
+  if (!preview) return null;
+  return (
+    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-4xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface-100 flex-shrink-0">
+          <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
+          <div className="flex items-center gap-2">
+            <a href={preview.url} download={preview.name}
+              className="text-xs text-brand-600 hover:underline flex items-center gap-1">
+              <Download className="w-3.5 h-3.5" />Descargar
+            </a>
+            <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg">
+              <X className="w-4 h-4 text-surface-500" />
+            </button>
+          </div>
+        </div>
+        {preview.mime?.startsWith('image/') ? (
+          <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
+        ) : (
+          <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '70vh' }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onAssign, deleting }) {
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
   const [attachments, setAttachments] = useState([]);
+  const [preview, setPreview]         = useState(null);
 
   useEffect(() => {
     if (!item.id) return;
@@ -812,6 +879,17 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
       .then(r => setAttachments(r.data?.data || []))
       .catch(() => setAttachments([]));
   }, [item.id, projectId]);
+
+  const openPreview = (att) => {
+    correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+      .then(r => {
+        const ext  = (att.original_name || '').split('.').pop().toLowerCase();
+        const mime = att.mime_type || (ext === 'pdf' ? 'application/pdf' : ['png','jpg','jpeg','gif','webp'].includes(ext) ? `image/${ext}` : 'application/octet-stream');
+        setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime });
+      }).catch(() => {});
+  };
+
+  const closePreview = () => { if (preview) { URL.revokeObjectURL(preview.url); setPreview(null); } };
 
   return (
     <div className="group bg-white border border-surface-100 rounded-xl hover:border-teal-200 hover:shadow-sm transition-all">
@@ -847,16 +925,7 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {attachments.map(att => (
-                <button key={att.id}
-                  onClick={() => {
-                    correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
-                      .then(r => {
-                        const url  = URL.createObjectURL(new Blob([r.data]));
-                        const link = document.createElement('a');
-                        link.href = url; link.download = att.original_name;
-                        link.click(); URL.revokeObjectURL(url);
-                      }).catch(() => {});
-                  }}
+                <button key={att.id} onClick={() => openPreview(att)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
                   title={att.original_name}>
                   <Paperclip className="w-3 h-3 flex-shrink-0" />
@@ -865,17 +934,15 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               ))}
             </div>
           )}
-          {/* Adjunto legacy (sin entrada en tabla de adjuntos) */}
+          {/* Adjunto legacy */}
           {attachments.length === 0 && item.attachment_original_name && (
             <div className="flex flex-wrap gap-1.5 mt-2">
-              <button
-                onClick={() => {
+              <button onClick={() => {
                   api.get(`/exec/${projectId}/correspondence/${item.id}/attachment`, { responseType: 'blob' })
                     .then(r => {
-                      const url  = URL.createObjectURL(new Blob([r.data]));
-                      const link = document.createElement('a');
-                      link.href = url; link.download = item.attachment_original_name;
-                      link.click(); URL.revokeObjectURL(url);
+                      const ext  = (item.attachment_original_name || '').split('.').pop().toLowerCase();
+                      const mime = ext === 'pdf' ? 'application/pdf' : ['png','jpg','jpeg'].includes(ext) ? `image/${ext}` : 'application/octet-stream';
+                      setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: item.attachment_original_name, mime });
                     }).catch(() => {});
                 }}
                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
@@ -905,6 +972,7 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           {perms?.canEdit && <button onClick={() => onDelete(item.id)} disabled={deleting === item.id} title="Eliminar" className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-surface-400 hover:text-red-500 disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>}
         </div>
       </div>
+      <AttachmentPreviewModal preview={preview} onClose={closePreview} />
     </div>
   );
 }

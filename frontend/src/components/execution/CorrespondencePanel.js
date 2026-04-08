@@ -425,12 +425,14 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   }, [isEdit, initial?.id, projectId]);
 
   const openPreview = (pid, cid, att) => {
+    const ext  = getFileExt(att.original_name);
+    const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : 'application/octet-stream');
+    const viewUrl = correspondenceAPI.attachmentViewUrl(pid, cid, att.id);
     correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
       .then(r => {
-        const mime = att.mime_type || (att.original_name?.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
-        const blob = new Blob([r.data], { type: mime });
-        setPreview({ url: URL.createObjectURL(blob), name: att.original_name, mime });
-      }).catch(() => {});
+        const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
+        setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
+      }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
   };
 
   const handleSave = async () => {
@@ -914,49 +916,78 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
 }
 
 // ─── Card de item ENTRADA ─────────────────────────────────────────────────────
-const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar', '.doc', '.docx', '.xls', '.xlsx', '.tiff', '.tif'];
+// Extensiones que se pueden previsualizar nativamente en el navegador
+const NATIVE_PREVIEW = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'];
+// Extensiones que Google Docs Viewer puede renderizar
+const OFFICE_EXTS    = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.tiff', '.tif', '.odt', '.ods', '.odp', '.csv'];
+// Sin vista previa posible
+const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar'];
+
+function getFileExt(name) { return ('.' + (name || '').split('.').pop()).toLowerCase(); }
+
 function AttachmentPreviewModal({ preview, onClose }) {
   if (!preview) return null;
-  const ext = ('.' + (preview.name || '').split('.').pop()).toLowerCase();
-  const canPreview = !NO_PREVIEW_EXTS.includes(ext);
+  const ext = getFileExt(preview.name);
+
+  // Decide qué tipo de visualización usar
+  const isImage   = preview.mime?.startsWith('image/') || ['.png','.jpg','.jpeg','.gif','.webp','.svg','.bmp'].includes(ext);
+  const isPdf     = ext === '.pdf' || preview.mime === 'application/pdf';
+  const isOffice  = OFFICE_EXTS.includes(ext);
+  const isNoPreview = NO_PREVIEW_EXTS.includes(ext);
+
+  // Para Office usamos Google Docs Viewer con la viewUrl del servidor (token en query param)
+  const googleViewerUrl = preview.viewUrl
+    ? `https://docs.google.com/viewer?url=${encodeURIComponent(preview.viewUrl)}&embedded=true`
+    : null;
+
   return (
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className={`bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-4xl overflow-hidden ${canPreview ? 'max-h-[90vh]' : ''}`} onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-5xl max-h-[92vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-100 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
             <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
+            {isOffice && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Google Docs</span>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <a href={preview.url} download={preview.name}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 transition-colors">
-              <Download className="w-3.5 h-3.5" />Descargar
-            </a>
+            {preview.url && (
+              <a href={preview.url} download={preview.name}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                <Download className="w-3.5 h-3.5" />Descargar
+              </a>
+            )}
             <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg">
               <X className="w-4 h-4 text-surface-500" />
             </button>
           </div>
         </div>
-        {canPreview ? (
-          preview.mime?.startsWith('image/') ? (
-            <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
-          ) : (
-            <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '70vh' }} />
-          )
-        ) : (
+
+        {/* Contenido */}
+        {isImage ? (
+          <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
+        ) : isPdf ? (
+          <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
+        ) : isOffice && googleViewerUrl ? (
+          <iframe src={googleViewerUrl} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
+        ) : isNoPreview ? (
           <div className="flex flex-col items-center justify-center gap-4 py-14 px-8 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-100 flex items-center justify-center">
               <Paperclip className="w-8 h-8 text-surface-400" />
             </div>
             <div>
               <p className="text-sm font-semibold text-surface-700">Vista previa no disponible</p>
-              <p className="text-xs text-surface-400 mt-1">Este tipo de archivo ({ext}) no se puede previsualizar en el navegador.</p>
+              <p className="text-xs text-surface-400 mt-1">Los archivos comprimidos ({ext}) no se pueden previsualizar.</p>
             </div>
-            <a href={preview.url} download={preview.name}
-              className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 transition-colors">
-              <Download className="w-4 h-4" />Descargar archivo
-            </a>
+            {preview.url && (
+              <a href={preview.url} download={preview.name}
+                className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 transition-colors">
+                <Download className="w-4 h-4" />Descargar archivo
+              </a>
+            )}
           </div>
+        ) : (
+          <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
         )}
       </div>
     </div>
@@ -976,15 +1007,26 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
   }, [item.id, projectId]);
 
   const openPreview = (att) => {
-    correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
-      .then(r => {
-        const ext  = (att.original_name || '').split('.').pop().toLowerCase();
-        const mime = att.mime_type || (ext === 'pdf' ? 'application/pdf' : ['png','jpg','jpeg','gif','webp'].includes(ext) ? `image/${ext}` : 'application/octet-stream');
-        setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime });
-      }).catch(() => {});
+    const ext  = getFileExt(att.original_name);
+    const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : ['.png','.jpg','.jpeg','.gif','.webp'].includes(ext) ? `image/${ext.slice(1)}` : 'application/octet-stream');
+    // Para Office: usar viewUrl (Google Docs Viewer) + blob para descarga
+    const viewUrl = correspondenceAPI.attachmentViewUrl(projectId, item.id, att.id);
+    if (OFFICE_EXTS.includes(ext)) {
+      // Para Office no necesitamos blob; usamos viewUrl directamente
+      correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+        .then(r => {
+          const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
+          setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
+        }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
+    } else {
+      correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+        .then(r => {
+          setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime });
+        }).catch(() => {});
+    }
   };
 
-  const closePreview = () => { if (preview) { URL.revokeObjectURL(preview.url); setPreview(null); } };
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };
 
   return (
     <div className="group bg-white border border-surface-100 rounded-xl hover:border-teal-200 hover:shadow-sm transition-all">

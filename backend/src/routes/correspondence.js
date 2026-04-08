@@ -829,6 +829,32 @@ router.get('/:projectId/correspondence/:id/download',
 );
 
 // ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence/:id/attachments — Subir adjunto a tabla nueva
+// ════════════════════════════════════════════════════════════════════════════════
+router.post('/:projectId/correspondence/:id/attachments',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  upload.single('file'),
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    try {
+      const relPath = path.join('uploads', 'correspondence', String(req.params.projectId), req.file.filename)
+        .replace(/\\/g, '/');
+      const [r] = await pool.execute(
+        'INSERT INTO correspondence_attachments (correspondence_id, file_path, original_name, file_size, mime_type) VALUES (?, ?, ?, ?, ?)',
+        [req.params.id, relPath, req.file.originalname, req.file.size || null, req.file.mimetype || null]
+      );
+      res.status(201).json({ data: { id: r.insertId, original_name: req.file.originalname, file_path: relPath } });
+    } catch (err) {
+      console.error(err);
+      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      res.status(500).json({ error: 'Error al guardar adjunto' });
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
 // GET /:projectId/correspondence/:id/attachments — Listar todos los adjuntos
 // ════════════════════════════════════════════════════════════════════════════════
 router.get('/:projectId/correspondence/:id/attachments',

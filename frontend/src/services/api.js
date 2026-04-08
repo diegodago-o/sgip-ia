@@ -352,7 +352,7 @@ export const correspondenceAPI = {
   uploadAttachment: (pid, id, file) => {
     const fd = new FormData();
     fd.append('file', file);
-    return api.post(`/exec/${pid}/correspondence/${id}/attachment`, fd, {
+    return api.post(`/exec/${pid}/correspondence/${id}/attachments`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },

@@ -381,8 +381,40 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const [error, setError]         = useState('');
   const [allAtts, setAllAtts]     = useState([]);
   const [preview, setPreview]     = useState(null); // { url, name }
+  const [aiPanel, setAiPanel]     = useState(false);
+  const [aiPrompt, setAiPrompt]   = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSettings, setAiSettings] = useState(null);
   const isEdit = !!initial?.id;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
+  const aiProvider   = aiSettings?.default_provider || (aiSettings?.openai_configured ? 'openai' : 'anthropic');
+  const aiModel      = aiProvider === 'anthropic' ? aiSettings?.anthropic_model : aiSettings?.openai_model;
+
+  useEffect(() => {
+    aiAPI.settings().then(r => setAiSettings(r.data?.data || r.data || {})).catch(() => setAiSettings({}));
+  }, []); // eslint-disable-line
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true); setError('');
+    try {
+      const { data } = await correspondenceAPI.aiGenerate(projectId, { prompt: aiPrompt });
+      const g = data.data;
+      setForm(f => ({
+        ...f,
+        correspondence_type:    g.correspondence_type    || f.correspondence_type,
+        subject:                g.subject                || f.subject,
+        sender_entity_external: g.recipient_entity       || f.sender_entity_external,
+        sender_name_external:   g.recipient_name         || f.sender_name_external,
+        notes:                  g.body                   || f.notes,
+      }));
+      setAiPanel(false);
+    } catch (e) {
+      setError('Error al generar con IA');
+    } finally { setAiLoading(false); }
+  };
 
   useEffect(() => {
     if (isEdit && initial?.id) {
@@ -451,6 +483,35 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
                 <p className="font-semibold text-teal-800">Respuesta vinculada a:</p>
                 <p className="text-teal-700">{replyTo.consecutive_code} — {replyTo.subject}</p>
               </div>
+            </div>
+          )}
+
+          {/* Panel IA */}
+          {aiConfigured && (
+            <div className="rounded-xl border border-surface-200 overflow-hidden">
+              <button type="button" onClick={() => setAiPanel(p => !p)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-violet-50 to-indigo-50 hover:from-violet-100 hover:to-indigo-100 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-violet-600" />
+                  <span className="text-sm font-medium text-violet-800">Generar con IA</span>
+                  {aiModel && <span className="text-xs text-violet-500 bg-violet-100 px-2 py-0.5 rounded-full">{aiModel}</span>}
+                </div>
+                <span className="text-xs text-violet-500">{aiPanel ? 'Contraer' : 'Expandir'}</span>
+              </button>
+              {aiPanel && (
+                <div className="px-4 py-3 space-y-3 bg-white border-t border-surface-100">
+                  <p className="text-xs text-surface-500">Describe el contexto del documento recibido y la IA completará los campos automáticamente.</p>
+                  <textarea rows={3} value={aiPrompt} onChange={e => setAiPrompt(e.target.value)}
+                    placeholder="Ej: Respuesta a nuestro oficio sobre radicación de factura, viene del contratista..."
+                    className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none resize-none" />
+                  <button type="button" onClick={handleAiGenerate} disabled={aiLoading || !aiPrompt.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors">
+                    {aiLoading
+                      ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />Generando...</>
+                      : <><Sparkles className="w-3.5 h-3.5" />Generar</>}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

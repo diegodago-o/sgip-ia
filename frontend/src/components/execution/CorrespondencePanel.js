@@ -31,12 +31,27 @@ const STATUS_SALIDA = {
   archivado:  { label: 'Archivado',  color: 'bg-purple-100 text-purple-700',   icon: Archive },
 };
 
-// Estados de ENTRADA
+// Estados de ENTRADA — ciclo de vida completo
 const STATUS_ENTRADA = {
-  recibido:    { label: 'Recibido',    color: 'bg-teal-100 text-teal-700',       icon: Inbox },
-  en_atencion: { label: 'En atención', color: 'bg-amber-100 text-amber-700',     icon: UserCheck },
-  respondido:  { label: 'Respondido',  color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-  archivado:   { label: 'Archivado',   color: 'bg-purple-100 text-purple-700',   icon: Archive },
+  recibido:           { label: 'Recibido',           color: 'bg-teal-100 text-teal-700',     icon: Inbox },
+  asignado:           { label: 'Asignado',           color: 'bg-blue-100 text-blue-700',     icon: UserCheck },
+  en_revision:        { label: 'En revisión',        color: 'bg-amber-100 text-amber-700',   icon: AlertCircle },
+  soporte_solicitado: { label: 'Soporte solicitado', color: 'bg-orange-100 text-orange-700', icon: RotateCcw },
+  respondido:         { label: 'Respondido',         color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
+  cerrado:            { label: 'Cerrado',            color: 'bg-surface-100 text-surface-500', icon: Ban },
+  archivado:          { label: 'Archivado',          color: 'bg-purple-100 text-purple-700', icon: Archive },
+};
+
+// Transiciones permitidas por estado
+const ALLOWED_TRANSITIONS = {
+  recibido:           ['asignado', 'en_revision', 'archivado'],
+  asignado:           ['en_revision', 'soporte_solicitado', 'respondido', 'archivado'],
+  en_revision:        ['soporte_solicitado', 'respondido', 'asignado', 'archivado'],
+  soporte_solicitado: ['en_revision', 'respondido', 'archivado'],
+  respondido:         ['cerrado', 'archivado'],
+  cerrado:            ['archivado'],
+  archivado:          [],
+  en_atencion:        ['asignado', 'en_revision', 'respondido', 'archivado'], // legado
 };
 
 // CONFIG unificado para StatusBadge (incluye todos)
@@ -1002,7 +1017,178 @@ function AttachmentPreviewModal({ preview, onClose }) {
   );
 }
 
-function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onAssign, deleting }) {
+// ─── Panel de Trazabilidad ────────────────────────────────────────────────────
+function TraceabilityPanel({ projectId, item: initItem, perms, teamMembers, onClose, onUpdated }) {
+  const [item, setItem]           = useState(initItem);
+  const [timeline, setTimeline]   = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]         = useState('');
+  const [form, setForm]           = useState({ to_status: '', notes: '', assigned_to_user_id: '' });
+
+  const allowedNext = ALLOWED_TRANSITIONS[item.status] || [];
+
+  const fmtTs = d => {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const loadTimeline = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await correspondenceAPI.getTimeline(projectId, item.id);
+      setTimeline(r.data?.data || []);
+    } catch { setTimeline([]); }
+    finally { setLoading(false); }
+  }, [projectId, item.id]);
+
+  useEffect(() => { loadTimeline(); }, [loadTimeline]);
+
+  const handleSubmit = async () => {
+    if (!form.to_status) { setError('Selecciona el nuevo estado'); return; }
+    setSubmitting(true); setError('');
+    try {
+      await correspondenceAPI.addTimeline(projectId, item.id, {
+        to_status: form.to_status,
+        notes: form.notes || undefined,
+        assigned_to_user_id: form.assigned_to_user_id ? Number(form.assigned_to_user_id) : undefined,
+      });
+      setItem(prev => ({ ...prev, status: form.to_status }));
+      setForm({ to_status: '', notes: '', assigned_to_user_id: '' });
+      await loadTimeline();
+      onUpdated();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al registrar evento');
+    } finally { setSubmitting(false); }
+  };
+
+  const dotColor = s => ({ recibido:'bg-teal-500', asignado:'bg-blue-500', en_revision:'bg-amber-500', soporte_solicitado:'bg-orange-500', respondido:'bg-emerald-500', cerrado:'bg-surface-400', archivado:'bg-purple-500', en_atencion:'bg-amber-500' }[s] || 'bg-surface-300');
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-teal-600" />
+            <h3 className="font-semibold text-brand-900 text-sm">Trazabilidad</h3>
+            <span className="font-mono text-xs text-teal-700 bg-teal-50 px-2 py-0.5 rounded">{item.consecutive_code}</span>
+            <StatusBadge status={item.status} />
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg"><X className="w-4 h-4 text-surface-500" /></button>
+        </div>
+        {/* Asunto */}
+        <div className="px-5 py-2.5 bg-surface-50 border-b border-surface-100 flex-shrink-0">
+          <p className="text-xs text-surface-500 truncate">{item.subject}</p>
+          {item.assigned_to_name && (
+            <p className="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
+              <UserCheck className="w-3 h-3" />Asignado a: <strong>{item.assigned_to_name}</strong>
+            </p>
+          )}
+        </div>
+
+        {/* Timeline */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-surface-300" /></div>
+          ) : timeline.length === 0 ? (
+            <div className="text-center py-10 text-surface-400 text-sm">
+              <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              Sin eventos registrados aún
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Línea vertical */}
+              <div className="absolute left-3.5 top-2 bottom-2 w-px bg-surface-100" />
+              <div className="space-y-5">
+                {timeline.map((ev, i) => {
+                  const Icon = STATUS_ENTRADA[ev.to_status]?.icon || Activity;
+                  return (
+                    <div key={ev.id || i} className="flex gap-3 relative">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${dotColor(ev.to_status)}`}>
+                        <Icon className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {ev.from_status && (
+                            <>
+                              <StatusBadge status={ev.from_status} />
+                              <ChevronRight className="w-3 h-3 text-surface-300" />
+                            </>
+                          )}
+                          <StatusBadge status={ev.to_status} />
+                        </div>
+                        <p className="text-xs text-surface-500 mt-1">
+                          <span className="font-medium text-surface-700">{ev.created_by_name || 'Sistema'}</span>
+                          {' · '}{fmtTs(ev.created_at)}
+                        </p>
+                        {ev.assigned_to_name && (
+                          <p className="text-xs text-blue-600 mt-0.5 flex items-center gap-1">
+                            <UserCheck className="w-3 h-3" />Asignado a: {ev.assigned_to_name}
+                          </p>
+                        )}
+                        {ev.notes && (
+                          <p className="text-xs text-surface-600 mt-1 bg-surface-50 rounded-lg px-2.5 py-1.5 border border-surface-100 italic">
+                            "{ev.notes}"
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Acción — cambiar estado */}
+        {perms?.canEdit && allowedNext.length > 0 && (
+          <div className="border-t border-surface-100 px-5 py-4 space-y-3 flex-shrink-0 bg-surface-50 rounded-b-2xl">
+            <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide">Registrar avance</p>
+            {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-surface-600">Nuevo estado *</label>
+                <select value={form.to_status} onChange={e => setForm(f => ({ ...f, to_status: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none bg-white">
+                  <option value="">Seleccionar...</option>
+                  {allowedNext.map(s => (
+                    <option key={s} value={s}>{STATUS_ENTRADA[s]?.label || s}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-surface-600">Asignar a</label>
+                <select value={form.assigned_to_user_id} onChange={e => setForm(f => ({ ...f, assigned_to_user_id: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none bg-white">
+                  <option value="">Sin cambio</option>
+                  {(teamMembers || []).map(m => (
+                    <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.full_name || m.person_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Observaciones del avance (opcional)..."
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none" />
+            <button onClick={handleSubmit} disabled={submitting || !form.to_status}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors">
+              {submitting ? <><Loader2 className="w-4 h-4 animate-spin" />Guardando...</> : <><Activity className="w-4 h-4" />Registrar cambio de estado</>}
+            </button>
+          </div>
+        )}
+        {perms?.canEdit && allowedNext.length === 0 && (
+          <div className="border-t border-surface-100 px-5 py-3 text-center text-xs text-surface-400 flex-shrink-0 bg-surface-50 rounded-b-2xl">
+            <Ban className="w-4 h-4 mx-auto mb-1 opacity-40" />
+            Esta comunicación está <strong>cerrada</strong> — no hay más transiciones disponibles.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onAssign, onTrace, deleting }) {
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
   const [attachments, setAttachments] = useState([]);
   const [preview, setPreview]         = useState(null);
@@ -1101,6 +1287,11 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               <GitBranch className="w-4 h-4" />
             </button>
           )}
+          {/* Trazabilidad */}
+          <button onClick={() => onTrace(item)} title="Ver trazabilidad"
+            className="p-1.5 hover:bg-teal-50 rounded-lg transition-colors text-surface-400 hover:text-teal-600">
+            <Activity className="w-4 h-4" />
+          </button>
           {/* Responder con oficio de salida */}
           {perms?.canEdit && (
             <button onClick={() => onReply(item)} title="Responder con oficio"
@@ -1148,6 +1339,9 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
   // Thread modal
   const [threadItem, setThreadItem] = useState(null);
+
+  // Trazabilidad correspondencia entrada
+  const [traceEntradaItem, setTraceEntradaItem] = useState(null);
 
   // Firmas libres
   const [freeRequests, setFreeRequests]   = useState([]);
@@ -1409,7 +1603,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
           {/* Resumen estados entrada */}
           {entrada.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
               {Object.entries(STATUS_ENTRADA).map(([status, cfg]) => {
                 const Icon = cfg.icon;
                 return (
@@ -1455,17 +1649,14 @@ export default function CorrespondencePanel({ projectId, perms }) {
                   onEdit={i  => { setEditEntradaItem(i); setReplyEntradaTo(null); setShowEntradaForm(true); }}
                   onDelete={handleDelete}
                   onThread={i => setThreadItem(i)}
+                  onTrace={i => setTraceEntradaItem(i)}
                   onReply={i  => {
-                    // Responder con oficio de salida vinculado
                     setEditSalidaItem(null);
                     setReplyToItem(i);
                     setShowEntradaForm(false);
                     setShowSalidaForm(true);
                   }}
-                  onAssign={i => {
-                    const userId = window.prompt('ID del responsable (se asignará automáticamente):');
-                    if (userId) correspondenceAPI.assign(projectId, i.id, userId).then(load).catch(() => {});
-                  }}
+                  onAssign={() => {}}
                 />
               ))}
             </div>
@@ -1621,6 +1812,18 @@ export default function CorrespondencePanel({ projectId, perms }) {
       {/* Hilo */}
       {threadItem && (
         <ThreadModal projectId={projectId} item={threadItem} onClose={() => setThreadItem(null)} />
+      )}
+
+      {/* Trazabilidad correspondencia entrada */}
+      {traceEntradaItem && (
+        <TraceabilityPanel
+          projectId={projectId}
+          item={traceEntradaItem}
+          perms={perms}
+          teamMembers={teamMembers}
+          onClose={() => setTraceEntradaItem(null)}
+          onUpdated={() => { setTraceEntradaItem(null); load(); }}
+        />
       )}
 
       {/* Trazabilidad firma libre */}

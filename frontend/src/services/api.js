@@ -365,6 +365,8 @@ export const correspondenceAPI = {
     `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachments/${attId}/view`,
   deleteAttachment: (pid, id, attId) =>
     api.delete(`/exec/${pid}/correspondence/${id}/attachments/${attId}`),
+  getTimeline:  (pid, id)       => api.get(`/exec/${pid}/correspondence/${id}/timeline`),
+  addTimeline:  (pid, id, data) => api.post(`/exec/${pid}/correspondence/${id}/timeline`, data),
   aiGenerate: (pid, data) => api.post(`/exec/${pid}/correspondence/ai-generate`, data),
 };
 

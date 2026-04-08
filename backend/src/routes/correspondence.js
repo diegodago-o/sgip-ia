@@ -378,7 +378,7 @@ router.patch('/:projectId/correspondence/:id/status',
   roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
   [
     param('projectId').isInt(), param('id').isInt(),
-    body('status').isIn(['borrador','radicado','enviado','recibido','en_atencion','respondido','archivado']),
+    body('status').isIn(['borrador','radicado','enviado','recibido','asignado','en_revision','soporte_solicitado','respondido','cerrado','archivado','en_atencion']),
   ],
   async (req, res) => {
     if (!validate(req, res)) return;
@@ -413,11 +413,83 @@ router.patch('/:projectId/correspondence/:id/assign',
       await pool.execute(`
         UPDATE correspondence
         SET assigned_to = ?,
-            status = CASE WHEN status = 'recibido' THEN 'en_atencion' ELSE status END
+            status = CASE WHEN status = 'recibido' THEN 'asignado' ELSE status END
         WHERE id = ? AND project_id = ?
       `, [assignedTo, req.params.id, req.params.projectId]);
       res.json({ message: 'Responsable asignado' });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al asignar' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GET /:projectId/correspondence/:id/timeline — Trazabilidad completa
+// ════════════════════════════════════════════════════════════════════════════════
+router.get('/:projectId/correspondence/:id/timeline',
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[corr]] = await pool.execute('SELECT id FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
+      const [rows] = await pool.execute(`
+        SELECT t.*, u.full_name AS created_by_name, ua.full_name AS assigned_to_name
+        FROM correspondence_timeline t
+        LEFT JOIN users u  ON t.created_by          = u.id
+        LEFT JOIN users ua ON t.assigned_to_user_id = ua.id
+        WHERE t.correspondence_id = ?
+        ORDER BY t.created_at ASC
+      `, [req.params.id]);
+      res.json({ data: rows });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al obtener trazabilidad' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// POST /:projectId/correspondence/:id/timeline — Registrar avance / cambio estado
+// ════════════════════════════════════════════════════════════════════════════════
+router.post('/:projectId/correspondence/:id/timeline',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [
+    param('projectId').isInt(), param('id').isInt(),
+    body('to_status').isIn(['recibido','asignado','en_revision','soporte_solicitado','respondido','cerrado','archivado']),
+    body('notes').optional({ nullable: true }).isString().trim().isLength({ max: 2000 }),
+    body('assigned_to_user_id').optional({ nullable: true }).isInt(),
+  ],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const corrId   = Number(req.params.id);
+      const pid      = Number(req.params.projectId);
+      const toStatus = req.body.to_status;
+      const notes    = req.body.notes    || null;
+      const assignTo = req.body.assigned_to_user_id ? Number(req.body.assigned_to_user_id) : null;
+
+      const [[corr]] = await pool.execute('SELECT id, status FROM correspondence WHERE id = ? AND project_id = ?', [corrId, pid]);
+      if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
+
+      // Actualizar estado (y asignación si viene)
+      let sql = 'UPDATE correspondence SET status = ?';
+      const params = [toStatus];
+      if (assignTo !== null) { sql += ', assigned_to = ?'; params.push(assignTo); }
+      sql += ' WHERE id = ? AND project_id = ?';
+      params.push(corrId, pid);
+      await pool.execute(sql, params);
+
+      // Insertar evento en timeline
+      const [r] = await pool.execute(
+        'INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+        [corrId, corr.status, toStatus, notes, assignTo, req.user.id]
+      );
+      const [[event]] = await pool.execute(`
+        SELECT t.*, u.full_name AS created_by_name, ua.full_name AS assigned_to_name
+        FROM correspondence_timeline t
+        LEFT JOIN users u  ON t.created_by          = u.id
+        LEFT JOIN users ua ON t.assigned_to_user_id = ua.id
+        WHERE t.id = ?
+      `, [r.insertId]);
+
+      res.status(201).json({ data: event, message: 'Avance registrado' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error al registrar avance' }); }
   }
 );
 

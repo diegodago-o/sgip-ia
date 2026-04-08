@@ -457,6 +457,39 @@ async function runMigrations() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  // ── Expandir ENUM status para nuevos estados de entrada ──────────────────────
+  await run('correspondence.status_enum_v2',
+    `ALTER TABLE correspondence MODIFY COLUMN status ENUM('borrador','radicado','enviado','recibido','asignado','en_revision','soporte_solicitado','respondido','cerrado','archivado','en_atencion') NOT NULL DEFAULT 'recibido'`);
+
+  // ── Tabla trazabilidad correspondencia ────────────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS correspondence_timeline (
+      id                  INT AUTO_INCREMENT PRIMARY KEY,
+      correspondence_id   INT NOT NULL,
+      from_status         VARCHAR(30) NULL,
+      to_status           VARCHAR(30) NOT NULL,
+      notes               TEXT NULL,
+      assigned_to_user_id INT NULL,
+      created_by          INT NOT NULL,
+      created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (correspondence_id) REFERENCES correspondence(id) ON DELETE CASCADE,
+      FOREIGN KEY (assigned_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      INDEX idx_timeline_corr (correspondence_id),
+      INDEX idx_timeline_date (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  // ── Backfill timeline: registrar evento inicial para entradas sin timeline ────
+  try {
+    await pool.execute(`
+      INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, created_by, created_at)
+      SELECT c.id, NULL, c.status, c.created_by, c.created_at
+      FROM correspondence c
+      WHERE c.direction = 'entrada'
+        AND NOT EXISTS (SELECT 1 FROM correspondence_timeline t WHERE t.correspondence_id = c.id LIMIT 1)
+    `);
+  } catch (_) {}
+
   // ── Backfill: marcar como 'respondido' entradas que ya tienen replies ─────────
   try {
     await pool.execute(`

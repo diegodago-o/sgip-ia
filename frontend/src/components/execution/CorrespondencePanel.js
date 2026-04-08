@@ -621,7 +621,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
               <span className="text-sm text-surface-500">
                 {file ? file.name : (isEdit ? 'Agregar adjunto...' : 'Adjuntar documento recibido (PDF, Word, imagen)')}
               </span>
-              <input type="file" className="hidden" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff,.xlsx"
+              <input type="file" className="hidden" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff,.xlsx,.zip,.rar,.7z,.gz,.tar"
                 onChange={e => setFile(e.target.files[0] || null)} />
             </label>
             {file && (
@@ -914,16 +914,22 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
 }
 
 // ─── Card de item ENTRADA ─────────────────────────────────────────────────────
+const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar', '.doc', '.docx', '.xls', '.xlsx', '.tiff', '.tif'];
 function AttachmentPreviewModal({ preview, onClose }) {
   if (!preview) return null;
+  const ext = ('.' + (preview.name || '').split('.').pop()).toLowerCase();
+  const canPreview = !NO_PREVIEW_EXTS.includes(ext);
   return (
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-4xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className={`bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-4xl overflow-hidden ${canPreview ? 'max-h-[90vh]' : ''}`} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-100 flex-shrink-0">
-          <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
+            <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
             <a href={preview.url} download={preview.name}
-              className="text-xs text-brand-600 hover:underline flex items-center gap-1">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 transition-colors">
               <Download className="w-3.5 h-3.5" />Descargar
             </a>
             <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg">
@@ -931,10 +937,26 @@ function AttachmentPreviewModal({ preview, onClose }) {
             </button>
           </div>
         </div>
-        {preview.mime?.startsWith('image/') ? (
-          <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
+        {canPreview ? (
+          preview.mime?.startsWith('image/') ? (
+            <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
+          ) : (
+            <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '70vh' }} />
+          )
         ) : (
-          <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '70vh' }} />
+          <div className="flex flex-col items-center justify-center gap-4 py-14 px-8 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-surface-100 flex items-center justify-center">
+              <Paperclip className="w-8 h-8 text-surface-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-surface-700">Vista previa no disponible</p>
+              <p className="text-xs text-surface-400 mt-1">Este tipo de archivo ({ext}) no se puede previsualizar en el navegador.</p>
+            </div>
+            <a href={preview.url} download={preview.name}
+              className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 transition-colors">
+              <Download className="w-4 h-4" />Descargar archivo
+            </a>
+          </div>
         )}
       </div>
     </div>

@@ -262,7 +262,7 @@ async function pollImap(inbox) {
           // Adjuntos: guardar TODOS los válidos
           const attachments = [];
           if (parsed.attachments?.length > 0) {
-            const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls'];
+            const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.zip', '.rar', '.7z', '.gz', '.tar'];
             const validAtts = parsed.attachments.filter(a => {
               const ext = path.extname(a.filename || '').toLowerCase();
               return ALLOWED_EXTS.includes(ext) && a.size < 30 * 1024 * 1024;
@@ -391,7 +391,7 @@ async function pollGraphApi(inbox) {
             `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${msg.id}/attachments`,
             { headers: graphHeaders }
           );
-          const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls'];
+          const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.zip', '.rar', '.7z', '.gz', '.tar'];
           const validAtts = (attRes.data.value || []).filter(a => {
             const ext = path.extname(a.name || '').toLowerCase();
             return ALLOWED_EXTS.includes(ext) && a.size < 30 * 1024 * 1024 && a.contentBytes;

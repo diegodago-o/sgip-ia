@@ -847,27 +847,42 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {attachments.map(att => (
-                <a key={att.id}
-                  href={correspondenceAPI.downloadAttachmentByIdUrl(projectId, item.id, att.id)}
-                  target="_blank" rel="noreferrer"
+                <button key={att.id}
+                  onClick={() => {
+                    correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+                      .then(r => {
+                        const url  = URL.createObjectURL(new Blob([r.data]));
+                        const link = document.createElement('a');
+                        link.href = url; link.download = att.original_name;
+                        link.click(); URL.revokeObjectURL(url);
+                      }).catch(() => {});
+                  }}
                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
                   title={att.original_name}>
                   <Paperclip className="w-3 h-3 flex-shrink-0" />
                   <span className="max-w-[140px] truncate">{att.original_name}</span>
-                </a>
+                </button>
               ))}
             </div>
           )}
           {/* Adjunto legacy (sin entrada en tabla de adjuntos) */}
           {attachments.length === 0 && item.attachment_original_name && (
             <div className="flex flex-wrap gap-1.5 mt-2">
-              <a href={`${process.env.REACT_APP_API_URL || 'http://localhost:4000/api'}/exec/${projectId}/correspondence/${item.id}/attachment`}
-                target="_blank" rel="noreferrer"
+              <button
+                onClick={() => {
+                  api.get(`/exec/${projectId}/correspondence/${item.id}/attachment`, { responseType: 'blob' })
+                    .then(r => {
+                      const url  = URL.createObjectURL(new Blob([r.data]));
+                      const link = document.createElement('a');
+                      link.href = url; link.download = item.attachment_original_name;
+                      link.click(); URL.revokeObjectURL(url);
+                    }).catch(() => {});
+                }}
                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-50 border border-surface-200 rounded text-xs text-surface-600 hover:text-brand-600 hover:border-brand-300 transition-colors"
                 title={item.attachment_original_name}>
                 <Paperclip className="w-3 h-3 flex-shrink-0" />
                 <span className="max-w-[140px] truncate">{item.attachment_original_name}</span>
-              </a>
+              </button>
             </div>
           )}
         </div>

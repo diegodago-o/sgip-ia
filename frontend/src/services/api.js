@@ -359,8 +359,8 @@ export const correspondenceAPI = {
   downloadAttachmentUrl: (pid, id) =>
     `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachment`,
   listAttachments: (pid, id) => api.get(`/exec/${pid}/correspondence/${id}/attachments`),
-  downloadAttachmentByIdUrl: (pid, id, attId) =>
-    `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachments/${attId}`,
+  downloadAttachmentById: (pid, id, attId) =>
+    api.get(`/exec/${pid}/correspondence/${id}/attachments/${attId}`, { responseType: 'blob' }),
   aiGenerate: (pid, data) => api.post(`/exec/${pid}/correspondence/ai-generate`, data),
 };
 

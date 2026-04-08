@@ -361,10 +361,8 @@ export const correspondenceAPI = {
   listAttachments: (pid, id) => api.get(`/exec/${pid}/correspondence/${id}/attachments`),
   downloadAttachmentById: (pid, id, attId) =>
     api.get(`/exec/${pid}/correspondence/${id}/attachments/${attId}`, { responseType: 'blob' }),
-  attachmentViewUrl: (pid, id, attId) => {
-    const token = localStorage.getItem('sgip_token') || '';
-    return `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachments/${attId}/view?token=${encodeURIComponent(token)}`;
-  },
+  attachmentViewUrl: (pid, id, attId) =>
+    `${api.defaults.baseURL}/exec/${pid}/correspondence/${id}/attachments/${attId}/view`,
   aiGenerate: (pid, data) => api.post(`/exec/${pid}/correspondence/ai-generate`, data),
 };
 

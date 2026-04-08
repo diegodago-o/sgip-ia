@@ -9,6 +9,35 @@ const notifier = require('../services/notifier');
 const { resolveAIConfig } = require('../services/aiConfig');
 
 const router = express.Router();
+
+// ── Ruta pública: sirve adjunto inline para Office Online Viewer ──────────────
+// DEBE registrarse ANTES de router.use(authMiddleware) para que no requiera auth.
+// Office Online descarga el archivo desde sus servidores y no puede enviar JWT.
+router.get('/:projectId/correspondence/:id/attachments/:attId/view', async (req, res) => {
+  try {
+    const [[att]] = await pool.execute(
+      'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
+      [req.params.attId, req.params.id]
+    );
+    if (!att) return res.status(404).send('Adjunto no encontrado');
+    const absPath = path.join(__dirname, '..', '..', att.file_path);
+    if (!fs.existsSync(absPath)) return res.status(404).send('Archivo no encontrado');
+
+    const ext     = path.extname(att.original_name || '').toLowerCase();
+    const mimeMap = { '.pdf':'application/pdf', '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc':'application/msword', '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls':'application/vnd.ms-excel', '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.ppt':'application/vnd.ms-powerpoint', '.odt':'application/vnd.oasis.opendocument.text', '.ods':'application/vnd.oasis.opendocument.spreadsheet', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.csv':'text/csv' };
+    const mime    = att.mime_type || mimeMap[ext] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.original_name)}`);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    fs.createReadStream(absPath).pipe(res);
+  } catch (err) {
+    console.error('[view attachment]', err.message);
+    res.status(500).send('Error al servir archivo');
+  }
+});
+
 router.use(authMiddleware);
 
 router.param('projectId', async (req, res, next, val) => {
@@ -888,41 +917,6 @@ router.get('/:projectId/correspondence/:id/attachments/:attId',
       if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Archivo no encontrado' });
       res.download(absPath, att.original_name);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al descargar adjunto' }); }
-  }
-);
-
-// ════════════════════════════════════════════════════════════════════════════════
-// GET /:projectId/correspondence/:id/attachments/:attId/view?token=JWT
-// Sirve el archivo inline (sin header Bearer) para usarlo en Google Docs Viewer
-// ════════════════════════════════════════════════════════════════════════════════
-const jwt = require('jsonwebtoken');
-router.get('/:projectId/correspondence/:id/attachments/:attId/view',
-  async (req, res) => {
-    try {
-      // Validar token desde query param
-      const token = req.query.token;
-      if (!token) return res.status(401).json({ error: 'Token requerido' });
-      jwt.verify(token, process.env.JWT_SECRET); // lanza si inválido
-
-      const [[att]] = await pool.execute(
-        'SELECT * FROM correspondence_attachments WHERE id = ? AND correspondence_id = ?',
-        [req.params.attId, req.params.id]
-      );
-      if (!att) return res.status(404).send('Adjunto no encontrado');
-      const absPath = path.join(__dirname, '..', '..', att.file_path);
-      if (!fs.existsSync(absPath)) return res.status(404).send('Archivo no encontrado');
-
-      const mimeType = att.mime_type || 'application/octet-stream';
-      res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.original_name)}"`);
-      res.setHeader('Cache-Control', 'private, max-age=300');
-      fs.createReadStream(absPath).pipe(res);
-    } catch (err) {
-      if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError')
-        return res.status(401).send('Token inválido');
-      console.error(err);
-      res.status(500).send('Error al servir archivo');
-    }
   }
 );
 

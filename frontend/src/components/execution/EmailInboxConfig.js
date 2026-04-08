@@ -468,7 +468,7 @@ export default function EmailInboxConfig({ projectId, onClose }) {
           {testResult.ok
             ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
             : <AlertCircle  className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-          {testResult.message}
+          <span className="whitespace-pre-line leading-relaxed">{testResult.message}</span>
         </div>
       )}
 

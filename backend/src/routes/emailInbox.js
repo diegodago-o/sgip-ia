@@ -287,7 +287,26 @@ router.post('/:projectId/email-inbox/test',
       }
     } catch (err) {
       console.error('[email-inbox/test]', err.message);
-      res.status(400).json({ ok: false, error: `Error de conexión: ${err.message}` });
+
+      // Mensajes de error más descriptivos según la causa
+      const raw = err.message || '';
+      let friendly = raw;
+
+      if (/AUTHENTICATE|Invalid credentials|authentication failed|LOGIN failed/i.test(raw)) {
+        friendly = provider === 'gmail'
+          ? 'Credenciales incorrectas. Para Gmail usa una Contraseña de aplicación (no tu contraseña normal). Actívala en myaccount.google.com → Seguridad → Contraseñas de aplicaciones.'
+          : 'Usuario o contraseña incorrectos.';
+      } else if (/Command failed|IMAP/i.test(raw) && provider === 'm365_basic') {
+        friendly = 'Conexión rechazada por Microsoft 365. Verifica: 1) SMTP AUTH habilitado para este buzón en el Centro de administración M365 (Usuarios activos → correo → Configuración de correo electrónico → Correo autenticado SMTP). 2) La cuenta no tiene MFA obligatorio. Si persiste, usa "Microsoft 365 (Auth moderna)".';
+      } else if (/Command failed/i.test(raw)) {
+        friendly = 'El servidor rechazó el comando IMAP. Verifica que las credenciales y el servidor sean correctos.';
+      } else if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|timeout/i.test(raw)) {
+        friendly = `No se pudo conectar al servidor. Verifica el host (${b.imap_host || 'por defecto'}) y el puerto, y que no haya firewall bloqueando la conexión.`;
+      } else if (/certificate|TLS|SSL/i.test(raw)) {
+        friendly = 'Error de certificado TLS. Intenta deshabilitar SSL o verifica la configuración del servidor.';
+      }
+
+      res.status(400).json({ ok: false, error: friendly });
     }
   }
 );

@@ -136,8 +136,9 @@ function FieldTextarea({ label, field, form, set, rows = 4, placeholder, classNa
 
 // ─── Editor de texto enriquecido ─────────────────────────────────────────────
 function RichTextEditor({ value, onChange }) {
-  const ref    = useRef(null);
-  const inited = useRef(false);
+  const ref        = useRef(null);
+  const inited     = useRef(false);
+  const lastValue  = useRef(value);
   useEffect(() => {
     if (!ref.current || inited.current) return;
     inited.current = true;
@@ -145,7 +146,18 @@ function RichTextEditor({ value, onChange }) {
     if (v && !/<[a-zA-Z]/.test(v)) {
       ref.current.innerHTML = v.split('\n').map(l => `<p>${l || '<br>'}</p>`).join('');
     } else { ref.current.innerHTML = v; }
+    lastValue.current = value;
   }, []); // eslint-disable-line
+  // Sync when value changes externally (e.g. AI generation)
+  useEffect(() => {
+    if (!ref.current || !inited.current) return;
+    if (value === lastValue.current) return;
+    lastValue.current = value;
+    const v = value || '';
+    if (v && !/<[a-zA-Z]/.test(v)) {
+      ref.current.innerHTML = v.split('\n').map(l => `<p>${l || '<br>'}</p>`).join('');
+    } else { ref.current.innerHTML = v; }
+  }, [value]);
   const emit = () => ref.current && onChange(ref.current.innerHTML);
   const exec = (cmd, val) => { document.execCommand(cmd, false, val || null); ref.current?.focus(); emit(); };
   const insertLink = e => {

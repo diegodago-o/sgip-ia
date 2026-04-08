@@ -305,24 +305,31 @@ async function pollGraphApi(inbox) {
   const token = tokenRes.data.access_token;
   const graphHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
+  // 2. Determinar desde cuándo traer mensajes:
+  //    - Primer sync (last_polled_at NULL): solo últimas 48h
+  //    - Syncs siguientes: desde el último poll exitoso
+  //    Nota: NO usamos delta API porque ignora $filter y traería TODO el historial.
+  //    Usamos /messages con $filter=receivedDateTime ge {fecha} — funciona correctamente.
+  const since = inbox.last_polled_at
+    ? new Date(inbox.last_polled_at).toISOString()
+    : new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  const SELECT = 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId';
+  let url = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages`
+          + `?$filter=receivedDateTime ge ${since}`
+          + `&$orderby=receivedDateTime asc`
+          + `&$top=50`
+          + `&$select=${SELECT}`;
+
   let imported = 0;
-  let nextLink = inbox.graph_delta_link;
 
-  // 2. Si no hay delta link, usar delta inicial (sólo mensajes recientes — últimas 48h)
-  if (!nextLink) {
-    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    nextLink = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages/delta?$filter=receivedDateTime ge ${since}&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId`;
-  }
-
-  // 3. Paginar mensajes
-  let url = nextLink;
-  let lastDelta = nextLink;
-
-  while (url) {
-    const res = await axios.get(url, { headers: graphHeaders });
+  // 3. Paginar (máx 500 mensajes por ciclo para no colapsar)
+  let pageCount = 0;
+  while (url && pageCount < 10) {
+    pageCount++;
+    const res  = await axios.get(url, { headers: graphHeaders });
     const msgs = res.data.value || [];
-    lastDelta  = res.data['@odata.deltaLink'] || lastDelta;
-    url        = res.data['@odata.nextLink']  || null;
+    url        = res.data['@odata.nextLink'] || null;
 
     for (const msg of msgs) {
       const messageId = msg.internetMessageId || msg.id;
@@ -375,11 +382,6 @@ async function pollGraphApi(inbox) {
       await markProcessed(inbox.project_id, messageId);
       imported++;
     }
-  }
-
-  // Guardar delta link para próxima llamada
-  if (lastDelta && lastDelta !== inbox.graph_delta_link) {
-    await updateInboxState(inbox.id, { graph_delta_link: lastDelta });
   }
 
   return imported;

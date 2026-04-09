@@ -59,7 +59,11 @@ const STATUS_CONFIG = { ...STATUS_SALIDA, ...STATUS_ENTRADA };
 
 // ─── Utilidades de días hábiles ───────────────────────────────────────────────
 function addBusinessDays(startDateStr, days) {
-  let date = new Date(startDateStr + 'T12:00:00'); // mediodía para evitar TZ
+  if (!startDateStr) return null;
+  // Normalizar: extraer solo YYYY-MM-DD por si viene como datetime completo del API
+  const dateOnly = String(startDateStr).slice(0, 10);
+  let date = new Date(dateOnly + 'T12:00:00');
+  if (isNaN(date.getTime())) return null;
   let added = 0;
   while (added < days) {
     date.setDate(date.getDate() + 1);
@@ -71,8 +75,10 @@ function addBusinessDays(startDateStr, days) {
 
 function businessDaysRemaining(fechaLimiteStr) {
   if (!fechaLimiteStr) return null;
+  const dateOnly = String(fechaLimiteStr).slice(0, 10);
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const limit = new Date(fechaLimiteStr + 'T00:00:00'); // misma hora que today para evitar +1 día
+  const limit = new Date(dateOnly + 'T00:00:00'); // misma hora que today para evitar +1 día
+  if (isNaN(limit.getTime())) return null;
   if (limit < today) return -1; // vencido
   let count = 0, d = new Date(today);
   while (d < limit) {

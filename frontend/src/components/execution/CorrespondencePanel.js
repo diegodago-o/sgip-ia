@@ -845,7 +845,20 @@ function FormModal({ projectId, initial, replyTo, onClose, onSaved }) {
       response_date:      toInputDate(initial.response_date),
       radicado_number: initial.radicado_number || initial.consecutive_code || '',
     } : { ...EMPTY_SALIDA };
-    if (replyTo) base.parent_id = replyTo.id;
+    if (replyTo) {
+      base.parent_id = replyTo.id;
+      // Pre-llenar destinatario con los datos del remitente de la entrada
+      base.subject          = `RE: ${replyTo.subject || ''}`;
+      base.recipient_name   = replyTo.sender_name_external   || '';
+      base.recipient_entity = replyTo.sender_entity_external || '';
+      base.recipient_city   = replyTo.recipient_city         || 'Bogotá D.C.';
+      // radicado de referencia = el radicado del mensaje recibido
+      base.contract_reference = replyTo.contract_reference   || base.contract_reference;
+      // Guardar el email del remitente en notas de contexto si existe
+      if (replyTo.sender_email) {
+        base.notes = `Respuesta a: ${replyTo.sender_name_external || ''} <${replyTo.sender_email}>`.trim();
+      }
+    }
     return base;
   });
   const [aiPrompt, setAiPrompt] = useState('');
@@ -932,9 +945,17 @@ function FormModal({ projectId, initial, replyTo, onClose, onSaved }) {
           {replyTo && (
             <div className="flex items-start gap-3 p-3 bg-brand-50 border border-brand-100 rounded-xl">
               <Reply className="w-4 h-4 text-brand-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm">
+              <div className="text-sm flex-1 min-w-0">
                 <p className="font-semibold text-brand-800">Respondiendo a correspondencia recibida:</p>
-                <p className="text-brand-700">{replyTo.consecutive_code} — {replyTo.subject}</p>
+                <p className="text-brand-700 truncate">{replyTo.consecutive_code} — {replyTo.subject}</p>
+                {(replyTo.sender_name_external || replyTo.sender_entity_external) && (
+                  <p className="text-brand-600 text-xs mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>Para: <strong>{replyTo.sender_name_external}</strong>{replyTo.sender_entity_external ? ` · ${replyTo.sender_entity_external}` : ''}</span>
+                    {replyTo.sender_email && (
+                      <a href={`mailto:${replyTo.sender_email}`} className="underline hover:text-brand-800">{replyTo.sender_email}</a>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
           )}

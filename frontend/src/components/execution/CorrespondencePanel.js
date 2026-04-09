@@ -391,17 +391,41 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
     } : {}),
     ...(replyTo ? { parent_id: replyTo.id } : {}),
   }));
-  const [file, setFile]           = useState(null);
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState('');
-  const [allAtts, setAllAtts]     = useState([]);
-  const [preview, setPreview]     = useState(null); // { url, name }
-  const [aiPanel, setAiPanel]     = useState(false);
-  const [aiPrompt, setAiPrompt]   = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiSettings, setAiSettings] = useState(null);
+  const [file, setFile]               = useState(null);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState('');
+  const [allAtts, setAllAtts]         = useState([]);
+  const [preview, setPreview]         = useState(null); // { url, name }
+  const [aiPanel, setAiPanel]         = useState(false);
+  const [aiPrompt, setAiPrompt]       = useState('');
+  const [aiLoading, setAiLoading]     = useState(false);
+  const [aiSettings, setAiSettings]   = useState(null);
+  // Acciones de estado rápidas
+  const [actionPanel, setActionPanel] = useState(null); // 'soporte' | null
+  const [actionNotes, setActionNotes] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
   const isEdit = !!initial?.id;
+  const currentStatus = initial?.status || form.status;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Ejecutar acción de estado directamente desde el modal
+  const runStateAction = async (action) => {
+    setActionLoading(true); setError('');
+    try {
+      if (action === 'soporte') {
+        if (!actionNotes.trim()) { setError('Las observaciones son requeridas'); setActionLoading(false); return; }
+        await correspondenceAPI.requestSupport(projectId, initial.id, { notes: actionNotes });
+      } else if (action === 'cerrar') {
+        await correspondenceAPI.close(projectId, initial.id, { notes: actionNotes || 'Comunicación cerrada' });
+      } else if (action === 'archivar') {
+        await correspondenceAPI.archive(projectId, initial.id, { notes: actionNotes || 'Comunicación archivada' });
+      }
+      onSaved();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al ejecutar la acción');
+      setActionLoading(false);
+    }
+  };
 
   const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
   const aiProvider   = aiSettings?.default_provider || (aiSettings?.openai_configured ? 'openai' : 'anthropic');
@@ -478,13 +502,17 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 flex-shrink-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Inbox className="w-5 h-5 text-teal-600" />
             <h2 className="text-base font-semibold text-brand-900">
               {replyTo
                 ? `Respuesta a ${replyTo.consecutive_code}`
                 : isEdit ? 'Editar correspondencia recibida' : 'Radicar correspondencia recibida'}
             </h2>
+            {isEdit && <StatusBadge status={currentStatus} />}
+            {isEdit && initial?.consecutive_code && (
+              <span className="font-mono text-xs text-teal-700 bg-teal-50 px-2 py-0.5 rounded">{initial.consecutive_code}</span>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg transition-colors">
             <X className="w-4 h-4 text-surface-500" />
@@ -572,26 +600,25 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
             <FieldInput form={form} set={set} label="N° de Contrato de referencia" field="contract_reference" placeholder="Ej: 001-2025" />
           </div>
 
-          {/* Asignación */}
-          {teamMembers && teamMembers.length > 0 && (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-px bg-surface-100" />
-                <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Asignar responsable</span>
-                <div className="flex-1 h-px bg-surface-100" />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-medium text-surface-600">Responsable de atender</label>
-                <select value={form.assigned_to || ''} onChange={e => set('assigned_to', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
-                  <option value="">Sin asignar</option>
-                  {teamMembers.map(m => (
-                    <option key={m.id} value={m.user_id || m.id}>{m.full_name || m.person_name}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
+          {/* Asignación — siempre visible */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-surface-100" />
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Asignar responsable</span>
+            <div className="flex-1 h-px bg-surface-100" />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-surface-600">Responsable de atender</label>
+            <select value={form.assigned_to || ''} onChange={e => set('assigned_to', e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
+              <option value="">Sin asignar</option>
+              {(teamMembers || []).map(m => (
+                <option key={m.id || m.user_id} value={m.user_id || m.id}>{m.full_name || m.person_name}</option>
+              ))}
+            </select>
+            {(!teamMembers || teamMembers.length === 0) && (
+              <p className="text-[11px] text-surface-400">No hay miembros de equipo asignados a este proyecto todavía.</p>
+            )}
+          </div>
 
           {/* Observaciones */}
           <FieldTextarea form={form} set={set} label="Observaciones / Cuerpo del correo" field="notes" rows={5}
@@ -659,6 +686,69 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
           </div>
 
         </div>
+
+        {/* Acciones de estado — solo en modo edición */}
+        {isEdit && (
+          <div className="border-t border-surface-100 px-6 py-3 flex-shrink-0 bg-surface-50/60">
+            {/* Panel notas para soporte */}
+            {actionPanel === 'soporte' && (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" />Descripción del soporte requerido <span className="text-red-500">*</span></p>
+                <textarea rows={2} value={actionNotes} onChange={e => setActionNotes(e.target.value)}
+                  placeholder="Ej: Se requiere concepto jurídico. Plazo: 3 días hábiles..."
+                  className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-400 outline-none resize-none" />
+              </div>
+            )}
+            {/* Panel notas para cerrar/archivar */}
+            {(actionPanel === 'cerrar' || actionPanel === 'archivar') && (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs font-semibold text-surface-600 flex items-center gap-1.5">
+                  {actionPanel === 'cerrar' ? <Ban className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                  Observaciones (opcional)
+                </p>
+                <textarea rows={2} value={actionNotes} onChange={e => setActionNotes(e.target.value)}
+                  placeholder="Motivo del cierre / archivo..."
+                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none resize-none" />
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-surface-400 mr-auto">Acciones de estado:</span>
+              {['recibido','asignado','en_revision','en_atencion'].includes(currentStatus) && !actionPanel && (
+                <button onClick={() => { setActionPanel('soporte'); setActionNotes(''); setError(''); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-xs font-medium hover:bg-orange-100 transition-colors">
+                  <RotateCcw className="w-3.5 h-3.5" />Pedir soporte
+                </button>
+              )}
+              {currentStatus === 'respondido' && !actionPanel && (
+                <button onClick={() => { setActionPanel('cerrar'); setActionNotes(''); setError(''); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-100 text-surface-600 border border-surface-200 rounded-lg text-xs font-medium hover:bg-surface-200 transition-colors">
+                  <Ban className="w-3.5 h-3.5" />Cerrar
+                </button>
+              )}
+              {currentStatus === 'cerrado' && !actionPanel && (
+                <button onClick={() => { setActionPanel('archivar'); setActionNotes(''); setError(''); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-medium hover:bg-purple-100 transition-colors">
+                  <Archive className="w-3.5 h-3.5" />Archivar
+                </button>
+              )}
+              {actionPanel && (
+                <>
+                  <button onClick={() => { setActionPanel(null); setActionNotes(''); setError(''); }}
+                    className="px-3 py-1.5 text-xs text-surface-500 hover:bg-surface-100 rounded-lg transition-colors">
+                    Cancelar
+                  </button>
+                  <button onClick={() => runStateAction(actionPanel)} disabled={actionLoading}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors
+                      ${actionPanel === 'soporte' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-teal-600 hover:bg-teal-700'}`}>
+                    {actionLoading
+                      ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Ejecutando...</>
+                      : <>{{ soporte: 'Solicitar soporte', cerrar: 'Confirmar cierre', archivar: 'Confirmar archivo' }[actionPanel]}</>}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-surface-100 flex-shrink-0 bg-surface-50 rounded-b-2xl">

@@ -502,6 +502,39 @@ async function runMigrations() {
         )
     `);
   } catch (_) {}
+
+  // ── Plazos de respuesta por tipo documental ───────────────────────────────────
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS correspondence_type_deadlines (
+      id                  INT AUTO_INCREMENT PRIMARY KEY,
+      correspondence_type VARCHAR(50) NOT NULL UNIQUE,
+      business_days       INT NOT NULL DEFAULT 5,
+      description         VARCHAR(200) NULL,
+      updated_by          INT NULL,
+      updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  // Seed valores por defecto si la tabla está vacía
+  try {
+    const [[{ cnt }]] = await pool.execute('SELECT COUNT(*) as cnt FROM correspondence_type_deadlines');
+    if (cnt === 0) {
+      await pool.execute(`
+        INSERT INTO correspondence_type_deadlines (correspondence_type, business_days, description) VALUES
+        ('oficio',           5,  NULL),
+        ('circular',         5,  NULL),
+        ('memorando',        5,  NULL),
+        ('comunicado',       5,  NULL),
+        ('carta',            5,  NULL),
+        ('radicado',         5,  NULL),
+        ('derecho_peticion', 15, 'Ley 1755 de 2015 — 15 días hábiles')
+      `);
+    }
+  } catch (_) {}
+
+  // ── Columna fecha_limite en correspondence ────────────────────────────────────
+  await run('correspondence.fecha_limite_col',
+    `ALTER TABLE correspondence ADD COLUMN fecha_limite DATE NULL`);
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

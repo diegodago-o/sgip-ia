@@ -57,6 +57,70 @@ const ALLOWED_TRANSITIONS = {
 // CONFIG unificado para StatusBadge (incluye todos)
 const STATUS_CONFIG = { ...STATUS_SALIDA, ...STATUS_ENTRADA };
 
+// ─── Utilidades de días hábiles ───────────────────────────────────────────────
+function addBusinessDays(startDateStr, days) {
+  let date = new Date(startDateStr + 'T12:00:00'); // mediodía para evitar TZ
+  let added = 0;
+  while (added < days) {
+    date.setDate(date.getDate() + 1);
+    const dow = date.getDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function businessDaysRemaining(fechaLimiteStr) {
+  if (!fechaLimiteStr) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const limit = new Date(fechaLimiteStr + 'T12:00:00');
+  if (limit < today) return -1; // vencido
+  let count = 0, d = new Date(today);
+  while (d < limit) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
+// Semáforo: null = sin fecha, -1 = vencido, 0-3 = urgente, >3 = ok
+function SemaforoBadge({ fechaLimite }) {
+  if (!fechaLimite) return null;
+  const days = businessDaysRemaining(fechaLimite);
+  if (days === null) return null;
+  const fmtDate = (s) => {
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
+  };
+  if (days < 0)
+    return (
+      <span title={`Venció el ${fmtDate(fechaLimite)}`}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">
+        🔴 Vencido · {fmtDate(fechaLimite)}
+      </span>
+    );
+  if (days === 0)
+    return (
+      <span title="Vence hoy"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200 animate-pulse">
+        🔴 Vence hoy
+      </span>
+    );
+  if (days <= 3)
+    return (
+      <span title={`Vence el ${fmtDate(fechaLimite)} — ${days} día${days > 1 ? 's' : ''} hábil${days > 1 ? 'es' : ''}`}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+        🟡 {days} día{days > 1 ? 's' : ''} hábil{days > 1 ? 'es' : ''}
+      </span>
+    );
+  return (
+    <span title={`Vence el ${fmtDate(fechaLimite)} — ${days} días hábiles`}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+      🟢 {days} días hábiles
+    </span>
+  );
+}
+
 const EMPTY_SALIDA = {
   direction: 'salida',
   correspondence_type: 'oficio',
@@ -400,6 +464,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const [aiPrompt, setAiPrompt]       = useState('');
   const [aiLoading, setAiLoading]     = useState(false);
   const [aiSettings, setAiSettings]   = useState(null);
+  const [deadlines, setDeadlines]     = useState({}); // { oficio: 5, derecho_peticion: 15, ... }
   // Acciones de estado rápidas
   const [actionPanel, setActionPanel] = useState(null); // 'soporte' | null
   const [actionNotes, setActionNotes] = useState('');
@@ -407,6 +472,24 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const isEdit = !!initial?.id;
   const currentStatus = initial?.status || form.status;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Cargar plazos configurados
+  useEffect(() => {
+    correspondenceAPI.deadlines()
+      .then(r => {
+        const map = {};
+        (r.data?.data || []).forEach(d => { map[d.correspondence_type] = d.business_days; });
+        setDeadlines(map);
+      }).catch(() => {});
+  }, []); // eslint-disable-line
+
+  // Recalcular fecha_limite cuando cambia tipo o fecha de recepción
+  const recalcDeadline = (type, receivedDate) => {
+    const days = deadlines[type];
+    if (!days || !receivedDate) return;
+    const newLimit = addBusinessDays(receivedDate, days);
+    set('fecha_limite', newLimit);
+  };
 
   // Ejecutar acción de estado directamente desde el modal
   const runStateAction = async (action) => {
@@ -586,13 +669,40 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
               <label className="block text-xs font-medium text-surface-600">Tipo<span className="text-red-500 ml-0.5">*</span></label>
-              <select value={form.correspondence_type} onChange={e => set('correspondence_type', e.target.value)}
+              <select value={form.correspondence_type} onChange={e => {
+                  set('correspondence_type', e.target.value);
+                  recalcDeadline(e.target.value, form.received_date || form.reference_date);
+                }}
                 className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
                 {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <FieldInput form={form} set={set} label="Fecha del documento" field="reference_date" type="date" required />
-            <FieldInput form={form} set={set} label="Fecha de recepción" field="received_date" type="date" />
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Fecha de recepción</label>
+              <input type="date" value={form.received_date || ''} onChange={e => {
+                  set('received_date', e.target.value);
+                  recalcDeadline(form.correspondence_type, e.target.value);
+                }}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-400 outline-none transition-all" />
+            </div>
+          </div>
+          {/* Fecha límite de respuesta */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600 flex items-center gap-1">
+                Fecha límite de respuesta
+                {form.fecha_limite && <SemaforoBadge fechaLimite={form.fecha_limite} />}
+              </label>
+              <input type="date" value={form.fecha_limite || ''} onChange={e => set('fecha_limite', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" />
+              {deadlines[form.correspondence_type] && (
+                <p className="text-[10px] text-surface-400">
+                  Auto-calculada: {deadlines[form.correspondence_type]} días hábiles desde recepción
+                  {!form.fecha_limite && ' — ingresa la fecha de recepción para calcular'}
+                </p>
+              )}
+            </div>
           </div>
           <FieldInput form={form} set={set} label="Asunto" field="subject" required placeholder="Asunto de la comunicación recibida" />
           <div className="grid grid-cols-2 gap-3">
@@ -1328,6 +1438,12 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               </span>
             )}
           </div>
+          {/* Semáforo fecha límite */}
+          {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
+            <div className="mt-1.5">
+              <SemaforoBadge fechaLimite={item.fecha_limite} />
+            </div>
+          )}
           {/* Adjuntos — solo contador */}
           {attachments.length > 0 && (
             <div className="mt-2">
@@ -1571,6 +1687,17 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const countsSalida  = salida.reduce((a, c)  => { a[c.status] = (a[c.status] || 0) + 1; return a; }, {});
   const countsEntrada = entrada.reduce((a, c) => { a[c.status] = (a[c.status] || 0) + 1; return a; }, {});
 
+  // Conteos semáforo (solo entradas activas con fecha_limite)
+  const semaforoCountsEntrada = entrada
+    .filter(c => !['cerrado','archivado','respondido'].includes(c.status) && c.fecha_limite)
+    .reduce((a, c) => {
+      const d = businessDaysRemaining(c.fecha_limite);
+      if (d < 0)      a.vencido++;
+      else if (d <= 3) a.urgente++;
+      else             a.ok++;
+      return a;
+    }, { vencido: 0, urgente: 0, ok: 0 });
+
   if (loading) return (
     <div className="flex items-center justify-center h-40">
       <div className="w-6 h-6 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
@@ -1709,6 +1836,27 @@ export default function CorrespondencePanel({ projectId, perms }) {
               )}
             </div>
           </div>
+
+          {/* ── Semáforo de vencimientos ── */}
+          {(semaforoCountsEntrada.vencido > 0 || semaforoCountsEntrada.urgente > 0 || semaforoCountsEntrada.ok > 0) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {semaforoCountsEntrada.vencido > 0 && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                  🔴 {semaforoCountsEntrada.vencido} vencida{semaforoCountsEntrada.vencido > 1 ? 's' : ''}
+                </span>
+              )}
+              {semaforoCountsEntrada.urgente > 0 && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                  🟡 {semaforoCountsEntrada.urgente} próxima{semaforoCountsEntrada.urgente > 1 ? 's' : ''} a vencer
+                </span>
+              )}
+              {semaforoCountsEntrada.ok > 0 && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  🟢 {semaforoCountsEntrada.ok} en tiempo
+                </span>
+              )}
+            </div>
+          )}
 
           {/* ── Status bar compacto cuando la bandeja está activa ── */}
           {inboxEnabled && (

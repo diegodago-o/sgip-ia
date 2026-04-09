@@ -412,4 +412,36 @@ router.put('/ai', authenticate, requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// PLAZOS DE RESPUESTA POR TIPO DOCUMENTAL
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /api/settings/correspondence-deadlines
+router.get('/correspondence-deadlines', authenticate, async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      'SELECT correspondence_type, business_days, description FROM correspondence_type_deadlines ORDER BY correspondence_type'
+    );
+    res.json({ data: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/settings/correspondence-deadlines  — body: [{ correspondence_type, business_days, description }]
+router.put('/correspondence-deadlines', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const items = req.body;
+    if (!Array.isArray(items)) return res.status(400).json({ error: 'Se esperaba un array' });
+    for (const item of items) {
+      if (!item.correspondence_type || !item.business_days) continue;
+      await db.execute(
+        `INSERT INTO correspondence_type_deadlines (correspondence_type, business_days, description, updated_by)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE business_days = VALUES(business_days), description = VALUES(description), updated_by = VALUES(updated_by)`,
+        [item.correspondence_type, Number(item.business_days), item.description || null, req.user.id]
+      );
+    }
+    res.json({ success: true, message: 'Plazos actualizados correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

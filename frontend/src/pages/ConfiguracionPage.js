@@ -28,6 +28,8 @@ const settingsAPI = {
   saveSSO:        (d)   => api.put('/settings/sso', d),
   getAI:          ()    => api.get('/settings/ai'),
   saveAI:         (d)   => api.put('/settings/ai', d),
+  getDeadlines:   ()    => api.get('/settings/correspondence-deadlines'),
+  saveDeadlines:  (d)   => api.put('/settings/correspondence-deadlines', d),
 };
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -121,13 +123,14 @@ const RECIPIENT_OPTIONS = [
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'email',           label: 'Correo electrónico',    icon: Mail         },
-  { id: 'notificaciones',  label: 'Notificaciones',         icon: Bell         },
-  { id: 'integraciones',   label: 'Integraciones',          icon: Zap          },
-  { id: 'ia',              label: 'Motor de IA',            icon: Key          },
-  { id: 'sso',             label: 'Inicio de sesión único', icon: LogIn        },
-  { id: 'sharepoint',      label: 'SharePoint',             icon: FolderKanban },
-  { id: 'bandeja_correo', label: 'Bandeja de correo',      icon: Inbox        },
+  { id: 'email',                   label: 'Correo electrónico',    icon: Mail         },
+  { id: 'notificaciones',          label: 'Notificaciones',         icon: Bell         },
+  { id: 'integraciones',           label: 'Integraciones',          icon: Zap          },
+  { id: 'ia',                      label: 'Motor de IA',            icon: Key          },
+  { id: 'sso',                     label: 'Inicio de sesión único', icon: LogIn        },
+  { id: 'sharepoint',              label: 'SharePoint',             icon: FolderKanban },
+  { id: 'bandeja_correo',          label: 'Bandeja de correo',      icon: Inbox        },
+  { id: 'plazos_correspondencia',  label: 'Plazos de respuesta',    icon: Clock        },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1708,6 +1711,123 @@ function BandejaCorreoSection() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PLAZOS DE RESPUESTA POR TIPO DOCUMENTAL
+// ══════════════════════════════════════════════════════════════════════════════
+const TYPE_LABELS = {
+  oficio:           'Oficio',
+  circular:         'Circular',
+  memorando:        'Memorando',
+  comunicado:       'Comunicado',
+  carta:            'Carta',
+  radicado:         'Radicado',
+  derecho_peticion: 'Derecho de Petición',
+};
+
+function PlazosCorrespondenciaSection() {
+  const [rows, setRows]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    settingsAPI.getDeadlines()
+      .then(r => setRows(r.data?.data || []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setDays = (type, val) => {
+    setRows(prev => prev.map(r => r.correspondence_type === type ? { ...r, business_days: Number(val) } : r));
+  };
+  const setDesc = (type, val) => {
+    setRows(prev => prev.map(r => r.correspondence_type === type ? { ...r, description: val } : r));
+  };
+
+  const handleSave = async () => {
+    setSaving(true); setFeedback(null);
+    try {
+      await settingsAPI.saveDeadlines(rows);
+      setFeedback({ ok: true, msg: 'Plazos guardados correctamente' });
+    } catch (e) {
+      setFeedback({ ok: false, msg: e.response?.data?.error || 'Error al guardar' });
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {/* Info */}
+      <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm">
+        <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+        <div className="text-blue-700">
+          <p className="font-medium mb-1">¿Cómo funciona?</p>
+          <p className="text-xs text-blue-600">Al radicar correspondencia de entrada, el sistema calcula automáticamente la <strong>fecha límite de respuesta</strong> sumando los días hábiles configurados aquí a la fecha de recepción. Los fines de semana no cuentan. Puedes ajustar la fecha manualmente en el formulario.</p>
+        </div>
+      </div>
+
+      {/* Tabla de plazos */}
+      <div className="bg-white rounded-xl border border-surface-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-surface-100 bg-surface-50">
+          <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide">Tipos documentales y sus plazos</p>
+        </div>
+        <div className="divide-y divide-surface-100">
+          {rows.map(row => (
+            <div key={row.correspondence_type} className="flex items-center gap-4 px-4 py-3">
+              {/* Tipo */}
+              <div className="w-44 flex-shrink-0">
+                <p className="text-sm font-medium text-surface-800">{TYPE_LABELS[row.correspondence_type] || row.correspondence_type}</p>
+                <p className="text-[10px] text-surface-400 font-mono">{row.correspondence_type}</p>
+              </div>
+              {/* Días */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  type="number" min="1" max="365"
+                  value={row.business_days}
+                  onChange={e => setDays(row.correspondence_type, e.target.value)}
+                  className="w-16 px-2 py-1.5 text-sm text-center border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none font-semibold"
+                />
+                <span className="text-xs text-surface-500 whitespace-nowrap">días hábiles</span>
+              </div>
+              {/* Referencia legal */}
+              <input
+                type="text"
+                value={row.description || ''}
+                onChange={e => setDesc(row.correspondence_type, e.target.value)}
+                placeholder="Referencia legal (opcional)"
+                className="flex-1 px-3 py-1.5 text-xs border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-surface-600"
+              />
+              {/* Indicador semáforo */}
+              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${row.business_days <= 3 ? 'bg-red-400' : row.business_days <= 7 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                title={`${row.business_days} días hábiles`} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {feedback && (
+        <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${feedback.ok ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-red-50 border border-red-100 text-red-700'}`}>
+          {feedback.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {feedback.msg}
+        </div>
+      )}
+
+      <button onClick={handleSave} disabled={saving}
+        className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm">
+        {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Guardando...</> : <><Save className="w-4 h-4" />Guardar plazos</>}
+      </button>
+    </div>
+  );
+}
+
 // Main ConfiguracionPage
 // ══════════════════════════════════════════════════════════════════════════════
 export default function ConfiguracionPage() {
@@ -1720,7 +1840,8 @@ export default function ConfiguracionPage() {
     ia:              { h: 'Motor de IA — Claves del sistema', sub: 'Configura las API Keys de Claude y GPT para todos los usuarios sin que cada uno tenga que ingresar la suya' },
     sso:             { h: 'Inicio de sesión único (SSO)', sub: 'Configura Google y Microsoft 365 para que los usuarios inicien sesión con sus cuentas corporativas' },
     sharepoint:      { h: 'Integración SharePoint',       sub: 'Conecta SGIP-IA con SharePoint Online para gestionar documentos de cada proyecto directamente desde el sistema' },
-    bandeja_correo:  { h: 'Bandeja de correo por proyecto', sub: 'Configura el correo entrante de cada proyecto para importar correspondencia automáticamente' },
+    bandeja_correo:           { h: 'Bandeja de correo por proyecto', sub: 'Configura el correo entrante de cada proyecto para importar correspondencia automáticamente' },
+    plazos_correspondencia:   { h: 'Plazos de respuesta',            sub: 'Define los días hábiles de respuesta para cada tipo documental. Se aplican automáticamente al radicar correspondencia de entrada.' },
   };
 
   return (
@@ -1767,7 +1888,8 @@ export default function ConfiguracionPage() {
         {active === 'ia'             && <AISection />}
         {active === 'sso'            && <SSOSection />}
         {active === 'sharepoint'     && <SharePointSection />}
-        {active === 'bandeja_correo' && <BandejaCorreoSection />}
+        {active === 'bandeja_correo'         && <BandejaCorreoSection />}
+        {active === 'plazos_correspondencia' && <PlazosCorrespondenciaSection />}
       </main>
     </div>
   );

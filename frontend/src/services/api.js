@@ -367,6 +367,7 @@ export const correspondenceAPI = {
     api.delete(`/exec/${pid}/correspondence/${id}/attachments/${attId}`),
   getTimeline:     (pid, id)       => api.get(`/exec/${pid}/correspondence/${id}/timeline`),
   addTimeline:     (pid, id, data) => api.post(`/exec/${pid}/correspondence/${id}/timeline`, data),
+  deadlines:       ()              => api.get('/settings/correspondence-deadlines'),
   requestSupport:  (pid, id, data) => api.patch(`/exec/${pid}/correspondence/${id}/request-support`, data),
   close:           (pid, id, data) => api.patch(`/exec/${pid}/correspondence/${id}/close`, data),
   archive:         (pid, id, data) => api.patch(`/exec/${pid}/correspondence/${id}/archive`, data),

@@ -545,6 +545,10 @@ async function runMigrations() {
   // ── Columna fecha_limite en correspondence ────────────────────────────────────
   await run('correspondence.fecha_limite_col',
     `ALTER TABLE correspondence ADD COLUMN fecha_limite DATE NULL`);
+
+  // ── Correo del remitente ──────────────────────────────────────────────────────
+  await run('correspondence.sender_email_col',
+    `ALTER TABLE correspondence ADD COLUMN sender_email VARCHAR(200) NULL`);
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

@@ -144,7 +144,7 @@ const EMPTY_ENTRADA = {
   correspondence_type: 'radicado',
   subject: '', reference_date: new Date().toISOString().split('T')[0],
   received_date: new Date().toISOString().split('T')[0],
-  sender_entity_external: '', sender_name_external: '',
+  sender_entity_external: '', sender_name_external: '', sender_email: '',
   recipient_entity: '', recipient_city: 'Bogotá D.C.',
   contract_reference: '', notes: '',
   status: 'recibido', assigned_to: '',
@@ -616,6 +616,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
             <FieldInput form={form} set={set} label="Entidad remitente" field="sender_entity_external" placeholder="Ej: Ministerio de Transporte" required />
             <FieldInput form={form} set={set} label="Persona de contacto" field="sender_name_external" placeholder="Nombre del firmante" />
           </div>
+          <FieldInput form={form} set={set} label="Correo del remitente" field="sender_email" type="email" placeholder="correo@entidad.gov.co" />
 
           {/* Datos del documento */}
           <div className="flex items-center gap-2">
@@ -1399,6 +1400,9 @@ function EntradaCard({ item, perms, projectId, deadlinesMap = {}, onEdit, onDele
           <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-surface-400">
             {item.sender_entity_external && <span className="flex items-center gap-1"><ArrowDownLeft className="w-3 h-3" />{item.sender_entity_external}</span>}
             {item.sender_name_external   && <span>{item.sender_name_external}</span>}
+            {item.sender_email && (
+              <a href={`mailto:${item.sender_email}`} className="text-brand-500 hover:underline">{item.sender_email}</a>
+            )}
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDate(item.received_date || item.reference_date)}</span>
             {item.radicado_number && <span className="text-teal-600 font-medium">Rad: {item.radicado_number}</span>}
             {item.assigned_to_name && (

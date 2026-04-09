@@ -466,10 +466,12 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const openPreview = (pid, cid, att) => {
     const ext  = getFileExt(att.original_name);
     const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : 'application/octet-stream');
+    const viewUrl = correspondenceAPI.attachmentViewUrl(pid, cid, att.id);
     correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
       .then(r => {
-        setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime });
-      }).catch(() => {});
+        const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
+        setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
+      }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
   };
 
   const handleSave = async () => {
@@ -1026,66 +1028,30 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
   );
 }
 
-// ─── Card de item ENTRADA — constantes de extensiones ─────────────────────────
-const NATIVE_PREVIEW  = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'];
-const DOCX_EXTS       = ['.docx', '.odt'];
-const SHEET_EXTS      = ['.xlsx', '.xls', '.ods', '.csv'];
-const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar', '.doc', '.ppt', '.pptx', '.odp', '.tiff', '.tif'];
+// ─── Card de item ENTRADA ─────────────────────────────────────────────────────
+// Extensiones que se pueden previsualizar nativamente en el navegador
+const NATIVE_PREVIEW = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'];
+// Extensiones que Google Docs Viewer puede renderizar
+const OFFICE_EXTS    = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.tiff', '.tif', '.odt', '.ods', '.odp', '.csv'];
+// Sin vista previa posible
+const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar'];
 
 function getFileExt(name) { return ('.' + (name || '').split('.').pop()).toLowerCase(); }
 
 function AttachmentPreviewModal({ preview, onClose }) {
-  const [docHtml,  setDocHtml]  = useState(null);
-  const [sheetData, setSheetData] = useState(null); // { headers, rows, sheets, activeSheet }
-  const [converting, setConverting] = useState(false);
-  const [convErr,  setConvErr]  = useState('');
+  if (!preview) return null;
+  const ext = getFileExt(preview.name);
 
-  const ext = preview ? getFileExt(preview.name) : '';
-  const isImage     = preview?.mime?.startsWith('image/') || ['.png','.jpg','.jpeg','.gif','.webp','.svg','.bmp'].includes(ext);
-  const isPdf       = ext === '.pdf' || preview?.mime === 'application/pdf';
-  const isDocx      = DOCX_EXTS.includes(ext);
-  const isSheet     = SHEET_EXTS.includes(ext);
+  // Decide qué tipo de visualización usar
+  const isImage   = preview.mime?.startsWith('image/') || ['.png','.jpg','.jpeg','.gif','.webp','.svg','.bmp'].includes(ext);
+  const isPdf     = ext === '.pdf' || preview.mime === 'application/pdf';
+  const isOffice  = OFFICE_EXTS.includes(ext);
   const isNoPreview = NO_PREVIEW_EXTS.includes(ext);
 
-  // Convertir cuando cambia el archivo
-  useEffect(() => {
-    if (!preview?.url) return;
-    setDocHtml(null); setSheetData(null); setConvErr(''); setConverting(false);
-    if (!isDocx && !isSheet) return;
-
-    setConverting(true);
-    fetch(preview.url)
-      .then(r => r.arrayBuffer())
-      .then(async buf => {
-        if (isDocx) {
-          const mod     = await import('mammoth/mammoth.browser');
-          const mammoth = mod.default || mod;
-          const result  = await mammoth.convertToHtml({ arrayBuffer: buf });
-          setDocHtml(result.value || '<p>(documento vacío)</p>');
-        } else {
-          const XLSX   = await import('xlsx');
-          const wb     = XLSX.read(buf, { type: 'array' });
-          const sheetNames = wb.SheetNames;
-          const first  = sheetNames[0];
-          const ws     = wb.Sheets[first];
-          const rows   = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-          const headers = rows[0] || [];
-          setSheetData({ headers, rows: rows.slice(1), sheets: sheetNames, activeSheet: first, wb });
-        }
-      })
-      .catch(e => setConvErr('No se pudo generar la vista previa: ' + e.message))
-      .finally(() => setConverting(false));
-  }, [preview?.url]); // eslint-disable-line
-
-  const switchSheet = async (name) => {
-    if (!sheetData?.wb) return;
-    const XLSX = await import('xlsx');
-    const ws   = sheetData.wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    setSheetData(prev => ({ ...prev, headers: rows[0] || [], rows: rows.slice(1), activeSheet: name }));
-  };
-
-  if (!preview) return null;
+  // Para Office usamos Microsoft Office Online con la viewUrl del servidor (token en query param)
+  const officeViewerUrl = preview.viewUrl
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.viewUrl)}&wdStartOn=1`
+    : null;
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
@@ -1095,9 +1061,7 @@ function AttachmentPreviewModal({ preview, onClose }) {
           <div className="flex items-center gap-2 min-w-0">
             <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
             <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
-            {(isDocx || isSheet) && !converting && !convErr && (
-              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded ml-1">Vista previa</span>
-            )}
+            {isOffice && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Office Online</span>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {preview.url && (
@@ -1113,79 +1077,12 @@ function AttachmentPreviewModal({ preview, onClose }) {
         </div>
 
         {/* Contenido */}
-        {converting ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
-            <p className="text-sm text-surface-400">Generando vista previa…</p>
-          </div>
-        ) : convErr ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-16 px-8 text-center">
-            <AlertCircle className="w-10 h-10 text-red-400" />
-            <p className="text-sm text-red-600">{convErr}</p>
-            {preview.url && (
-              <a href={preview.url} download={preview.name}
-                className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 transition-colors">
-                <Download className="w-4 h-4" />Descargar archivo
-              </a>
-            )}
-          </div>
-        ) : isImage ? (
-          <div className="flex-1 overflow-auto flex items-center justify-center bg-surface-50 p-4">
-            <img src={preview.url} alt={preview.name} className="max-w-full max-h-[80vh] object-contain rounded" />
-          </div>
+        {isImage ? (
+          <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
         ) : isPdf ? (
           <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
-        ) : isDocx && docHtml ? (
-          <div className="flex-1 overflow-auto px-8 py-6 bg-white">
-            <div
-              className="prose prose-sm max-w-none mx-auto [&_table]:border-collapse [&_td]:border [&_td]:border-surface-200 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-surface-200 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-surface-50 [&_img]:max-w-full"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(docHtml, { ADD_ATTR: ['target'], ADD_TAGS: ['table','thead','tbody','tr','th','td'] }) }}
-            />
-          </div>
-        ) : isSheet && sheetData ? (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Tabs de hojas */}
-            {sheetData.sheets.length > 1 && (
-              <div className="flex gap-1 px-4 pt-3 pb-0 border-b border-surface-100 flex-shrink-0 overflow-x-auto">
-                {sheetData.sheets.map(s => (
-                  <button key={s} onClick={() => switchSheet(s)}
-                    className={`px-3 py-1.5 text-xs rounded-t-lg border-x border-t transition-colors whitespace-nowrap
-                      ${sheetData.activeSheet === s ? 'bg-white border-surface-200 text-brand-700 font-semibold -mb-px' : 'bg-surface-50 border-transparent text-surface-400 hover:text-surface-700'}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="flex-1 overflow-auto p-4">
-              <table className="text-xs border-collapse w-full">
-                {sheetData.headers.length > 0 && (
-                  <thead>
-                    <tr>
-                      {sheetData.headers.map((h, i) => (
-                        <th key={i} className="border border-surface-200 bg-surface-50 px-2 py-1.5 text-left font-semibold text-surface-700 whitespace-nowrap">
-                          {String(h)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                )}
-                <tbody>
-                  {sheetData.rows.map((row, ri) => (
-                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-surface-50/50'}>
-                      {sheetData.headers.map((_, ci) => (
-                        <td key={ci} className="border border-surface-100 px-2 py-1 text-surface-700 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis">
-                          {String(row[ci] ?? '')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {sheetData.rows.length === 0 && (
-                <p className="text-center text-surface-400 text-sm py-8">Hoja vacía</p>
-              )}
-            </div>
-          </div>
+        ) : isOffice && officeViewerUrl ? (
+          <iframe src={officeViewerUrl} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
         ) : isNoPreview ? (
           <div className="flex flex-col items-center justify-center gap-4 py-14 px-8 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-100 flex items-center justify-center">
@@ -1193,7 +1090,7 @@ function AttachmentPreviewModal({ preview, onClose }) {
             </div>
             <div>
               <p className="text-sm font-semibold text-surface-700">Vista previa no disponible</p>
-              <p className="text-xs text-surface-400 mt-1">Este tipo de archivo ({ext}) no puede previsualizarse en el navegador.</p>
+              <p className="text-xs text-surface-400 mt-1">Los archivos comprimidos ({ext}) no se pueden previsualizar.</p>
             </div>
             {preview.url && (
               <a href={preview.url} download={preview.name}
@@ -1382,11 +1279,21 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
   const openPreview = (att) => {
     const ext  = getFileExt(att.original_name);
     const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : ['.png','.jpg','.jpeg','.gif','.webp'].includes(ext) ? `image/${ext.slice(1)}` : 'application/octet-stream');
-    correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
-      .then(r => {
-        const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
-        setPreview({ url: blobUrl, name: att.original_name, mime });
-      }).catch(() => {});
+    // Para Office: usar viewUrl (Google Docs Viewer) + blob para descarga
+    const viewUrl = correspondenceAPI.attachmentViewUrl(projectId, item.id, att.id);
+    if (OFFICE_EXTS.includes(ext)) {
+      // Para Office no necesitamos blob; usamos viewUrl directamente
+      correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+        .then(r => {
+          const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
+          setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
+        }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
+    } else {
+      correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
+        .then(r => {
+          setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime });
+        }).catch(() => {});
+    }
   };
 
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };

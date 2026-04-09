@@ -238,8 +238,9 @@ router.post('/:projectId/correspondence',
            contract_reference, project_entity, project_start_date, project_object,
            status, radicado_number, sent_date, response_date, notes, ai_prompt,
            sender_entity_external, sender_name_external, received_date, assigned_to, parent_id,
+           fecha_limite,
            created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `, [
         pid, direction, num, code, type,
         b.subject, toSqlDate(b.reference_date),
@@ -264,6 +265,7 @@ router.post('/:projectId/correspondence',
         toSqlDate(b.received_date),
         b.assigned_to ? Number(b.assigned_to) : null,
         b.parent_id   ? Number(b.parent_id)   : null,
+        toSqlDate(b.fecha_limite) || null,
         req.user.id,
       ]);
 
@@ -355,7 +357,8 @@ router.put('/:projectId/correspondence/:id',
           sender_name_external      = ?,
           received_date             = ?,
           assigned_to               = ?,
-          parent_id                 = COALESCE(?, parent_id)
+          parent_id                 = COALESCE(?, parent_id),
+          fecha_limite              = ?
         WHERE id = ? AND project_id = ?
       `, [
         b.correspondence_type || null,
@@ -378,6 +381,7 @@ router.put('/:projectId/correspondence/:id',
         toSqlDate(b.received_date),
         b.assigned_to ? Number(b.assigned_to) : null,
         b.parent_id   ? Number(b.parent_id)   : null,
+        toSqlDate(b.fecha_limite) || null,
         req.params.id, req.params.projectId,
       ]);
       const [[updated]] = await pool.execute('SELECT * FROM correspondence WHERE id = ?', [req.params.id]);

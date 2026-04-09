@@ -271,12 +271,25 @@ router.post('/:projectId/correspondence',
         'SELECT * FROM correspondence WHERE id = ?', [r.insertId]
       );
 
-      // Si tiene parent, marcar el parent como 'respondido'
+      // Si tiene parent, marcar el parent como 'respondido' + timeline
       if (b.parent_id) {
-        await pool.execute(
-          "UPDATE correspondence SET status = 'respondido' WHERE id = ? AND project_id = ?",
-          [Number(b.parent_id), pid]
-        ).catch(() => {});
+        const [[par]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [Number(b.parent_id), pid]).catch(() => [[null]]);
+        await pool.execute("UPDATE correspondence SET status = 'respondido' WHERE id = ? AND project_id = ?", [Number(b.parent_id), pid]).catch(() => {});
+        if (par) {
+          await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+            [Number(b.parent_id), par.status, 'respondido', `Respuesta creada: ${code}`, req.user.id]).catch(() => {});
+        }
+      }
+
+      // Timeline inicial para entradas
+      if (direction === 'entrada') {
+        await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
+          [r.insertId, null, created.status, 'Comunicación radicada', b.assigned_to ? Number(b.assigned_to) : null, req.user.id]).catch(() => {});
+        // Si viene con asignado, registrar también ese evento
+        if (b.assigned_to) {
+          await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
+            [r.insertId, 'recibido', 'asignado', 'Responsable asignado al radicar', Number(b.assigned_to), req.user.id]).catch(() => {});
+        }
       }
 
       // Notificación
@@ -312,6 +325,8 @@ router.put('/:projectId/correspondence/:id',
     if (!validate(req, res)) return;
     try {
       const b = req.body;
+      // Capturar estado anterior para detectar cambio de asignación
+      const [[prev]] = await pool.execute('SELECT status, assigned_to, direction FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
       await pool.execute(`
         UPDATE correspondence SET
           correspondence_type       = COALESCE(?, correspondence_type),
@@ -366,6 +381,22 @@ router.put('/:projectId/correspondence/:id',
         req.params.id, req.params.projectId,
       ]);
       const [[updated]] = await pool.execute('SELECT * FROM correspondence WHERE id = ?', [req.params.id]);
+
+      // Auto-timeline para entradas cuando cambia el asignado
+      if (prev && prev.direction === 'entrada' && b.assigned_to) {
+        const newAssigned = Number(b.assigned_to);
+        const oldAssigned = prev.assigned_to ? Number(prev.assigned_to) : null;
+        if (newAssigned !== oldAssigned) {
+          const prevStatus = prev.status;
+          const newStatus  = ['recibido'].includes(prevStatus) ? 'asignado' : prevStatus;
+          if (newStatus !== prevStatus) {
+            await pool.execute("UPDATE correspondence SET status = ? WHERE id = ?", [newStatus, req.params.id]).catch(() => {});
+          }
+          await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
+            [req.params.id, prevStatus, newStatus, oldAssigned ? 'Responsable reasignado' : 'Responsable asignado', newAssigned, req.user.id]).catch(() => {});
+        }
+      }
+
       res.json({ data: updated, message: 'Actualizado correctamente' });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al actualizar' }); }
   }
@@ -410,14 +441,79 @@ router.patch('/:projectId/correspondence/:id/assign',
     if (!validate(req, res)) return;
     try {
       const assignedTo = req.body.assigned_to ? Number(req.body.assigned_to) : null;
+      const [[cur]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      const prevStatus = cur?.status || 'recibido';
+      const newStatus  = prevStatus === 'recibido' ? 'asignado' : prevStatus;
       await pool.execute(`
         UPDATE correspondence
-        SET assigned_to = ?,
-            status = CASE WHEN status = 'recibido' THEN 'asignado' ELSE status END
+        SET assigned_to = ?, status = ?
         WHERE id = ? AND project_id = ?
-      `, [assignedTo, req.params.id, req.params.projectId]);
+      `, [assignedTo, newStatus, req.params.id, req.params.projectId]);
+      await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
+        [req.params.id, prevStatus, newStatus, 'Responsable asignado', assignedTo, req.user.id]).catch(() => {});
       res.json({ message: 'Responsable asignado' });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al asignar' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PATCH /:projectId/correspondence/:id/request-support — Pedir soporte
+// ════════════════════════════════════════════════════════════════════════════════
+router.patch('/:projectId/correspondence/:id/request-support',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt(), body('notes').notEmpty().isString().trim()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[cur]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      if (!cur) return res.status(404).json({ error: 'No encontrado' });
+      if (!['recibido','asignado','en_revision','soporte_solicitado'].includes(cur.status))
+        return res.status(409).json({ error: 'No se puede solicitar soporte en este estado' });
+      await pool.execute("UPDATE correspondence SET status = 'soporte_solicitado' WHERE id = ? AND project_id = ?", [req.params.id, req.params.projectId]);
+      await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+        [req.params.id, cur.status, 'soporte_solicitado', req.body.notes, req.user.id]);
+      res.json({ message: 'Soporte solicitado' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PATCH /:projectId/correspondence/:id/close — Cerrar comunicación
+// ════════════════════════════════════════════════════════════════════════════════
+router.patch('/:projectId/correspondence/:id/close',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[cur]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      if (!cur) return res.status(404).json({ error: 'No encontrado' });
+      if (!['respondido'].includes(cur.status))
+        return res.status(409).json({ error: 'Solo se puede cerrar una comunicación respondida' });
+      await pool.execute("UPDATE correspondence SET status = 'cerrado' WHERE id = ? AND project_id = ?", [req.params.id, req.params.projectId]);
+      await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+        [req.params.id, cur.status, 'cerrado', req.body.notes || 'Comunicación cerrada', req.user.id]);
+      res.json({ message: 'Comunicación cerrada' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error' }); }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PATCH /:projectId/correspondence/:id/archive — Archivar
+// ════════════════════════════════════════════════════════════════════════════════
+router.patch('/:projectId/correspondence/:id/archive',
+  roleMiddleware('admin', 'gerente_proyecto', 'apoyo'),
+  [param('projectId').isInt(), param('id').isInt()],
+  async (req, res) => {
+    if (!validate(req, res)) return;
+    try {
+      const [[cur]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      if (!cur) return res.status(404).json({ error: 'No encontrado' });
+      await pool.execute("UPDATE correspondence SET status = 'archivado' WHERE id = ? AND project_id = ?", [req.params.id, req.params.projectId]);
+      await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+        [req.params.id, cur.status, 'archivado', req.body.notes || 'Comunicación archivada', req.user.id]);
+      res.json({ message: 'Archivado' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error' }); }
   }
 );
 

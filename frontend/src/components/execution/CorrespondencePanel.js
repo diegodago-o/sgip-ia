@@ -1018,15 +1018,10 @@ function AttachmentPreviewModal({ preview, onClose }) {
 }
 
 // ─── Panel de Trazabilidad ────────────────────────────────────────────────────
-function TraceabilityPanel({ projectId, item: initItem, perms, teamMembers, onClose, onUpdated }) {
-  const [item, setItem]           = useState(initItem);
+function TraceabilityPanel({ projectId, item: initItem, onClose }) {
+  const [item]                    = useState(initItem);
   const [timeline, setTimeline]   = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError]         = useState('');
-  const [form, setForm]           = useState({ to_status: '', notes: '', assigned_to_user_id: '' });
-
-  const allowedNext = ALLOWED_TRANSITIONS[item.status] || [];
 
   const fmtTs = d => {
     if (!d) return '—';
@@ -1043,24 +1038,6 @@ function TraceabilityPanel({ projectId, item: initItem, perms, teamMembers, onCl
   }, [projectId, item.id]);
 
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
-
-  const handleSubmit = async () => {
-    if (!form.to_status) { setError('Selecciona el nuevo estado'); return; }
-    setSubmitting(true); setError('');
-    try {
-      await correspondenceAPI.addTimeline(projectId, item.id, {
-        to_status: form.to_status,
-        notes: form.notes || undefined,
-        assigned_to_user_id: form.assigned_to_user_id ? Number(form.assigned_to_user_id) : undefined,
-      });
-      setItem(prev => ({ ...prev, status: form.to_status }));
-      setForm({ to_status: '', notes: '', assigned_to_user_id: '' });
-      await loadTimeline();
-      onUpdated();
-    } catch (e) {
-      setError(e.response?.data?.error || 'Error al registrar evento');
-    } finally { setSubmitting(false); }
-  };
 
   const dotColor = s => ({ recibido:'bg-teal-500', asignado:'bg-blue-500', en_revision:'bg-amber-500', soporte_solicitado:'bg-orange-500', respondido:'bg-emerald-500', cerrado:'bg-surface-400', archivado:'bg-purple-500', en_atencion:'bg-amber-500' }[s] || 'bg-surface-300');
 
@@ -1141,54 +1118,63 @@ function TraceabilityPanel({ projectId, item: initItem, perms, teamMembers, onCl
           )}
         </div>
 
-        {/* Acción — cambiar estado */}
-        {perms?.canEdit && allowedNext.length > 0 && (
-          <div className="border-t border-surface-100 px-5 py-4 space-y-3 flex-shrink-0 bg-surface-50 rounded-b-2xl">
-            <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide">Registrar avance</p>
-            {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="block text-xs font-medium text-surface-600">Nuevo estado *</label>
-                <select value={form.to_status} onChange={e => setForm(f => ({ ...f, to_status: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none bg-white">
-                  <option value="">Seleccionar...</option>
-                  {allowedNext.map(s => (
-                    <option key={s} value={s}>{STATUS_ENTRADA[s]?.label || s}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-medium text-surface-600">Asignar a</label>
-                <select value={form.assigned_to_user_id} onChange={e => setForm(f => ({ ...f, assigned_to_user_id: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none bg-white">
-                  <option value="">Sin cambio</option>
-                  {(teamMembers || []).map(m => (
-                    <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.full_name || m.person_name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Observaciones del avance (opcional)..."
-              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none" />
-            <button onClick={handleSubmit} disabled={submitting || !form.to_status}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors">
-              {submitting ? <><Loader2 className="w-4 h-4 animate-spin" />Guardando...</> : <><Activity className="w-4 h-4" />Registrar cambio de estado</>}
-            </button>
-          </div>
-        )}
-        {perms?.canEdit && allowedNext.length === 0 && (
-          <div className="border-t border-surface-100 px-5 py-3 text-center text-xs text-surface-400 flex-shrink-0 bg-surface-50 rounded-b-2xl">
-            <Ban className="w-4 h-4 mx-auto mb-1 opacity-40" />
-            Esta comunicación está <strong>cerrada</strong> — no hay más transiciones disponibles.
-          </div>
-        )}
+        {/* Footer informativo — solo lectura */}
+        <div className="border-t border-surface-100 px-5 py-3 text-center text-xs text-surface-400 flex-shrink-0 bg-surface-50 rounded-b-2xl">
+          Los cambios de estado se registran automáticamente desde las acciones de la tarjeta.
+        </div>
       </div>
     </div>
   );
 }
 
-function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onAssign, onTrace, deleting }) {
+// ─── Diálogo "Pedir soporte" ─────────────────────────────────────────────────
+function SupportRequestDialog({ item, onConfirm, onClose }) {
+  const [notes, setNotes]       = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState('');
+  const handle = async () => {
+    if (!notes.trim()) { setError('Las observaciones son requeridas'); return; }
+    setSaving(true); setError('');
+    try { await onConfirm(notes); }
+    catch (e) { setError(e.response?.data?.error || 'Error al solicitar soporte'); setSaving(false); }
+  };
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="w-4 h-4 text-orange-500" />
+            <h3 className="font-semibold text-brand-900 text-sm">Solicitar soporte</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg"><X className="w-4 h-4 text-surface-400" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-xs text-surface-500 bg-surface-50 rounded-lg px-3 py-2">
+            <span className="font-mono text-orange-600">{item.consecutive_code}</span> — {item.subject}
+          </p>
+          {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-surface-600">Descripción del soporte requerido <span className="text-red-500">*</span></label>
+            <textarea rows={4} value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Ej: Se requiere concepto jurídico antes de responder. Plazo estimado: 3 días hábiles..."
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-orange-400 outline-none resize-none" />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-surface-100 bg-surface-50 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-surface-600 hover:bg-surface-100 rounded-lg transition-colors">Cancelar</button>
+          <button onClick={handle} disabled={saving || !notes.trim()}
+            className="flex items-center gap-1.5 px-5 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">
+            {saving
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Guardando...</>
+              : <><RotateCcw className="w-3.5 h-3.5" />Solicitar soporte</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onTrace, onRequestSupport, onCloseItem, onArchiveItem, deleting }) {
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
   const [attachments, setAttachments] = useState([]);
   const [preview, setPreview]         = useState(null);
@@ -1292,6 +1278,25 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
             className="p-1.5 hover:bg-teal-50 rounded-lg transition-colors text-surface-400 hover:text-teal-600">
             <Activity className="w-4 h-4" />
           </button>
+          {/* Acciones contextuales según estado */}
+          {perms?.canEdit && ['recibido','asignado','en_revision','en_atencion'].includes(item.status) && (
+            <button onClick={() => onRequestSupport(item)} title="Pedir soporte a otro equipo"
+              className="flex items-center gap-1 px-2 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-xs font-medium hover:bg-orange-100 transition-colors">
+              <RotateCcw className="w-3 h-3" />Soporte
+            </button>
+          )}
+          {perms?.canEdit && item.status === 'respondido' && (
+            <button onClick={() => onCloseItem(item)} title="Cerrar comunicación"
+              className="flex items-center gap-1 px-2 py-1 bg-surface-100 text-surface-600 border border-surface-200 rounded-lg text-xs font-medium hover:bg-surface-200 transition-colors">
+              <Ban className="w-3 h-3" />Cerrar
+            </button>
+          )}
+          {perms?.canEdit && item.status === 'cerrado' && (
+            <button onClick={() => onArchiveItem(item)} title="Archivar comunicación"
+              className="flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-medium hover:bg-purple-100 transition-colors">
+              <Archive className="w-3 h-3" />Archivar
+            </button>
+          )}
           {/* Responder con oficio de salida */}
           {perms?.canEdit && (
             <button onClick={() => onReply(item)} title="Responder con oficio"
@@ -1342,6 +1347,9 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
   // Trazabilidad correspondencia entrada
   const [traceEntradaItem, setTraceEntradaItem] = useState(null);
+
+  // Acciones de estado entrada
+  const [supportItem, setSupportItem] = useState(null); // item para "Pedir soporte"
 
   // Firmas libres
   const [freeRequests, setFreeRequests]   = useState([]);
@@ -1425,6 +1433,29 @@ export default function CorrespondencePanel({ projectId, perms }) {
     try { await correspondenceAPI.remove(projectId, id); load(); }
     catch { /* ignore */ }
     finally { setDeleting(null); }
+  };
+
+  // ── Acciones de estado entrada ─────────────────────────────────────────────
+  const handleRequestSupport = async (notes) => {
+    await correspondenceAPI.requestSupport(projectId, supportItem.id, { notes });
+    setSupportItem(null);
+    load();
+  };
+
+  const handleCloseItem = async (item) => {
+    if (!window.confirm(`¿Cerrar la comunicación "${item.consecutive_code}"?`)) return;
+    try {
+      await correspondenceAPI.close(projectId, item.id, { notes: 'Comunicación cerrada' });
+      load();
+    } catch (e) { alert(e.response?.data?.error || 'Error al cerrar'); }
+  };
+
+  const handleArchiveItem = async (item) => {
+    if (!window.confirm(`¿Archivar la comunicación "${item.consecutive_code}"?`)) return;
+    try {
+      await correspondenceAPI.archive(projectId, item.id, { notes: 'Comunicación archivada' });
+      load();
+    } catch (e) { alert(e.response?.data?.error || 'Error al archivar'); }
   };
 
   // ── Datos filtrados por tab ────────────────────────────────────────────────
@@ -1656,7 +1687,9 @@ export default function CorrespondencePanel({ projectId, perms }) {
                     setShowEntradaForm(false);
                     setShowSalidaForm(true);
                   }}
-                  onAssign={() => {}}
+                  onRequestSupport={i => setSupportItem(i)}
+                  onCloseItem={handleCloseItem}
+                  onArchiveItem={handleArchiveItem}
                 />
               ))}
             </div>
@@ -1819,10 +1852,16 @@ export default function CorrespondencePanel({ projectId, perms }) {
         <TraceabilityPanel
           projectId={projectId}
           item={traceEntradaItem}
-          perms={perms}
-          teamMembers={teamMembers}
           onClose={() => setTraceEntradaItem(null)}
-          onUpdated={() => { setTraceEntradaItem(null); load(); }}
+        />
+      )}
+
+      {/* Diálogo pedir soporte */}
+      {supportItem && (
+        <SupportRequestDialog
+          item={supportItem}
+          onConfirm={handleRequestSupport}
+          onClose={() => setSupportItem(null)}
         />
       )}
 

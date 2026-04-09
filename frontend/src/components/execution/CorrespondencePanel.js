@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DOMPurify from 'dompurify';
-import api, { correspondenceAPI, corrSignaturesAPI, freeSignaturesAPI, aiAPI, emailInboxAPI } from '../../services/api';
+import api, { correspondenceAPI, corrSignaturesAPI, freeSignaturesAPI, aiAPI, emailInboxAPI, adminAPI } from '../../services/api';
 import {
   Mail, Plus, Sparkles, Download, Eye, Pencil, Trash2, X,
   ChevronRight, Search, Filter, FileText, Clock,
@@ -1495,7 +1495,8 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const loadTeam = useCallback(async () => {
     if (!projectId) return;
     try {
-      const r = await api.get(`/exec/${projectId}/team`);
+      // Cargar usuarios del sistema asignados al proyecto (project_assignments)
+      const r = await adminAPI.getAssignments(projectId);
       setTeamMembers(r.data.data || r.data || []);
     } catch { setTeamMembers([]); }
   }, [projectId]);

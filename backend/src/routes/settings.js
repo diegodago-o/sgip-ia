@@ -416,17 +416,23 @@ router.put('/ai', authenticate, requireAdmin, async (req, res) => {
 // PLAZOS DE RESPUESTA POR TIPO DOCUMENTAL
 // ════════════════════════════════════════════════════════════════════════════
 
+// Helper: derive a safe key from a label (e.g. "Tipo Especial" → "tipo_especial")
+function slugify(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
 // GET /api/settings/correspondence-deadlines
 router.get('/correspondence-deadlines', authenticate, async (req, res) => {
   try {
     const [rows] = await db.execute(
-      'SELECT correspondence_type, business_days, description FROM correspondence_type_deadlines ORDER BY correspondence_type'
+      'SELECT correspondence_type, label, business_days, description FROM correspondence_type_deadlines ORDER BY label, correspondence_type'
     );
     res.json({ data: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// PUT /api/settings/correspondence-deadlines  — body: [{ correspondence_type, business_days, description }]
+// PUT /api/settings/correspondence-deadlines  — body: [{ correspondence_type, label, business_days, description }]
 router.put('/correspondence-deadlines', authenticate, requireAdmin, async (req, res) => {
   try {
     const items = req.body;
@@ -434,13 +440,51 @@ router.put('/correspondence-deadlines', authenticate, requireAdmin, async (req, 
     for (const item of items) {
       if (!item.correspondence_type || !item.business_days) continue;
       await db.execute(
-        `INSERT INTO correspondence_type_deadlines (correspondence_type, business_days, description, updated_by)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE business_days = VALUES(business_days), description = VALUES(description), updated_by = VALUES(updated_by)`,
-        [item.correspondence_type, Number(item.business_days), item.description || null, req.user.id]
+        `INSERT INTO correspondence_type_deadlines (correspondence_type, label, business_days, description, updated_by)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE label = VALUES(label), business_days = VALUES(business_days), description = VALUES(description), updated_by = VALUES(updated_by)`,
+        [item.correspondence_type, item.label || item.correspondence_type, Number(item.business_days), item.description || null, req.user.id]
       );
     }
     res.json({ success: true, message: 'Plazos actualizados correctamente' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/settings/correspondence-deadlines — create a new document type
+router.post('/correspondence-deadlines', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { label, business_days, description } = req.body || {};
+    if (!label || !label.trim()) return res.status(400).json({ error: 'El nombre del tipo es requerido' });
+    if (!business_days || Number(business_days) < 1) return res.status(400).json({ error: 'Los días hábiles deben ser al menos 1' });
+
+    const correspondence_type = slugify(label);
+    if (!correspondence_type) return res.status(400).json({ error: 'El nombre no generó una clave válida' });
+
+    // Check for duplicate
+    const [[existing]] = await db.execute(
+      'SELECT id FROM correspondence_type_deadlines WHERE correspondence_type = ?', [correspondence_type]
+    );
+    if (existing) return res.status(409).json({ error: `Ya existe un tipo con la clave "${correspondence_type}"` });
+
+    await db.execute(
+      `INSERT INTO correspondence_type_deadlines (correspondence_type, label, business_days, description, updated_by) VALUES (?, ?, ?, ?, ?)`,
+      [correspondence_type, label.trim(), Number(business_days), description || null, req.user.id]
+    );
+    res.status(201).json({ success: true, data: { correspondence_type, label: label.trim(), business_days: Number(business_days), description: description || null } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/settings/correspondence-deadlines/:type — remove a custom type
+router.delete('/correspondence-deadlines/:type', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { type } = req.params;
+    // Prevent deleting built-in types
+    const BUILTIN = ['oficio', 'circular', 'memorando', 'comunicado', 'carta', 'radicado', 'derecho_peticion'];
+    if (BUILTIN.includes(type)) return res.status(400).json({ error: 'No se pueden eliminar los tipos predeterminados del sistema' });
+
+    const [result] = await db.execute('DELETE FROM correspondence_type_deadlines WHERE correspondence_type = ?', [type]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Tipo no encontrado' });
+    res.json({ success: true, message: 'Tipo eliminado correctamente' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -28,8 +28,10 @@ const settingsAPI = {
   saveSSO:        (d)   => api.put('/settings/sso', d),
   getAI:          ()    => api.get('/settings/ai'),
   saveAI:         (d)   => api.put('/settings/ai', d),
-  getDeadlines:   ()    => api.get('/settings/correspondence-deadlines'),
-  saveDeadlines:  (d)   => api.put('/settings/correspondence-deadlines', d),
+  getDeadlines:    ()    => api.get('/settings/correspondence-deadlines'),
+  saveDeadlines:   (d)   => api.put('/settings/correspondence-deadlines', d),
+  createDeadline:  (d)   => api.post('/settings/correspondence-deadlines', d),
+  deleteDeadline:  (t)   => api.delete(`/settings/correspondence-deadlines/${t}`),
 };
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -1714,21 +1716,19 @@ function BandejaCorreoSection() {
 // ══════════════════════════════════════════════════════════════════════════════
 // PLAZOS DE RESPUESTA POR TIPO DOCUMENTAL
 // ══════════════════════════════════════════════════════════════════════════════
-const TYPE_LABELS = {
-  oficio:           'Oficio',
-  circular:         'Circular',
-  memorando:        'Memorando',
-  comunicado:       'Comunicado',
-  carta:            'Carta',
-  radicado:         'Radicado',
-  derecho_peticion: 'Derecho de Petición',
-};
+const BUILTIN_TYPES = ['oficio', 'circular', 'memorando', 'comunicado', 'carta', 'radicado', 'derecho_peticion'];
+
+const EMPTY_NEW_TYPE = { label: '', business_days: 5, description: '' };
 
 function PlazosCorrespondenciaSection() {
-  const [rows, setRows]       = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving]   = useState(false);
+  const [rows, setRows]         = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [showAdd, setShowAdd]   = useState(false);
+  const [newType, setNewType]   = useState(EMPTY_NEW_TYPE);
+  const [adding, setAdding]     = useState(false);
+  const [deleting, setDeleting] = useState(null); // type being deleted
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1740,11 +1740,8 @@ function PlazosCorrespondenciaSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const setDays = (type, val) => {
-    setRows(prev => prev.map(r => r.correspondence_type === type ? { ...r, business_days: Number(val) } : r));
-  };
-  const setDesc = (type, val) => {
-    setRows(prev => prev.map(r => r.correspondence_type === type ? { ...r, description: val } : r));
+  const setField = (type, field, val) => {
+    setRows(prev => prev.map(r => r.correspondence_type === type ? { ...r, [field]: field === 'business_days' ? Number(val) : val } : r));
   };
 
   const handleSave = async () => {
@@ -1752,9 +1749,38 @@ function PlazosCorrespondenciaSection() {
     try {
       await settingsAPI.saveDeadlines(rows);
       setFeedback({ ok: true, msg: 'Plazos guardados correctamente' });
+      setTimeout(() => setFeedback(null), 4000);
     } catch (e) {
       setFeedback({ ok: false, msg: e.response?.data?.error || 'Error al guardar' });
     } finally { setSaving(false); }
+  };
+
+  const handleAdd = async () => {
+    if (!newType.label.trim()) return;
+    setAdding(true); setFeedback(null);
+    try {
+      const r = await settingsAPI.createDeadline(newType);
+      setRows(prev => [...prev, r.data.data]);
+      setNewType(EMPTY_NEW_TYPE);
+      setShowAdd(false);
+      setFeedback({ ok: true, msg: `Tipo "${r.data.data.label}" creado correctamente` });
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (e) {
+      setFeedback({ ok: false, msg: e.response?.data?.error || 'Error al crear tipo' });
+    } finally { setAdding(false); }
+  };
+
+  const handleDelete = async (type, label) => {
+    if (!window.confirm(`¿Eliminar el tipo "${label}"? Esta acción no se puede deshacer.`)) return;
+    setDeleting(type);
+    try {
+      await settingsAPI.deleteDeadline(type);
+      setRows(prev => prev.filter(r => r.correspondence_type !== type));
+      setFeedback({ ok: true, msg: `Tipo "${label}" eliminado` });
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (e) {
+      setFeedback({ ok: false, msg: e.response?.data?.error || 'Error al eliminar' });
+    } finally { setDeleting(null); }
   };
 
   if (loading) return (
@@ -1770,47 +1796,132 @@ function PlazosCorrespondenciaSection() {
         <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
         <div className="text-blue-700">
           <p className="font-medium mb-1">¿Cómo funciona?</p>
-          <p className="text-xs text-blue-600">Al radicar correspondencia de entrada, el sistema calcula automáticamente la <strong>fecha límite de respuesta</strong> sumando los días hábiles configurados aquí a la fecha de recepción. Los fines de semana no cuentan. Puedes ajustar la fecha manualmente en el formulario.</p>
+          <p className="text-xs text-blue-600">Al radicar correspondencia de entrada, el sistema calcula automáticamente la <strong>fecha límite de respuesta</strong> sumando los días hábiles configurados aquí a la fecha de recepción. Los fines de semana no cuentan. Los tipos personalizados que agregues aquí aparecerán automáticamente en el formulario de radicación.</p>
         </div>
       </div>
 
       {/* Tabla de plazos */}
       <div className="bg-white rounded-xl border border-surface-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-surface-100 bg-surface-50">
+        <div className="px-4 py-3 border-b border-surface-100 bg-surface-50 flex items-center justify-between">
           <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide">Tipos documentales y sus plazos</p>
+          <span className="text-[10px] text-surface-400">{rows.length} tipos</span>
         </div>
         <div className="divide-y divide-surface-100">
-          {rows.map(row => (
-            <div key={row.correspondence_type} className="flex items-center gap-4 px-4 py-3">
-              {/* Tipo */}
-              <div className="w-44 flex-shrink-0">
-                <p className="text-sm font-medium text-surface-800">{TYPE_LABELS[row.correspondence_type] || row.correspondence_type}</p>
-                <p className="text-[10px] text-surface-400 font-mono">{row.correspondence_type}</p>
+          {rows.map(row => {
+            const isBuiltin = BUILTIN_TYPES.includes(row.correspondence_type);
+            return (
+              <div key={row.correspondence_type} className="flex items-center gap-3 px-4 py-3">
+                {/* Tipo */}
+                <div className="w-44 flex-shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-surface-800">{row.label || row.correspondence_type}</p>
+                    {!isBuiltin && (
+                      <span className="text-[9px] font-semibold bg-brand-100 text-brand-600 px-1.5 py-0.5 rounded uppercase tracking-wide">Custom</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-surface-400 font-mono">{row.correspondence_type}</p>
+                </div>
+                {/* Días */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <input
+                    type="number" min="1" max="365"
+                    value={row.business_days}
+                    onChange={e => setField(row.correspondence_type, 'business_days', e.target.value)}
+                    className="w-16 px-2 py-1.5 text-sm text-center border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none font-semibold"
+                  />
+                  <span className="text-xs text-surface-500 whitespace-nowrap">días hábiles</span>
+                </div>
+                {/* Referencia legal */}
+                <input
+                  type="text"
+                  value={row.description || ''}
+                  onChange={e => setField(row.correspondence_type, 'description', e.target.value)}
+                  placeholder="Referencia legal (opcional)"
+                  className="flex-1 px-3 py-1.5 text-xs border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-surface-600"
+                />
+                {/* Indicador semáforo */}
+                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${row.business_days <= 3 ? 'bg-red-400' : row.business_days <= 7 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                  title={`${row.business_days} días hábiles`} />
+                {/* Eliminar (solo custom) */}
+                {!isBuiltin ? (
+                  <button
+                    onClick={() => handleDelete(row.correspondence_type, row.label || row.correspondence_type)}
+                    disabled={deleting === row.correspondence_type}
+                    title="Eliminar tipo"
+                    className="p-1.5 text-surface-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
+                    {deleting === row.correspondence_type
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                ) : (
+                  <div className="w-7 flex-shrink-0" /> /* spacer */
+                )}
               </div>
-              {/* Días */}
-              <div className="flex items-center gap-2 flex-shrink-0">
+            );
+          })}
+        </div>
+
+        {/* Formulario para agregar nuevo tipo */}
+        {showAdd ? (
+          <div className="border-t border-brand-100 bg-brand-50/40 px-4 py-4">
+            <p className="text-xs font-semibold text-brand-700 mb-3">Nuevo tipo documental</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div className="flex-1 min-w-[140px]">
+                <label className="block text-[10px] font-medium text-surface-500 mb-1">Nombre del tipo *</label>
+                <input
+                  type="text"
+                  value={newType.label}
+                  onChange={e => setNewType(p => ({ ...p, label: e.target.value }))}
+                  placeholder="Ej: Tutela, Queja, Memorando interno"
+                  className="w-full px-3 py-1.5 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+                />
+                {newType.label && (
+                  <p className="text-[10px] text-surface-400 mt-0.5 font-mono">
+                    clave: {newType.label.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')}
+                  </p>
+                )}
+              </div>
+              <div className="flex-shrink-0">
+                <label className="block text-[10px] font-medium text-surface-500 mb-1">Días hábiles *</label>
                 <input
                   type="number" min="1" max="365"
-                  value={row.business_days}
-                  onChange={e => setDays(row.correspondence_type, e.target.value)}
-                  className="w-16 px-2 py-1.5 text-sm text-center border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none font-semibold"
+                  value={newType.business_days}
+                  onChange={e => setNewType(p => ({ ...p, business_days: Number(e.target.value) }))}
+                  className="w-20 px-2 py-1.5 text-sm text-center border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none font-semibold"
                 />
-                <span className="text-xs text-surface-500 whitespace-nowrap">días hábiles</span>
               </div>
-              {/* Referencia legal */}
-              <input
-                type="text"
-                value={row.description || ''}
-                onChange={e => setDesc(row.correspondence_type, e.target.value)}
-                placeholder="Referencia legal (opcional)"
-                className="flex-1 px-3 py-1.5 text-xs border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-surface-600"
-              />
-              {/* Indicador semáforo */}
-              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${row.business_days <= 3 ? 'bg-red-400' : row.business_days <= 7 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                title={`${row.business_days} días hábiles`} />
+              <div className="flex-1 min-w-[120px]">
+                <label className="block text-[10px] font-medium text-surface-500 mb-1">Referencia legal</label>
+                <input
+                  type="text"
+                  value={newType.description}
+                  onChange={e => setNewType(p => ({ ...p, description: e.target.value }))}
+                  placeholder="Ej: Decreto 1716 de 2009"
+                  className="w-full px-3 py-1.5 text-xs border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-surface-600"
+                />
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={handleAdd} disabled={adding || !newType.label.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors">
+                  {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Agregar
+                </button>
+                <button onClick={() => { setShowAdd(false); setNewType(EMPTY_NEW_TYPE); }}
+                  className="p-1.5 text-surface-400 hover:text-surface-600 hover:bg-surface-100 rounded-lg transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="border-t border-surface-100 px-4 py-3">
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
+              <Plus className="w-3.5 h-3.5" />
+              Agregar tipo documental personalizado
+            </button>
+          </div>
+        )}
       </div>
 
       {feedback && (

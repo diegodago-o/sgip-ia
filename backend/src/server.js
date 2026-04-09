@@ -515,20 +515,30 @@ async function runMigrations() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  // Agregar columna label si no existe
+  await run('correspondence_type_deadlines.label_col',
+    `ALTER TABLE correspondence_type_deadlines ADD COLUMN label VARCHAR(100) NULL AFTER correspondence_type`);
+
   // Seed valores por defecto si la tabla está vacía
   try {
     const [[{ cnt }]] = await pool.execute('SELECT COUNT(*) as cnt FROM correspondence_type_deadlines');
     if (cnt === 0) {
       await pool.execute(`
-        INSERT INTO correspondence_type_deadlines (correspondence_type, business_days, description) VALUES
-        ('oficio',           5,  NULL),
-        ('circular',         5,  NULL),
-        ('memorando',        5,  NULL),
-        ('comunicado',       5,  NULL),
-        ('carta',            5,  NULL),
-        ('radicado',         5,  NULL),
-        ('derecho_peticion', 15, 'Ley 1755 de 2015 — 15 días hábiles')
+        INSERT INTO correspondence_type_deadlines (correspondence_type, label, business_days, description) VALUES
+        ('oficio',           'Oficio',             5,  NULL),
+        ('circular',         'Circular',           5,  NULL),
+        ('memorando',        'Memorando',          5,  NULL),
+        ('comunicado',       'Comunicado',         5,  NULL),
+        ('carta',            'Carta',              5,  NULL),
+        ('radicado',         'Radicado',           5,  NULL),
+        ('derecho_peticion', 'Derecho de Petición',15, 'Ley 1755 de 2015 — 15 días hábiles')
       `);
+    } else {
+      // Backfill labels para registros existentes sin label
+      const defaults = { oficio:'Oficio', circular:'Circular', memorando:'Memorando', comunicado:'Comunicado', carta:'Carta', radicado:'Radicado', derecho_peticion:'Derecho de Petición' };
+      for (const [type, label] of Object.entries(defaults)) {
+        await pool.execute(`UPDATE correspondence_type_deadlines SET label = ? WHERE correspondence_type = ? AND (label IS NULL OR label = '')`, [label, type]).catch(() => {});
+      }
     }
   } catch (_) {}
 

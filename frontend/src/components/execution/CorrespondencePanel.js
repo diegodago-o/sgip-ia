@@ -461,6 +461,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const [allAtts, setAllAtts]         = useState([]);
   const [preview, setPreview]         = useState(null);
   const [deadlines, setDeadlines]     = useState({});
+  const [typesList, setTypesList]     = useState(TYPES); // dynamic types from API, fallback to static
   // Acciones de estado rápidas
   const [actionPanel, setActionPanel] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
@@ -469,13 +470,17 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const currentStatus = initial?.status || form.status;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Cargar plazos configurados
+  // Cargar plazos configurados (y lista dinámica de tipos)
   useEffect(() => {
     correspondenceAPI.deadlines()
       .then(r => {
+        const items = r.data?.data || [];
         const map = {};
-        (r.data?.data || []).forEach(d => { map[d.correspondence_type] = d.business_days; });
+        items.forEach(d => { map[d.correspondence_type] = d.business_days; });
         setDeadlines(map);
+        if (items.length > 0) {
+          setTypesList(items.map(d => ({ value: d.correspondence_type, label: d.label || d.correspondence_type })));
+        }
       }).catch(() => {});
   }, []); // eslint-disable-line
 
@@ -620,7 +625,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
                   recalcDeadline(e.target.value, form.received_date || form.reference_date);
                 }}
                 className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
-                {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {typesList.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <FieldInput form={form} set={set} label="Fecha del documento" field="reference_date" type="date" required />
@@ -842,11 +847,17 @@ function FormModal({ projectId, initial, replyTo, onClose, onSaved }) {
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
   const [aiPanel, setAiPanel] = useState(false);
+  const [typesList, setTypesList] = useState(TYPES); // dynamic types from API
   const isEdit = !!initial?.id;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
     aiAPI.settings().then(r => setAiSettings(r.data?.data || r.data || {})).catch(() => setAiSettings({}));
+    correspondenceAPI.deadlines()
+      .then(r => {
+        const items = r.data?.data || [];
+        if (items.length > 0) setTypesList(items.map(d => ({ value: d.correspondence_type, label: d.label || d.correspondence_type })));
+      }).catch(() => {});
   }, []); // eslint-disable-line
 
   const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
@@ -958,7 +969,7 @@ function FormModal({ projectId, initial, replyTo, onClose, onSaved }) {
               <label className="block text-xs font-medium text-surface-600">Tipo<span className="text-red-500 ml-0.5">*</span></label>
               <select value={form.correspondence_type} onChange={e => set('correspondence_type', e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
-                {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {typesList.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <FieldInput form={form} set={set} label="Fecha" field="reference_date" type="date" required />

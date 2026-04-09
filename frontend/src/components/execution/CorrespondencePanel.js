@@ -459,14 +459,10 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState('');
   const [allAtts, setAllAtts]         = useState([]);
-  const [preview, setPreview]         = useState(null); // { url, name }
-  const [aiPanel, setAiPanel]         = useState(false);
-  const [aiPrompt, setAiPrompt]       = useState('');
-  const [aiLoading, setAiLoading]     = useState(false);
-  const [aiSettings, setAiSettings]   = useState(null);
-  const [deadlines, setDeadlines]     = useState({}); // { oficio: 5, derecho_peticion: 15, ... }
+  const [preview, setPreview]         = useState(null);
+  const [deadlines, setDeadlines]     = useState({});
   // Acciones de estado rápidas
-  const [actionPanel, setActionPanel] = useState(null); // 'soporte' | null
+  const [actionPanel, setActionPanel] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const isEdit = !!initial?.id;
@@ -483,12 +479,22 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
       }).catch(() => {});
   }, []); // eslint-disable-line
 
-  // Recalcular fecha_limite cuando cambia tipo o fecha de recepción
+  // Auto-calcular fecha_limite al cargar plazos si el form no tiene fecha_limite aún
+  useEffect(() => {
+    if (Object.keys(deadlines).length === 0) return;
+    if (form.fecha_limite) return; // ya tiene, no sobreescribir
+    const base = form.received_date || form.reference_date;
+    if (!base || !form.correspondence_type) return;
+    const days = deadlines[form.correspondence_type];
+    if (!days) return;
+    setForm(f => ({ ...f, fecha_limite: addBusinessDays(base, days) }));
+  }, [deadlines]); // eslint-disable-line
+
+  // Recalcular fecha_limite cuando el usuario cambia tipo o fecha de recepción
   const recalcDeadline = (type, receivedDate) => {
     const days = deadlines[type];
     if (!days || !receivedDate) return;
-    const newLimit = addBusinessDays(receivedDate, days);
-    set('fecha_limite', newLimit);
+    set('fecha_limite', addBusinessDays(receivedDate, days));
   };
 
   // Ejecutar acción de estado directamente desde el modal
@@ -510,34 +516,6 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
     }
   };
 
-  const aiConfigured = aiSettings && (aiSettings.anthropic_configured || aiSettings.openai_configured);
-  const aiProvider   = aiSettings?.default_provider || (aiSettings?.openai_configured ? 'openai' : 'anthropic');
-  const aiModel      = aiProvider === 'anthropic' ? aiSettings?.anthropic_model : aiSettings?.openai_model;
-
-  useEffect(() => {
-    aiAPI.settings().then(r => setAiSettings(r.data?.data || r.data || {})).catch(() => setAiSettings({}));
-  }, []); // eslint-disable-line
-
-  const handleAiGenerate = async () => {
-    if (!aiPrompt.trim()) return;
-    setAiLoading(true); setError('');
-    try {
-      const { data } = await correspondenceAPI.aiGenerate(projectId, { prompt: aiPrompt });
-      const g = data.data;
-      setForm(f => ({
-        ...f,
-        correspondence_type:    g.correspondence_type    || f.correspondence_type,
-        subject:                g.subject                || f.subject,
-        sender_entity_external: g.recipient_entity       || f.sender_entity_external,
-        sender_name_external:   g.recipient_name         || f.sender_name_external,
-        notes:                  g.body                   || f.notes,
-      }));
-      setAiPanel(false);
-    } catch (e) {
-      setError('Error al generar con IA');
-    } finally { setAiLoading(false); }
-  };
-
   useEffect(() => {
     if (isEdit && initial?.id) {
       correspondenceAPI.listAttachments(projectId, initial.id)
@@ -549,12 +527,9 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   const openPreview = (pid, cid, att) => {
     const ext  = getFileExt(att.original_name);
     const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : 'application/octet-stream');
-    const viewUrl = correspondenceAPI.attachmentViewUrl(pid, cid, att.id);
     correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
-      .then(r => {
-        const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
-        setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
-      }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
+      .then(r => setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime }))
+      .catch(() => {});
   };
 
   const handleSave = async () => {
@@ -613,35 +588,6 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
               </div>
             </div>
           )}
-
-          {/* IA */}
-          <div className="bg-gradient-to-r from-brand-50 to-violet-50 border border-brand-100 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-brand-600" />
-                <span className="text-sm font-semibold text-brand-800">Generar con IA</span>
-              </div>
-              <button type="button" onClick={() => setAiPanel(!aiPanel)} className="text-xs text-brand-600 hover:text-brand-800 font-medium">
-                {aiPanel ? 'Ocultar' : 'Expandir'}
-              </button>
-            </div>
-            {aiSettings === null
-              ? <div className="h-5 bg-white/50 rounded animate-pulse mb-2" />
-              : aiConfigured
-                ? <p className="text-[10px] text-emerald-700 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /><strong>Motor de IA configurado</strong>&nbsp;· {aiModel}&nbsp;· <span className="capitalize">{aiProvider}</span></p>
-                : <p className="text-[10px] text-red-600 mb-2">⚠ Motor de IA no configurado.</p>}
-            {aiPanel && (
-              <div className="space-y-2 mt-2">
-                <textarea rows={3} value={aiPrompt} onChange={e => setAiPrompt(e.target.value)}
-                  placeholder="Ej: Respuesta a nuestro oficio sobre radicación de factura, viene del contratista..."
-                  className="w-full px-3 py-2 text-sm border border-brand-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none resize-none" />
-                <button type="button" onClick={handleAiGenerate} disabled={aiLoading || !aiPrompt.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors">
-                  {aiLoading ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />Generando...</> : <><Sparkles className="w-3.5 h-3.5" />Generar campos</>}
-                </button>
-              </div>
-            )}
-          </div>
 
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">

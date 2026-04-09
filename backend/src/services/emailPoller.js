@@ -77,13 +77,58 @@ async function isProcessed(projectId, messageId) {
   return !!row;
 }
 
-/** Marca el message_id como procesado */
-async function markProcessed(projectId, messageId) {
+/** Marca el message_id como procesado, opcionalmente vinculando el correspondence_id */
+async function markProcessed(projectId, messageId, correspondenceId = null) {
   if (!messageId) return;
   await pool.execute(
-    'INSERT IGNORE INTO email_inbox_processed (project_id, message_id) VALUES (?, ?)',
-    [projectId, String(messageId).slice(0, 200)]
+    'INSERT IGNORE INTO email_inbox_processed (project_id, message_id, correspondence_id) VALUES (?, ?, ?)',
+    [projectId, String(messageId).slice(0, 200), correspondenceId || null]
   ).catch(() => {});
+}
+
+/**
+ * Busca el parent_id para threading automático.
+ * Estrategia en orden de prioridad:
+ *  1. In-Reply-To / References headers → busca por internet_message_id en correspondence
+ *  2. Asunto normalizado (RE:/RV:/FW: quitados) → busca salida reciente con mismo asunto
+ */
+async function findParentId(projectId, { inReplyTo, references, subject }) {
+  // 1. Por Message-ID headers
+  const msgIds = [inReplyTo, ...(references || [])].filter(Boolean).map(s => s.trim()).filter(Boolean);
+  if (msgIds.length > 0) {
+    // Buscar en correspondence por internet_message_id
+    const placeholders = msgIds.map(() => '?').join(',');
+    const [[match]] = await pool.execute(
+      `SELECT id FROM correspondence WHERE project_id = ? AND internet_message_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`,
+      [projectId, ...msgIds.map(m => m.slice(0, 299))]
+    ).catch(() => [[null]]);
+    if (match) return match.id;
+
+    // Buscar también en processed (por si el message_id es de un email de salida enviado externamente)
+    const [[proc]] = await pool.execute(
+      `SELECT correspondence_id FROM email_inbox_processed WHERE project_id = ? AND message_id IN (${placeholders}) AND correspondence_id IS NOT NULL LIMIT 1`,
+      [projectId, ...msgIds.map(m => m.slice(0, 199))]
+    ).catch(() => [[null]]);
+    if (proc?.correspondence_id) return proc.correspondence_id;
+  }
+
+  // 2. Por asunto normalizado — buscar salida reciente (últimos 90 días) con mismo asunto
+  if (subject) {
+    const normalized = subject.replace(/^(re|rv|fw|fwd|aw|r):\s*/gi, '').trim().toLowerCase();
+    if (normalized.length > 5) {
+      const [[bySubject]] = await pool.execute(
+        `SELECT id FROM correspondence
+         WHERE project_id = ? AND direction = 'salida'
+           AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(subject,'RE: ',''),'RV: ',''),'FW: ',''),'FWD: ','')) LIKE ?
+           AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+         ORDER BY created_at DESC LIMIT 1`,
+        [projectId, `%${normalized.slice(0, 100)}%`]
+      ).catch(() => [[null]]);
+      if (bySubject) return bySubject.id;
+    }
+  }
+
+  return null;
 }
 
 /** Guarda adjunto en disco y retorna path relativo */
@@ -130,8 +175,8 @@ async function createEntrada(projectId, data, userId) {
          sender_entity_external, sender_name_external, sender_email,
          notes, attachment_path, attachment_original_name,
          contract_reference, project_entity, project_start_date,
-         status, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         status, parent_id, internet_message_id, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       projectId,
       'entrada',
@@ -151,6 +196,8 @@ async function createEntrada(projectId, data, userId) {
       proj.client_name      || null,
       toSqlDate(proj.start_date),
       'recibido',
+      data.parentId || null,
+      data.internetMessageId ? safeText(data.internetMessageId, 299) : null,
       userId || 1,
     ]);
 
@@ -288,19 +335,30 @@ async function pollImap(inbox) {
             bodyText ? `\n${bodyText}` : '',
           ].filter(Boolean).join('');
 
+          // Threading: detectar si es respuesta a correspondencia existente
+          const inReplyTo  = parsed.inReplyTo || null;
+          const references = parsed.references ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references]) : [];
+          const parentId   = await findParentId(inbox.project_id, {
+            inReplyTo,
+            references,
+            subject: parsed.subject || '',
+          });
+
           const entradaId = await createEntrada(inbox.project_id, {
-            type:           'radicado',
-            subject:        parsed.subject || '(Sin asunto)',
-            date:           parsed.date,
-            senderEntity:   senderEntity || senderEmail,
-            senderName:     senderName,
-            senderEmail:    senderEmail,
+            type:              'radicado',
+            subject:           parsed.subject || '(Sin asunto)',
+            date:              parsed.date,
+            senderEntity:      senderEntity || senderEmail,
+            senderName:        senderName,
+            senderEmail:       senderEmail,
             notes,
             attachments,
+            parentId,
+            internetMessageId: messageId,
           }, null);
 
           if (entradaId) {
-            await markProcessed(inbox.project_id, messageId);
+            await markProcessed(inbox.project_id, messageId, entradaId);
             imported++;
           }
           maxUid = Math.max(maxUid, uid);
@@ -359,7 +417,7 @@ async function pollGraphApi(inbox) {
     return isNaN(d.getTime()) ? new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() : d.toISOString();
   })();
 
-  const SELECT = 'id,subject,from,receivedDateTime,body,hasAttachments,internetMessageId';
+  const SELECT = 'id,subject,from,receivedDateTime,body,hasAttachments,internetMessageId,internetMessageHeaders';
   let url = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages`
           + `?$filter=receivedDateTime ge ${since}`
           + `&$orderby=receivedDateTime asc`
@@ -421,19 +479,32 @@ async function pollGraphApi(inbox) {
         bodyText ? `\n${bodyText}` : '',
       ].filter(Boolean).join('');
 
+      // Threading: extraer In-Reply-To y References de los headers del mensaje
+      const headers     = msg.internetMessageHeaders || [];
+      const inReplyTo   = headers.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
+      const refsHeader  = headers.find(h => h.name?.toLowerCase() === 'references')?.value || '';
+      const references  = refsHeader ? refsHeader.split(/\s+/).filter(Boolean) : [];
+      const parentId    = await findParentId(inbox.project_id, {
+        inReplyTo,
+        references,
+        subject: msg.subject || '',
+      });
+
       const entradaId = await createEntrada(inbox.project_id, {
-        type:         'radicado',
-        subject:      msg.subject || '(Sin asunto)',
-        date:         msg.receivedDateTime,
-        senderEntity: fromEntity || fromEmail,
-        senderName:   fromName,
-        senderEmail:  fromEmail,
+        type:              'radicado',
+        subject:           msg.subject || '(Sin asunto)',
+        date:              msg.receivedDateTime,
+        senderEntity:      fromEntity || fromEmail,
+        senderName:        fromName,
+        senderEmail:       fromEmail,
         notes,
         attachments,
+        parentId,
+        internetMessageId: messageId,
       }, null);
 
       if (entradaId) {
-        await markProcessed(inbox.project_id, messageId);
+        await markProcessed(inbox.project_id, messageId, entradaId);
         imported++;
       }
     }

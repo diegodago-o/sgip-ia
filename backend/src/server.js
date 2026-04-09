@@ -549,6 +549,16 @@ async function runMigrations() {
   // ── Correo del remitente ──────────────────────────────────────────────────────
   await run('correspondence.sender_email_col',
     `ALTER TABLE correspondence ADD COLUMN sender_email VARCHAR(200) NULL`);
+
+  // ── Message-ID del email original (para threading automático) ─────────────────
+  await run('correspondence.internet_message_id_col',
+    `ALTER TABLE correspondence ADD COLUMN internet_message_id VARCHAR(300) NULL`);
+  await run('correspondence.internet_message_id_idx',
+    `ALTER TABLE correspondence ADD INDEX idx_corr_msg_id (internet_message_id(100))`);
+
+  // ── Guardar correspondence_id en processed para poder hacer lookup inverso ─────
+  await run('email_inbox_processed.correspondence_id_col',
+    `ALTER TABLE email_inbox_processed ADD COLUMN correspondence_id INT NULL`);
 }
 
 runMigrations().catch(e => console.error('[migrate] Fatal:', e.message));

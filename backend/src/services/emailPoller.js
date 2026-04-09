@@ -127,11 +127,11 @@ async function createEntrada(projectId, data, userId) {
       INSERT INTO correspondence
         (project_id, direction, consecutive_num, consecutive_code, correspondence_type,
          subject, reference_date, received_date,
-         sender_entity_external, sender_name_external,
+         sender_entity_external, sender_name_external, sender_email,
          notes, attachment_path, attachment_original_name,
          contract_reference, project_entity, project_start_date,
          status, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       projectId,
       'entrada',
@@ -143,6 +143,7 @@ async function createEntrada(projectId, data, userId) {
       toSqlDate(new Date()),
       safeText(data.senderEntity, 290),
       safeText(data.senderName,   190),
+      safeText(data.senderEmail,  190) || null,
       safeText(data.notes, 60000),
       legacyPath,
       legacyName,
@@ -293,6 +294,7 @@ async function pollImap(inbox) {
             date:           parsed.date,
             senderEntity:   senderEntity || senderEmail,
             senderName:     senderName,
+            senderEmail:    senderEmail,
             notes,
             attachments,
           }, null);
@@ -425,6 +427,7 @@ async function pollGraphApi(inbox) {
         date:         msg.receivedDateTime,
         senderEntity: fromEntity || fromEmail,
         senderName:   fromName,
+        senderEmail:  fromEmail,
         notes,
         attachments,
       }, null);

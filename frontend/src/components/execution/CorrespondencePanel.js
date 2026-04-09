@@ -72,7 +72,7 @@ function addBusinessDays(startDateStr, days) {
 function businessDaysRemaining(fechaLimiteStr) {
   if (!fechaLimiteStr) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const limit = new Date(fechaLimiteStr + 'T12:00:00');
+  const limit = new Date(fechaLimiteStr + 'T00:00:00'); // misma hora que today para evitar +1 día
   if (limit < today) return -1; // vencido
   let count = 0, d = new Date(today);
   while (d < limit) {

@@ -1331,8 +1331,14 @@ function SupportRequestDialog({ item, onConfirm, onClose }) {
   );
 }
 
-function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onReply, onTrace, onRequestSupport, onCloseItem, onArchiveItem, deleting }) {
+function EntradaCard({ item, perms, projectId, deadlinesMap = {}, onEdit, onDelete, onThread, onReply, onTrace, onRequestSupport, onCloseItem, onArchiveItem, deleting }) {
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
+  // Si fecha_limite no está en BD, calcularla en cliente a partir de received_date + tipo
+  const effectiveFechaLimite = item.fecha_limite ||
+    (item.received_date && item.correspondence_type && deadlinesMap[item.correspondence_type]
+      ? addBusinessDays(item.received_date, deadlinesMap[item.correspondence_type])
+      : null);
+  const showSemaforo = effectiveFechaLimite && !['cerrado','archivado','respondido'].includes(item.status);
   const [attachments, setAttachments] = useState([]);
   const [preview, setPreview]         = useState(null);
 
@@ -1375,10 +1381,6 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="font-mono text-xs text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded">{item.consecutive_code}</span>
             <StatusBadge status={item.status} />
-            {/* Semáforo en cabecera — visible directamente en el listado */}
-            {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
-              <SemaforoBadge fechaLimite={item.fecha_limite} />
-            )}
             {hasThread && (
               <button onClick={() => onThread(item)}
                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-700 rounded-full text-[10px] font-medium hover:bg-violet-100 transition-colors">
@@ -1392,11 +1394,6 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
             {item.sender_entity_external && <span className="flex items-center gap-1"><ArrowDownLeft className="w-3 h-3" />{item.sender_entity_external}</span>}
             {item.sender_name_external   && <span>{item.sender_name_external}</span>}
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDate(item.received_date || item.reference_date)}</span>
-            {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
-              <span className="flex items-center gap-1 text-surface-400">
-                <Clock className="w-3 h-3" />Límite: {fmtDate(item.fecha_limite)}
-              </span>
-            )}
             {item.radicado_number && <span className="text-teal-600 font-medium">Rad: {item.radicado_number}</span>}
             {item.assigned_to_name && (
               <span className="flex items-center gap-1 text-amber-600">
@@ -1404,30 +1401,33 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               </span>
             )}
           </div>
-          {/* Adjuntos — solo contador */}
-          {attachments.length > 0 && (
-            <div className="mt-2">
-              <button onClick={() => openPreview(attachments[0])}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
-                <Paperclip className="w-3 h-3 flex-shrink-0" />
-                {attachments.length} adjunto{attachments.length !== 1 ? 's' : ''}
-              </button>
-            </div>
-          )}
-          {/* Adjunto legacy — contador */}
-          {attachments.length === 0 && item.attachment_original_name && (
-            <div className="mt-2">
-              <button onClick={() => {
-                  api.get(`/exec/${projectId}/correspondence/${item.id}/attachment`, { responseType: 'blob' })
-                    .then(r => {
-                      const ext  = (item.attachment_original_name || '').split('.').pop().toLowerCase();
-                      const mime = ext === 'pdf' ? 'application/pdf' : ['png','jpg','jpeg'].includes(ext) ? `image/${ext}` : 'application/octet-stream';
-                      setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: item.attachment_original_name, mime });
-                    }).catch(() => {});
-                }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
-                <Paperclip className="w-3 h-3 flex-shrink-0" />1 adjunto
-              </button>
+          {/* Fila inferior: semáforo + adjuntos */}
+          {(showSemaforo || attachments.length > 0 || item.attachment_original_name) && (
+            <div className="flex items-center gap-2 flex-wrap mt-2">
+              {/* Semáforo — siempre visible si hay fecha límite y estado activo */}
+              {showSemaforo && <SemaforoBadge fechaLimite={effectiveFechaLimite} />}
+              {/* Adjuntos */}
+              {attachments.length > 0 && (
+                <button onClick={() => openPreview(attachments[0])}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
+                  <Paperclip className="w-3 h-3 flex-shrink-0" />
+                  {attachments.length} adjunto{attachments.length !== 1 ? 's' : ''}
+                </button>
+              )}
+              {/* Adjunto legacy */}
+              {attachments.length === 0 && item.attachment_original_name && (
+                <button onClick={() => {
+                    api.get(`/exec/${projectId}/correspondence/${item.id}/attachment`, { responseType: 'blob' })
+                      .then(r => {
+                        const ext  = (item.attachment_original_name || '').split('.').pop().toLowerCase();
+                        const mime = ext === 'pdf' ? 'application/pdf' : ['png','jpg','jpeg'].includes(ext) ? `image/${ext}` : 'application/octet-stream';
+                        setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: item.attachment_original_name, mime });
+                      }).catch(() => {});
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-50 border border-surface-200 rounded-full text-xs text-surface-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
+                  <Paperclip className="w-3 h-3 flex-shrink-0" />1 adjunto
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1577,6 +1577,17 @@ export default function CorrespondencePanel({ projectId, perms }) {
     } catch { setTeamMembers([]); }
   }, [projectId]);
 
+  // Plazos configurados — para calcular fecha_limite en cliente si no está en BD
+  const [deadlinesMap, setDeadlinesMap] = useState({});
+  useEffect(() => {
+    correspondenceAPI.deadlines()
+      .then(r => {
+        const map = {};
+        (r.data?.data || []).forEach(d => { map[d.correspondence_type] = d.business_days; });
+        setDeadlinesMap(map);
+      }).catch(() => {});
+  }, []); // eslint-disable-line
+
   const loadFreeRequests = useCallback(async () => {
     if (!projectId) return;
     setFreeLoading(true); setFreeError('');
@@ -1647,11 +1658,16 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const countsSalida  = salida.reduce((a, c)  => { a[c.status] = (a[c.status] || 0) + 1; return a; }, {});
   const countsEntrada = entrada.reduce((a, c) => { a[c.status] = (a[c.status] || 0) + 1; return a; }, {});
 
-  // Conteos semáforo (solo entradas activas con fecha_limite)
+  // Conteos semáforo (entradas activas — usa fecha_limite de BD o la calcula en cliente)
   const semaforoCountsEntrada = entrada
-    .filter(c => !['cerrado','archivado','respondido'].includes(c.status) && c.fecha_limite)
+    .filter(c => !['cerrado','archivado','respondido'].includes(c.status))
     .reduce((a, c) => {
-      const d = businessDaysRemaining(c.fecha_limite);
+      const fl = c.fecha_limite ||
+        (c.received_date && c.correspondence_type && deadlinesMap[c.correspondence_type]
+          ? addBusinessDays(c.received_date, deadlinesMap[c.correspondence_type])
+          : null);
+      if (!fl) return a;
+      const d = businessDaysRemaining(fl);
       if (d < 0)      a.vencido++;
       else if (d <= 3) a.urgente++;
       else             a.ok++;
@@ -1875,6 +1891,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
             <div className="space-y-2">
               {filteredEntrada.map(item => (
                 <EntradaCard key={item.id} item={item} perms={perms} projectId={projectId}
+                  deadlinesMap={deadlinesMap}
                   deleting={deleting}
                   onEdit={i  => { setEditEntradaItem(i); setReplyEntradaTo(null); setShowEntradaForm(true); }}
                   onDelete={handleDelete}

@@ -1375,6 +1375,10 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="font-mono text-xs text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded">{item.consecutive_code}</span>
             <StatusBadge status={item.status} />
+            {/* Semáforo en cabecera — visible directamente en el listado */}
+            {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
+              <SemaforoBadge fechaLimite={item.fecha_limite} />
+            )}
             {hasThread && (
               <button onClick={() => onThread(item)}
                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-700 rounded-full text-[10px] font-medium hover:bg-violet-100 transition-colors">
@@ -1388,6 +1392,11 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
             {item.sender_entity_external && <span className="flex items-center gap-1"><ArrowDownLeft className="w-3 h-3" />{item.sender_entity_external}</span>}
             {item.sender_name_external   && <span>{item.sender_name_external}</span>}
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDate(item.received_date || item.reference_date)}</span>
+            {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
+              <span className="flex items-center gap-1 text-surface-400">
+                <Clock className="w-3 h-3" />Límite: {fmtDate(item.fecha_limite)}
+              </span>
+            )}
             {item.radicado_number && <span className="text-teal-600 font-medium">Rad: {item.radicado_number}</span>}
             {item.assigned_to_name && (
               <span className="flex items-center gap-1 text-amber-600">
@@ -1395,12 +1404,6 @@ function EntradaCard({ item, perms, projectId, onEdit, onDelete, onThread, onRep
               </span>
             )}
           </div>
-          {/* Semáforo fecha límite */}
-          {item.fecha_limite && !['cerrado','archivado','respondido'].includes(item.status) && (
-            <div className="mt-1.5">
-              <SemaforoBadge fechaLimite={item.fecha_limite} />
-            </div>
-          )}
           {/* Adjuntos — solo contador */}
           {attachments.length > 0 && (
             <div className="mt-2">

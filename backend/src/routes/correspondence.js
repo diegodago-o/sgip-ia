@@ -316,14 +316,13 @@ router.post('/:projectId/correspondence',
 
       // 2. Acuse de recibo al remitente externo (solo entradas con sender_email)
       if (direction === 'entrada' && created.sender_email) {
-        // Cargar nombre de organización desde configuración
         pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'company_name' LIMIT 1")
           .then(([[orgRow]]) => {
             const orgName = orgRow?.setting_value || projNotify[0]?.name || 'SGIP-IA';
-            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: orgName }, [created.sender_email]);
+            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: orgName }, [created.sender_email]).catch(() => {});
           })
           .catch(() => {
-            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: projNotify[0]?.name || 'SGIP-IA' }, [created.sender_email]);
+            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: projNotify[0]?.name || 'SGIP-IA' }, [created.sender_email]).catch(() => {});
           });
       }
 

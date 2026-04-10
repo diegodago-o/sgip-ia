@@ -149,12 +149,28 @@ async function saveAttachment(projectId, filename, content) {
   return `uploads/correspondence/${projectId}/${ts}_${safe}`;
 }
 
-/** Crea la correspondencia de entrada en BD */
+/** Calcula fecha_limite sumando días hábiles a partir de hoy */
+function calcFechaLimite(businessDays) {
+  if (!businessDays || businessDays <= 0) return null;
+  const HOLIDAYS = []; // Se podría cargar de BD, por ahora vacío
+  let d = new Date();
+  d.setHours(12, 0, 0, 0);
+  let added = 0;
+  while (added < businessDays) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) continue; // domingo/sábado
+    added++;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+/** Crea la correspondencia de entrada en BD y dispara notificaciones */
 async function createEntrada(projectId, data, userId) {
   try {
     // Obtener datos del proyecto para rellenar campos
     const [[proj]] = await pool.execute(
-      'SELECT code, contract_number, client_name, start_date FROM projects WHERE id = ?',
+      'SELECT code, contract_number, client_name, start_date, name FROM projects WHERE id = ?',
       [projectId]
     );
     if (!proj) return;
@@ -170,6 +186,14 @@ async function createEntrada(projectId, data, userId) {
     const n    = String(row.n).padStart(3, '0');
     const code = `${siglas}-ENT-${dateStr}-${n}`;
 
+    // Calcular fecha_limite según plazo configurado para el tipo
+    const corrType = data.type || 'radicado';
+    const [[deadlineRow]] = await pool.execute(
+      'SELECT business_days FROM correspondence_type_deadlines WHERE correspondence_type = ? LIMIT 1',
+      [corrType]
+    ).catch(() => [[null]]);
+    const fechaLimite = calcFechaLimite(deadlineRow?.business_days || 5);
+
     // Soporte legacy: primer adjunto en campos de la tabla principal
     const attachments  = data.attachments || [];
     const legacyPath   = attachments[0]?.path || data.attachmentPath || null;
@@ -182,14 +206,14 @@ async function createEntrada(projectId, data, userId) {
          sender_entity_external, sender_name_external, sender_email,
          notes, attachment_path, attachment_original_name,
          contract_reference, project_entity, project_start_date,
-         status, parent_id, internet_message_id, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         status, parent_id, internet_message_id, fecha_limite, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       projectId,
       'entrada',
       row.n,
       code,
-      data.type || 'radicado',
+      corrType,
       safeText(data.subject, 490),
       toSqlDate(data.date) || toSqlDate(new Date()),
       toSqlDate(new Date()),
@@ -205,6 +229,7 @@ async function createEntrada(projectId, data, userId) {
       'recibido',
       data.parentId || null,
       data.internetMessageId ? safeText(data.internetMessageId, 299) : null,
+      fechaLimite,
       userId || 1,
     ]);
 
@@ -219,6 +244,43 @@ async function createEntrada(projectId, data, userId) {
         ).catch(e => console.warn('[emailPoller] Error guardando adjunto en tabla:', e.message));
       }
     }
+
+    // ── Notificaciones ────────────────────────────────────────────────────────
+    // Fire-and-forget: no bloquea ni falla el import si el notifier falla
+    setImmediate(async () => {
+      try {
+        const notifier = require('./notifier');
+        const notifBase = {
+          project_id:             projectId,
+          project_code:           proj.code || '',
+          project_name:           proj.name || '',
+          subject:                safeText(data.subject, 490),
+          correspondence_type:    corrType,
+          direction:              'entrada',
+          radicado_number:        '',
+          consecutive_code:       code,
+          reference_date:         toSqlDate(data.date) || toSqlDate(new Date()),
+          fecha_limite:           fechaLimite,
+          sender_name_external:   safeText(data.senderName, 190),
+          sender_entity_external: safeText(data.senderEntity, 290),
+        };
+
+        // 1. Notificación interna al equipo del proyecto
+        notifier.notify('correspondence.received', notifBase).catch(() => {});
+
+        // 2. Acuse de recibo al remitente externo
+        if (data.senderEmail) {
+          const [[orgRow]] = await pool.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'company_name' LIMIT 1"
+          ).catch(() => [[null]]);
+          const orgName = orgRow?.setting_value || proj.name || 'SGIP-IA';
+          notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: orgName }, [data.senderEmail])
+            .catch(() => {});
+        }
+      } catch (notifErr) {
+        console.warn('[emailPoller] Error en notificaciones de createEntrada:', notifErr.message);
+      }
+    });
 
     return correspondenceId;
   } catch (err) {

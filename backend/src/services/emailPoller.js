@@ -93,6 +93,13 @@ async function markProcessed(projectId, messageId, correspondenceId = null) {
  *  2. Asunto normalizado (RE:/RV:/FW: quitados) → busca salida reciente con mismo asunto
  */
 async function findParentId(projectId, { inReplyTo, references, subject }) {
+  // Helper: verifica que el id encontrado realmente existe en correspondence
+  async function verifyExists(id) {
+    if (!id) return null;
+    const [[row]] = await pool.execute('SELECT id FROM correspondence WHERE id = ?', [id]).catch(() => [[null]]);
+    return row?.id || null;
+  }
+
   // 1. Por Message-ID headers
   const msgIds = [inReplyTo, ...(references || [])].filter(Boolean).map(s => s.trim()).filter(Boolean);
   if (msgIds.length > 0) {
@@ -102,14 +109,14 @@ async function findParentId(projectId, { inReplyTo, references, subject }) {
       `SELECT id FROM correspondence WHERE project_id = ? AND internet_message_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`,
       [projectId, ...msgIds.map(m => m.slice(0, 299))]
     ).catch(() => [[null]]);
-    if (match) return match.id;
+    if (match) return await verifyExists(match.id);
 
     // Buscar también en processed (por si el message_id es de un email de salida enviado externamente)
     const [[proc]] = await pool.execute(
       `SELECT correspondence_id FROM email_inbox_processed WHERE project_id = ? AND message_id IN (${placeholders}) AND correspondence_id IS NOT NULL LIMIT 1`,
       [projectId, ...msgIds.map(m => m.slice(0, 199))]
     ).catch(() => [[null]]);
-    if (proc?.correspondence_id) return proc.correspondence_id;
+    if (proc?.correspondence_id) return await verifyExists(proc.correspondence_id);
   }
 
   // 2. Por asunto normalizado — buscar salida reciente (últimos 90 días) con mismo asunto
@@ -124,7 +131,7 @@ async function findParentId(projectId, { inReplyTo, references, subject }) {
          ORDER BY created_at DESC LIMIT 1`,
         [projectId, `%${normalized.slice(0, 100)}%`]
       ).catch(() => [[null]]);
-      if (bySubject) return bySubject.id;
+      if (bySubject) return await verifyExists(bySubject.id);
     }
   }
 
@@ -410,11 +417,16 @@ async function pollGraphApi(inbox) {
   //    Nota: NO usamos delta API porque ignora $filter y traería TODO el historial.
   //    Usamos /messages con $filter=receivedDateTime ge {fecha} — funciona correctamente.
   // last_polled_at puede llegar como Date object o string MySQL '2026-04-07 20:58:00'
+  // OData $filter requiere formato ISO sin milisegundos: 2026-04-10T17:30:45Z
+  const toODataDate = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
   const since = (() => {
-    if (!inbox.last_polled_at) return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const v = inbox.last_polled_at;
-    const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + 'Z');
-    return isNaN(d.getTime()) ? new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() : d.toISOString();
+    const fallback = toODataDate(new Date(Date.now() - 48 * 60 * 60 * 1000));
+    if (!inbox.last_polled_at) return fallback;
+    try {
+      const v = inbox.last_polled_at;
+      const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T').replace(/Z?$/, 'Z'));
+      return isNaN(d.getTime()) ? fallback : toODataDate(d);
+    } catch { return fallback; }
   })();
 
   const SELECT = 'id,subject,from,receivedDateTime,body,hasAttachments,internetMessageId,internetMessageHeaders';

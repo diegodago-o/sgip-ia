@@ -388,6 +388,9 @@ export const corrSignaturesAPI = {
   // Download sealed PDF certificate (completed process only)
   certificate: (pid, cid) =>
     api.get(`/exec/${pid}/correspondence/${cid}/firma/certificate`, { responseType: 'arraybuffer' }),
+  // Send signed PDF by email
+  sendEmail: (pid, cid, data) =>
+    api.post(`/exec/${pid}/correspondence/${cid}/firma/send-email`, data),
   // Batch-load statuses for multiple correspondence items
   batchStatus: async (pid, corrIds) => {
     const results = await Promise.allSettled(

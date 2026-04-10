@@ -1065,7 +1065,115 @@ function FormModal({ projectId, initial, replyTo, onClose, onSaved }) {
 }
 
 // ─── Card de item SALIDA ──────────────────────────────────────────────────────
-function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSign, onThread, onReply, sigStatus, deleting }) {
+// ─── Modal Enviar Correspondencia Firmada ─────────────────────────────────────
+function EnviarCorreoModal({ item, projectId, onClose, onSent }) {
+  const [form, setForm] = useState({
+    to:      item.recipient_name ? '' : '',   // se llena abajo con el email
+    cc:      '',
+    subject: item.subject || '',
+    body:    [
+      item.recipient_title ? `${item.recipient_title}` : '',
+      item.recipient_name  ? `${item.recipient_name}` : '',
+      item.recipient_entity ? `${item.recipient_entity}` : '',
+      '',
+      'Cordialmente,',
+    ].filter(Boolean).join('\n'),
+  });
+  const [sending, setSending] = useState(false);
+  const [error, setError]     = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSend = async () => {
+    if (!form.to.trim())      { setError('El correo destinatario es requerido'); return; }
+    if (!form.subject.trim()) { setError('El asunto es requerido'); return; }
+    setSending(true); setError('');
+    try {
+      await corrSignaturesAPI.sendEmail(projectId, item.id, form);
+      onSent();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al enviar el correo');
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+          <div className="flex items-center gap-2">
+            <Send className="w-5 h-5 text-brand-600" />
+            <h2 className="text-base font-semibold text-brand-900">Enviar correspondencia</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-surface-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Info documento */}
+          <div className="flex items-start gap-3 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm">
+            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-emerald-800">Documento firmado listo para enviar</p>
+              <p className="text-emerald-700 text-xs mt-0.5">{item.consecutive_code} — {item.subject}</p>
+              <p className="text-emerald-600 text-xs mt-0.5">El PDF con firmas se adjuntará automáticamente al correo.</p>
+            </div>
+          </div>
+
+          {/* Campos de correo */}
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Para <span className="text-red-500">*</span></label>
+              <input type="email" value={form.to} onChange={e => set('to', e.target.value)}
+                placeholder={item.sender_email || 'correo@entidad.gov.co'}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" />
+              {item.recipient_entity && <p className="text-[10px] text-surface-400">{item.recipient_name}{item.recipient_entity ? ` · ${item.recipient_entity}` : ''}</p>}
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">CC (opcional)</label>
+              <input type="text" value={form.cc} onChange={e => set('cc', e.target.value)}
+                placeholder="otro@correo.com, otro2@correo.com"
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Asunto <span className="text-red-500">*</span></label>
+              <input type="text" value={form.subject} onChange={e => set('subject', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-surface-600">Cuerpo del mensaje</label>
+              <textarea rows={7} value={form.body} onChange={e => set('body', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none resize-none font-mono text-xs" />
+            </div>
+            {/* Adjunto info */}
+            <div className="flex items-center gap-2 p-2.5 bg-surface-50 border border-surface-200 rounded-lg">
+              <Paperclip className="w-3.5 h-3.5 text-surface-400 flex-shrink-0" />
+              <span className="text-xs text-surface-600 font-medium">{item.consecutive_code}.pdf</span>
+              <span className="text-[10px] text-surface-400">— PDF con firmas digitales</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-surface-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-surface-600 hover:text-surface-800 transition-colors">Cancelar</button>
+          <button onClick={handleSend} disabled={sending}
+            className="flex items-center gap-2 px-5 py-2 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm">
+            {sending ? <><Loader2 className="w-4 h-4 animate-spin" />Enviando...</> : <><Send className="w-4 h-4" />Enviar correo</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSign, onThread, onReply, onSendEmail, sigStatus, deleting }) {
   const typeLabel = TYPES.find(t => t.value === item.correspondence_type)?.label || item.correspondence_type;
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
   const sigLabel  = sigStatus?.status === 'completed' ? 'Firmado' : sigStatus?.status === 'in_progress' ? 'En proceso' : 'Firmar';
@@ -1104,6 +1212,13 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
             <button onClick={() => onReply(item)} title="Crear respuesta/seguimiento"
               className="flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg text-xs font-medium hover:bg-teal-100 transition-colors">
               <Reply className="w-3 h-3" />Responder
+            </button>
+          )}
+          {/* Botón Enviar — solo cuando está firmado */}
+          {perms?.canEdit && sigStatus?.status === 'completed' && (
+            <button onClick={() => onSendEmail(item)} title="Enviar por correo"
+              className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium hover:bg-emerald-100 transition-colors">
+              <Send className="w-3 h-3" />Enviar
             </button>
           )}
           {perms?.canEdit && (
@@ -1533,6 +1648,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
   const [replyToItem, setReplyToItem]         = useState(null); // item entrada al que respondemos
   const [previewItem, setPreviewItem]         = useState(null);
   const [sigModal, setSigModal]               = useState(null);
+  const [sendEmailItem, setSendEmailItem]     = useState(null); // item a enviar por correo
   const [corrSigStatuses, setCorrSigStatuses] = useState({});
 
   // Modales entrada
@@ -1805,6 +1921,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
                   onDelete={handleDelete}
                   onPreview={i => setPreviewItem(i)}
                   onSign={i  => setSigModal(i)}
+                  onSendEmail={i => setSendEmailItem(i)}
                   onThread={i => setThreadItem(i)}
                   onReply={i  => { setReplyToItem(null); setEditSalidaItem(null); setShowSalidaForm(false);
                                    // Abrir formulario entrada como respuesta a este item de salida
@@ -2087,6 +2204,16 @@ export default function CorrespondencePanel({ projectId, perms }) {
           projectId={projectId}
           onClose={() => setShowFirmaModal(false)}
           onCreated={() => { setShowFirmaModal(false); loadFreeRequests(); }}
+        />
+      )}
+
+      {/* Enviar correspondencia firmada por correo */}
+      {sendEmailItem && (
+        <EnviarCorreoModal
+          item={sendEmailItem}
+          projectId={projectId}
+          onClose={() => setSendEmailItem(null)}
+          onSent={() => { setSendEmailItem(null); load(); }}
         />
       )}
 

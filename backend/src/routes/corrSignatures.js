@@ -871,6 +871,74 @@ router.get('/certificate', authenticate, async (req, res) => {
   } catch (e) { console.error('[corrSig GET /certificate]', e); res.status(500).json({ error: e.message }); }
 });
 
+// ── POST /send-email — enviar correspondencia firmada por correo ─────────────
+router.post('/send-email', authenticate, async (req, res) => {
+  const { projectId, correspondenceId } = req.params;
+  try {
+    const { to, cc, subject, body } = req.body || {};
+    if (!to) return res.status(400).json({ error: 'El destinatario (to) es requerido' });
+    if (!subject) return res.status(400).json({ error: 'El asunto es requerido' });
+
+    // Cargar correspondencia y proyecto
+    const [[corr]] = await pool.execute('SELECT * FROM correspondence WHERE id=? AND project_id=?', [correspondenceId, projectId]);
+    if (!corr) return res.status(404).json({ error: 'Correspondencia no encontrada' });
+    const [[project]] = await pool.execute('SELECT * FROM projects WHERE id=?', [projectId]);
+
+    // Cargar proceso de firma completado
+    const [reqs] = await pool.execute(
+      "SELECT * FROM corr_signature_requests WHERE correspondence_id=? AND project_id=? AND status='completed' ORDER BY completed_at DESC LIMIT 1",
+      [correspondenceId, projectId]
+    );
+
+    // Generar PDF (con firmas si está completado, sin si no)
+    const [signers] = reqs.length
+      ? await pool.execute('SELECT * FROM corr_signature_signers WHERE request_id=? ORDER BY sign_order', [reqs[0].id])
+      : [[]];
+    const pdfResult = await buildCorrespondencePdf(corr, project, signers, {
+      withSignatures: reqs.length > 0,
+      request: reqs[0] || null,
+    });
+    const pdfFilename = `${corr.consecutive_code || `COR-${correspondenceId}`}.pdf`;
+
+    // Cargar config de email del sistema
+    const [settingsRows] = await pool.execute(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'email_config'"
+    );
+    if (!settingsRows.length || !settingsRows[0].setting_value) {
+      return res.status(400).json({ error: 'No hay configuración de correo en el sistema. Configúrela en Ajustes → Correo electrónico.' });
+    }
+    const emailCfg = JSON.parse(settingsRows[0].setting_value);
+    if (!emailCfg.provider_type) {
+      return res.status(400).json({ error: 'Configuración de correo incompleta' });
+    }
+
+    // Construir HTML del cuerpo
+    const htmlBody = body
+      ? body.replace(/\n/g, '<br>')
+      : `<p>Estimado(a),</p><p>Adjunto encontrará la correspondencia <strong>${corr.consecutive_code}</strong>.</p><p>Cordialmente,</p>`;
+
+    const { sendMail } = require('../services/mailer');
+    await sendMail(emailCfg, {
+      to,
+      cc: cc || undefined,
+      subject,
+      html: `<div style="font-family:sans-serif;font-size:14px;color:#333;line-height:1.6">${htmlBody}</div>`,
+      attachments: [{ filename: pdfFilename, content: pdfResult.buffer, contentType: 'application/pdf' }],
+    });
+
+    // Actualizar estado de la correspondencia a 'enviado' y registrar
+    await pool.execute(
+      "UPDATE correspondence SET status = 'enviado', sent_date = CURDATE() WHERE id = ? AND project_id = ?",
+      [correspondenceId, projectId]
+    ).catch(() => {});
+
+    res.json({ success: true, message: `Correspondencia enviada a ${to}` });
+  } catch (e) {
+    console.error('[corrSig POST /send-email]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC ROUTER  —  /api/firma/corr
 // ════════════════════════════════════════════════════════════════════

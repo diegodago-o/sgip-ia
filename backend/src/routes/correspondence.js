@@ -114,7 +114,6 @@ router.get('/:projectId/correspondence', [param('projectId').isInt()], async (re
              COALESCE(NULLIF(c.project_entity,''), p.client_name) AS project_entity,
              p.correspondence_sender_name,
              p.correspondence_logo,
-             -- ¿Tiene hijos? (alguien respondió)
              (SELECT COUNT(*) FROM correspondence ch WHERE ch.parent_id = c.id) AS reply_count
       FROM correspondence c
       LEFT JOIN users u  ON c.created_by   = u.id

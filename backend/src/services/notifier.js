@@ -128,6 +128,20 @@ const BRAND = '#1e3a5f';
 const BRAND_LIGHT = '#e8f0fb';
 const APP_URL = (process.env.APP_URL || 'https://sigp.tecnofactory.net.co').replace(/\/$/, '');
 
+/** Formatea cualquier valor de fecha (Date obj, string ISO, string MySQL) a texto legible */
+function safeDate(val, opts = { day: '2-digit', month: 'long', year: 'numeric' }) {
+  if (!val) return null;
+  try {
+    const str = val instanceof Date ? val.toISOString() : String(val);
+    // Normalizar: tomar solo los 10 primeros chars si es ISO completo
+    const dateOnly = str.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
+    const d = new Date(dateOnly + 'T12:00:00');
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('es-CO', opts);
+  } catch { return null; }
+}
+
 function wrap(content) {
   return `<!DOCTYPE html>
 <html lang="es">
@@ -165,9 +179,14 @@ function buildTemplate(type, data) {
   const { project_name = '', project_code = '' } = data;
   const projLabel  = project_code ? `[${project_code}] ${project_name}` : project_name;
   const projectUrl = data.project_id ? `${APP_URL}/adjudicacion/${data.project_id}` : null;
-  const viewBtn    = (label = 'Ver proyecto →') => projectUrl
-    ? `<a href="${projectUrl}" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">${label}</a>`
+  // URL directa a la pestaña de correspondencia en Ejecución y Seguimiento
+  const corrUrl    = data.project_id
+    ? `${APP_URL}/ejecucion?tab=correspondence&project=${data.project_id}`
+    : projectUrl;
+  const viewBtn = (label = 'Ver proyecto →', url = projectUrl) => url
+    ? `<a href="${url}" style="display:inline-block;margin-top:22px;padding:10px 22px;background:${BRAND};color:#fff;font-size:13px;font-weight:600;border-radius:8px;text-decoration:none">${label}</a>`
     : '';
+  const corrBtn = (label = 'Ir a Correspondencia →') => viewBtn(label, corrUrl);
 
   switch (type) {
 
@@ -227,9 +246,7 @@ function buildTemplate(type, data) {
     case 'correspondence.radicada': {
       // Acuse de recibo al remitente externo — tono formal
       const orgName = data.org_name || 'SGIP-IA';
-      const fLimite = data.fecha_limite
-        ? new Date(String(data.fecha_limite).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
-        : null;
+      const fLimite = safeDate(data.fecha_limite);
       return {
         subject: `Acuse de recibo — Radicado ${data.radicado_number || data.consecutive_code || ''}`,
         html: `<!DOCTYPE html>
@@ -253,7 +270,7 @@ function buildTemplate(type, data) {
       <table style="width:100%;margin-top:4px;border-collapse:collapse">
         ${row('Asunto', data.subject || '')}
         ${row('Tipo', data.correspondence_type || '')}
-        ${row('Fecha de radicación', data.reference_date ? new Date(String(data.reference_date).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '')}
+        ${row('Fecha de radicación', safeDate(data.reference_date) || '')}
         ${fLimite ? row('Fecha límite de respuesta', `<strong>${fLimite}</strong>`) : ''}
         ${row('Proyecto', projLabel)}
       </table>
@@ -283,13 +300,13 @@ function buildTemplate(type, data) {
             ${row('Asunto', data.subject || '')}
             ${row('Tipo', data.correspondence_type || '')}
             ${row('Remitente', data.sender_name_external || data.sender_entity_external || '')}
-            ${row('Recibido', data.reference_date ? new Date(String(data.reference_date).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO') : '')}
-            ${data.fecha_limite ? row('Fecha límite', `<strong style="color:#b45309">${new Date(String(data.fecha_limite).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</strong>`) : ''}
+            ${row('Recibido', safeDate(data.reference_date, { day: '2-digit', month: 'long', year: 'numeric' }) || '')}
+            ${data.fecha_limite ? row('Fecha límite', `<strong style="color:#b45309">${safeDate(data.fecha_limite) || ''}</strong>`) : ''}
           </table>
           <div style="margin-top:18px;padding:12px 16px;background:#faf5ff;border-left:3px solid #7c3aed;border-radius:4px">
             <p style="margin:0;font-size:13px;color:#5b21b6">Ingresa al sistema para revisar el documento y preparar la respuesta correspondiente.</p>
           </div>
-          ${viewBtn('Ir al proyecto →')}
+          ${corrBtn('Ir a Correspondencia →')}
         `),
       };
 
@@ -327,12 +344,12 @@ function buildTemplate(type, data) {
             ${row('Radicado', data.radicado_number || data.consecutive_code || '')}
             ${row('Asunto', data.subject || '')}
             ${row('Remitente', data.sender_name_external || data.sender_entity_external || '')}
-            ${row('Fecha límite', data.fecha_limite ? new Date(String(data.fecha_limite).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '')}
+            ${row('Fecha límite', safeDate(data.fecha_limite) || '')}
           </table>
           <div style="margin-top:18px;padding:12px 16px;background:#fffbeb;border-left:3px solid ${urgColor};border-radius:4px">
             <p style="margin:0;font-size:13px;color:#92400e">Ingresa al sistema y elabora la respuesta antes de que venza el plazo.</p>
           </div>
-          ${viewBtn('Ir al proyecto →')}
+          ${corrBtn('Ir a Correspondencia →')}
         `),
       };
     }

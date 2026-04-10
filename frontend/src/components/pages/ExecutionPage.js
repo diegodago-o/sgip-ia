@@ -40,6 +40,10 @@ export default function ExecutionPage() {
   const location = useLocation();
   const [projects, setProjects] = useState([]);
   const [selectedId, setSelectedId] = useState(() => {
+    // Si viene con ?project=X en la URL, tiene prioridad sobre localStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlProject = urlParams.get('project');
+    if (urlProject && !isNaN(parseInt(urlProject, 10))) return parseInt(urlProject, 10);
     const s = localStorage.getItem('sgip_selected_project');
     return s ? parseInt(s, 10) : null;
   });
@@ -53,11 +57,17 @@ export default function ExecutionPage() {
   const [dropOpen, setDropOpen] = useState(false);
   const perms = usePermissions('ejecucion');
 
-  // Sync tab from URL when location changes (e.g. back/forward or direct link)
+  // Sync tab y project desde URL cuando cambia location
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const t = params.get('tab');
     if (t && TABS.find(tab => tab.id === t)) setActiveTab(t);
+    const p = params.get('project');
+    if (p && !isNaN(parseInt(p, 10))) {
+      const pid = parseInt(p, 10);
+      setSelectedId(pid);
+      localStorage.setItem('sgip_selected_project', pid);
+    }
   }, [location.search]);
 
   // Persist selected project across modules
@@ -69,8 +79,12 @@ export default function ExecutionPage() {
         const active = data.data.filter(p => ['en_ejecucion','en_arranque','adjudicado'].includes(p.status));
         setProjects(active);
         if (active.length === 0) return;
-        const stored = parseInt(localStorage.getItem('sgip_selected_project'), 10);
-        const preferred = active.find(p => p.id === stored) || active[0];
+        // Prioridad: ?project= en URL > localStorage > primero de la lista
+        const urlProject = parseInt(new URLSearchParams(window.location.search).get('project'), 10);
+        const stored     = parseInt(localStorage.getItem('sgip_selected_project'), 10);
+        const preferred  = active.find(p => p.id === urlProject)
+                        || active.find(p => p.id === stored)
+                        || active[0];
         setSelectedId(preferred.id);
         setSelectedProject(preferred);
       })

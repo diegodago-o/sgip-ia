@@ -932,6 +932,21 @@ router.post('/send-email', authenticate, async (req, res) => {
       [correspondenceId, projectId]
     ).catch(() => {});
 
+    // Notificación interna: equipo del proyecto
+    try {
+      const notifier = require('../services/notifier');
+      notifier.notify('correspondence.sent', {
+        project_id:       Number(projectId),
+        project_code:     project?.code || '',
+        project_name:     project?.name || '',
+        subject:          corr.subject || '',
+        consecutive_code: corr.consecutive_code || '',
+        recipient_name:   corr.recipient_name || corr.recipient_entity || '',
+        sent_to:          to,
+        sent_cc:          cc || '',
+      }).catch(() => {});
+    } catch (_) {}
+
     res.json({ success: true, message: `Correspondencia enviada a ${to}` });
   } catch (e) {
     console.error('[corrSig POST /send-email]', e);

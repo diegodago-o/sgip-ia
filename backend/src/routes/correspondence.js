@@ -295,9 +295,9 @@ router.post('/:projectId/correspondence',
         }
       }
 
-      // Notificación
+      // Notificaciones
       const [projNotify] = await pool.execute('SELECT code, name FROM projects WHERE id = ?', [pid]);
-      notifier.notify('correspondence.received', {
+      const notifBase = {
         project_id:          Number(pid),
         project_code:        projNotify[0]?.code || '',
         project_name:        projNotify[0]?.name || '',
@@ -306,7 +306,37 @@ router.post('/:projectId/correspondence',
         direction:           direction,
         radicado_number:     created.radicado_number || '',
         reference_date:      created.reference_date || null,
-      }).catch(() => {});
+        consecutive_code:    created.consecutive_code || '',
+        fecha_limite:        created.fecha_limite || null,
+        sender_name_external:  created.sender_name_external  || '',
+        sender_entity_external: created.sender_entity_external || '',
+      };
+
+      // 1. Notificación interna: correspondencia recibida
+      notifier.notify('correspondence.received', notifBase).catch(() => {});
+
+      // 2. Acuse de recibo al remitente externo (solo entradas con sender_email)
+      if (direction === 'entrada' && created.sender_email) {
+        // Cargar nombre de organización desde configuración
+        pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'company_name' LIMIT 1")
+          .then(([[orgRow]]) => {
+            const orgName = orgRow?.setting_value || projNotify[0]?.name || 'SGIP-IA';
+            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: orgName }, [created.sender_email]);
+          })
+          .catch(() => {
+            notifier.notifyExternal('correspondence.radicada', { ...notifBase, org_name: projNotify[0]?.name || 'SGIP-IA' }, [created.sender_email]);
+          });
+      }
+
+      // 3. Notificación al responsable asignado
+      if (created.assigned_to) {
+        pool.execute('SELECT email, name FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [created.assigned_to])
+          .then(([[assignedUser]]) => {
+            if (assignedUser?.email) {
+              notifier.notifyExternal('correspondence.assigned', notifBase, [assignedUser.email]);
+            }
+          }).catch(() => {});
+      }
 
       res.status(201).json({ data: created, message: 'Correspondencia creada' });
     } catch (err) {
@@ -401,6 +431,29 @@ router.put('/:projectId/correspondence/:id',
           }
           await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
             [req.params.id, prevStatus, newStatus, oldAssigned ? 'Responsable reasignado' : 'Responsable asignado', newAssigned, req.user.id]).catch(() => {});
+
+          // Notificar al nuevo responsable
+          pool.execute('SELECT email FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [newAssigned])
+            .then(([[u]]) => {
+              if (!u?.email) return;
+              const [[pRow]] = [[]]; // se carga más abajo si falta
+              pool.execute('SELECT code, name FROM projects WHERE id = ?', [req.params.projectId])
+                .then(([[proj]]) => {
+                  notifier.notifyExternal('correspondence.assigned', {
+                    project_id:              Number(req.params.projectId),
+                    project_code:            proj?.code || '',
+                    project_name:            proj?.name || '',
+                    subject:                 updated.subject || '',
+                    correspondence_type:     updated.correspondence_type || '',
+                    radicado_number:         updated.radicado_number || '',
+                    consecutive_code:        updated.consecutive_code || '',
+                    reference_date:          updated.reference_date || null,
+                    fecha_limite:            updated.fecha_limite || null,
+                    sender_name_external:    updated.sender_name_external  || '',
+                    sender_entity_external:  updated.sender_entity_external || '',
+                  }, [u.email]);
+                }).catch(() => {});
+            }).catch(() => {});
         }
       }
 

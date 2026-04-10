@@ -221,6 +221,87 @@ router.get('/', authenticate, async (req, res) => {
       if (process.env.NODE_ENV !== 'production') console.warn('[notifications] milestones query:', e.message);
     }
 
+    // ── 6. Correspondencia próxima a vencer (≤3 días) ──────────────────────
+    try {
+      const [corrWarning] = await db.execute(
+        `SELECT c.id, c.subject, c.consecutive_code, c.radicado_number,
+                c.fecha_limite, c.correspondence_type, c.status,
+                p.id   AS project_id,
+                p.code AS project_code,
+                p.name AS project_name,
+                DATEDIFF(c.fecha_limite, CURDATE()) AS days_until
+         FROM correspondence c
+         JOIN projects p ON p.id = c.project_id
+         WHERE c.direction = 'entrada'
+           AND c.fecha_limite IS NOT NULL
+           AND c.fecha_limite >= CURDATE()
+           AND DATEDIFF(c.fecha_limite, CURDATE()) <= 3
+           AND c.status NOT IN ('respondido', 'archivado', 'cerrado')
+           AND p.status NOT IN ('cerrado', 'liquidado')
+           ${projectFilter}
+         ORDER BY c.fecha_limite ASC
+         LIMIT 20`,
+        projectArgs
+      );
+
+      for (const r of corrWarning) {
+        items.push({
+          type:         'correspondence_deadline_warning',
+          id:           `cw_${r.id}`,
+          title:        r.radicado_number ? `Radicado ${r.radicado_number}` : (r.subject || `Correspondencia ${r.consecutive_code}`),
+          subtitle:     r.subject || '',
+          project_code: r.project_code,
+          project_name: r.project_name,
+          project_id:   r.project_id,
+          days_until:   r.days_until,
+          fecha_limite: r.fecha_limite,
+          corr_type:    r.correspondence_type,
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[notifications] corr warning query:', e.message);
+    }
+
+    // ── 7. Correspondencia fuera de plazo ───────────────────────────────────
+    try {
+      const [corrOverdue] = await db.execute(
+        `SELECT c.id, c.subject, c.consecutive_code, c.radicado_number,
+                c.fecha_limite, c.correspondence_type, c.status,
+                p.id   AS project_id,
+                p.code AS project_code,
+                p.name AS project_name,
+                DATEDIFF(CURDATE(), c.fecha_limite) AS days_overdue
+         FROM correspondence c
+         JOIN projects p ON p.id = c.project_id
+         WHERE c.direction = 'entrada'
+           AND c.fecha_limite IS NOT NULL
+           AND c.fecha_limite < CURDATE()
+           AND c.status NOT IN ('respondido', 'archivado', 'cerrado')
+           AND p.status NOT IN ('cerrado', 'liquidado')
+           ${projectFilter}
+         ORDER BY c.fecha_limite ASC
+         LIMIT 20`,
+        projectArgs
+      );
+
+      for (const r of corrOverdue) {
+        items.push({
+          type:         'correspondence_overdue',
+          id:           `co_${r.id}`,
+          title:        r.radicado_number ? `Radicado ${r.radicado_number}` : (r.subject || `Correspondencia ${r.consecutive_code}`),
+          subtitle:     r.subject || '',
+          project_code: r.project_code,
+          project_name: r.project_name,
+          project_id:   r.project_id,
+          days_overdue: r.days_overdue,
+          fecha_limite: r.fecha_limite,
+          corr_type:    r.correspondence_type,
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[notifications] corr overdue query:', e.message);
+    }
+
     res.json({
       success: true,
       total:   items.length,

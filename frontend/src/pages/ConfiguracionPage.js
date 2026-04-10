@@ -108,13 +108,20 @@ function Feedback({ fb, onClose }) {
 
 // ─── Notification type definitions (mirrors backend) ─────────────────────────
 const NOTIF_TYPES = [
-  { id: 'acta.created',            category: 'instant',   label: 'Acta creada',                   desc: 'Al firmar y crear una nueva acta de comité',                default_recipients: 'project_team' },
-  { id: 'commitment.created',      category: 'instant',   label: 'Compromiso creado',              desc: 'Al registrar un nuevo compromiso en un acta',               default_recipients: 'project_team' },
-  { id: 'correspondence.received', category: 'instant',   label: 'Correspondencia recibida',       desc: 'Al ingresar nueva correspondencia al sistema',              default_recipients: 'project_team' },
-  { id: 'payment.approved',        category: 'instant',   label: 'Pago aprobado',                  desc: 'Al aprobar un pago de proyecto',                            default_recipients: 'admins'       },
-  { id: 'commitment.reminder',     category: 'scheduled', label: 'Recordatorio de compromiso',     desc: 'Días antes del vencimiento de un compromiso (configurable)', default_recipients: 'project_team', default_lead_days: 3 },
-  { id: 'commitment.overdue',      category: 'scheduled', label: 'Alerta compromisos vencidos',    desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',  default_recipients: 'admins'       },
-  { id: 'payment.due_reminder',    category: 'scheduled', label: 'Recordatorio de corte de pago',  desc: 'Días antes del cierre de período de un pago (configurable)',  default_recipients: 'admins',      default_lead_days: 5 },
+  // ── Generales ──
+  { id: 'acta.created',                    category: 'instant',        label: 'Acta creada',                        desc: 'Al firmar y crear una nueva acta de comité',                              default_recipients: 'project_team' },
+  { id: 'commitment.created',              category: 'instant',        label: 'Compromiso creado',                  desc: 'Al registrar un nuevo compromiso en un acta',                             default_recipients: 'project_team' },
+  { id: 'correspondence.received',         category: 'instant',        label: 'Correspondencia recibida',           desc: 'Al ingresar nueva correspondencia al sistema',                            default_recipients: 'project_team' },
+  { id: 'payment.approved',               category: 'instant',        label: 'Pago aprobado',                      desc: 'Al aprobar un pago de proyecto',                                          default_recipients: 'admins'       },
+  { id: 'commitment.reminder',             category: 'scheduled',      label: 'Recordatorio de compromiso',         desc: 'Días antes del vencimiento de un compromiso (configurable)',              default_recipients: 'project_team', default_lead_days: 3 },
+  { id: 'commitment.overdue',              category: 'scheduled',      label: 'Alerta compromisos vencidos',        desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',               default_recipients: 'admins'       },
+  { id: 'payment.due_reminder',            category: 'scheduled',      label: 'Recordatorio de corte de pago',      desc: 'Días antes del cierre de período de un pago (configurable)',              default_recipients: 'admins',      default_lead_days: 5 },
+  // ── Correspondencia ──
+  { id: 'correspondence.radicada',         category: 'corr_instant',   label: 'Acuse de recibo al remitente',       desc: 'Envía confirmación de radicación al remitente externo al registrar una entrada', default_recipients: 'direct' },
+  { id: 'correspondence.assigned',         category: 'corr_instant',   label: 'Aviso de asignación',                desc: 'Notifica al responsable interno cuando se le asigna o reasigna una comunicación',  default_recipients: 'direct' },
+  { id: 'correspondence.sent',             category: 'corr_instant',   label: 'Correspondencia enviada',            desc: 'Notifica al equipo del proyecto cuando se envía una correspondencia de salida',    default_recipients: 'project_team' },
+  { id: 'correspondence.deadline.warning', category: 'corr_scheduled', label: 'Aviso de vencimiento próximo',       desc: 'Alerta cuando una comunicación entrada está por vencer su plazo de respuesta',    default_recipients: 'project_team', default_lead_days: 3 },
+  { id: 'correspondence.deadline.overdue', category: 'corr_scheduled', label: 'Correspondencia fuera de plazo',     desc: 'Resumen diario de comunicaciones sin respuesta que superaron el plazo',           default_recipients: 'admins'       },
 ];
 
 const RECIPIENT_OPTIONS = [
@@ -708,8 +715,10 @@ function NotificacionesSection() {
     finally { setTesting(false); }
   };
 
-  const instant   = NOTIF_TYPES.filter(t => t.category === 'instant');
-  const scheduled = NOTIF_TYPES.filter(t => t.category === 'scheduled');
+  const instant        = NOTIF_TYPES.filter(t => t.category === 'instant');
+  const scheduled      = NOTIF_TYPES.filter(t => t.category === 'scheduled');
+  const corrInstant    = NOTIF_TYPES.filter(t => t.category === 'corr_instant');
+  const corrScheduled  = NOTIF_TYPES.filter(t => t.category === 'corr_scheduled');
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-400" /></div>;
 
@@ -875,6 +884,138 @@ function NotificacionesSection() {
                           placeholder="a@empresa.com, b@empresa.com"
                           className="input-field text-xs w-full py-1.5"
                         />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Correspondencia — Inmediatas ── */}
+      <div className="rounded-2xl border border-surface-200 bg-white overflow-hidden shadow-sm">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-surface-100 bg-amber-50">
+          <Mail className="w-3.5 h-3.5 text-amber-600" />
+          <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Correspondencia — Notificaciones inmediatas</span>
+          <span className="text-[10px] text-amber-600 ml-1">Acuses, asignaciones y envíos</span>
+        </div>
+        <div className="divide-y divide-surface-50">
+          {corrInstant.map(t => {
+            const tc = getTypeCfg(t.id);
+            const isEnabled = tc.enabled ?? false;
+            const isDirect = t.default_recipients === 'direct';
+            return (
+              <div key={t.id} className={`p-4 transition-colors ${!cfg.enabled ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand-800">{t.label}</p>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{t.desc}</p>
+                    {isDirect && (
+                      <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-1">
+                        <span>⚡</span> Se envía al destinatario específico del evento (no configurable)
+                      </p>
+                    )}
+                  </div>
+                  <button type="button"
+                    disabled={!cfg.enabled}
+                    onClick={() => setTypeCfg(t.id, { enabled: !isEnabled })}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:cursor-not-allowed ${
+                      isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'
+                    }`}>
+                    {isEnabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    {isEnabled ? 'Activo' : 'Inactivo'}
+                  </button>
+                </div>
+                {isEnabled && cfg.enabled && !isDirect && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-surface-50">
+                    <div>
+                      <label className="block text-[10px] font-medium text-surface-500 mb-1">Destinatarios</label>
+                      <select
+                        value={tc.recipients || t.default_recipients}
+                        onChange={e => setTypeCfg(t.id, { recipients: e.target.value })}
+                        className="input-field text-xs w-full py-1.5">
+                        {RECIPIENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {(tc.recipients || t.default_recipients) === 'custom' && (
+                      <div>
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Correos (separados por coma)</label>
+                        <input type="text"
+                          value={(tc.custom_emails || []).join(', ')}
+                          onChange={e => setTypeCfg(t.id, { custom_emails: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
+                          placeholder="a@empresa.com, b@empresa.com"
+                          className="input-field text-xs w-full py-1.5" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Correspondencia — Programadas ── */}
+      <div className="rounded-2xl border border-surface-200 bg-white overflow-hidden shadow-sm">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-surface-100 bg-amber-50">
+          <Clock className="w-3.5 h-3.5 text-amber-600" />
+          <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Correspondencia — Alertas de plazo</span>
+          <span className="text-[10px] text-amber-600 ml-1">Vencimientos y demoras de respuesta</span>
+        </div>
+        <div className="divide-y divide-surface-50">
+          {corrScheduled.map(t => {
+            const tc = getTypeCfg(t.id);
+            const isEnabled = tc.enabled ?? false;
+            return (
+              <div key={t.id} className={`p-4 transition-colors ${!cfg.enabled ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand-800">{t.label}</p>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{t.desc}</p>
+                  </div>
+                  <button type="button"
+                    disabled={!cfg.enabled}
+                    onClick={() => setTypeCfg(t.id, { enabled: !isEnabled })}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:cursor-not-allowed ${
+                      isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'
+                    }`}>
+                    {isEnabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    {isEnabled ? 'Activo' : 'Inactivo'}
+                  </button>
+                </div>
+                {isEnabled && cfg.enabled && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-surface-50">
+                    <div>
+                      <label className="block text-[10px] font-medium text-surface-500 mb-1">Destinatarios</label>
+                      <select
+                        value={tc.recipients || t.default_recipients}
+                        onChange={e => setTypeCfg(t.id, { recipients: e.target.value })}
+                        className="input-field text-xs w-full py-1.5">
+                        {RECIPIENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {t.default_lead_days !== undefined && (
+                      <div>
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Días de anticipación</label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" min="1" max="10"
+                            value={tc.lead_days ?? t.default_lead_days}
+                            onChange={e => setTypeCfg(t.id, { lead_days: Number(e.target.value) })}
+                            className="input-field text-xs w-20 py-1.5" />
+                          <span className="text-[10px] text-surface-400">días antes</span>
+                        </div>
+                      </div>
+                    )}
+                    {(tc.recipients || t.default_recipients) === 'custom' && (
+                      <div className="col-span-2">
+                        <label className="block text-[10px] font-medium text-surface-500 mb-1">Correos (separados por coma)</label>
+                        <input type="text"
+                          value={(tc.custom_emails || []).join(', ')}
+                          onChange={e => setTypeCfg(t.id, { custom_emails: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
+                          placeholder="a@empresa.com, b@empresa.com"
+                          className="input-field text-xs w-full py-1.5" />
                       </div>
                     )}
                   </div>

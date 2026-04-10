@@ -4,7 +4,7 @@ import {
   Bell, Search, HelpCircle, X, AlertTriangle, CreditCard,
   ChevronRight, Loader2, CheckCircle2, FolderOpen, Clock,
   Keyboard, BookOpen, MessageCircle, ExternalLink, Zap,
-  Shield, FileText, Flag,
+  Shield, FileText, Flag, Mail,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -202,6 +202,8 @@ function NotificationsPanel({ onClose }) {
   const policiesExp     = items.filter(i => i.type === 'policy_expiring' || i.type === 'policy_expired');
   const contracts       = items.filter(i => i.type === 'contract_ending' || i.type === 'contract_overdue');
   const milestonesOver  = items.filter(i => i.type === 'milestone_overdue');
+  const corrWarning     = items.filter(i => i.type === 'correspondence_deadline_warning');
+  const corrOverdue     = items.filter(i => i.type === 'correspondence_overdue');
 
   const goProject = (id) => { navigate(`/adjudicacion/${id}`); onClose(); };
 
@@ -401,6 +403,72 @@ function NotificationsPanel({ onClose }) {
                         <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
                         <span className="text-[10px] font-medium text-violet-600 flex-shrink-0">
                           {item.done_del}/{item.total_del} entregables · {item.days_overdue}d vencido
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Correspondencia próxima a vencer */}
+            {corrWarning.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-amber-50 flex items-center gap-1.5">
+                  <Mail className="w-3 h-3 text-amber-600" />
+                  <span className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">
+                    Resp. por vencer ({corrWarning.length})
+                  </span>
+                </div>
+                {corrWarning.map(item => (
+                  <button key={item.id} onClick={() => goProject(item.project_id)}
+                    className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors text-left group">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${item.days_until === 0 ? 'bg-red-100' : 'bg-amber-100'}`}>
+                      <Mail className={`w-3.5 h-3.5 ${item.days_until === 0 ? 'text-red-500' : 'text-amber-600'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-brand-900 line-clamp-1">{item.title}</p>
+                      <p className="text-[10px] text-surface-500 line-clamp-1 mt-0.5">{item.subtitle}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-surface-400 truncate">{item.project_code}</span>
+                        <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
+                        <span className={`text-[10px] font-medium flex-shrink-0 flex items-center gap-0.5 ${item.days_until === 0 ? 'text-red-500' : 'text-amber-600'}`}>
+                          <Clock className="w-2.5 h-2.5" />
+                          {item.days_until === 0 ? 'Vence hoy' : item.days_until === 1 ? 'Vence mañana' : `Vence en ${item.days_until}d`}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-surface-300 group-hover:text-brand-500 mt-0.5 flex-shrink-0 transition-colors" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Correspondencia fuera de plazo */}
+            {corrOverdue.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-red-50 flex items-center gap-1.5">
+                  <Mail className="w-3 h-3 text-red-500" />
+                  <span className="text-[10px] font-semibold text-red-600 uppercase tracking-wide">
+                    Resp. fuera de plazo ({corrOverdue.length})
+                  </span>
+                </div>
+                {corrOverdue.map(item => (
+                  <button key={item.id} onClick={() => goProject(item.project_id)}
+                    className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors text-left group">
+                    <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Mail className="w-3.5 h-3.5 text-red-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-brand-900 line-clamp-1">{item.title}</p>
+                      <p className="text-[10px] text-surface-500 line-clamp-1 mt-0.5">{item.subtitle}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-surface-400 truncate">{item.project_code}</span>
+                        <span className="w-1 h-1 rounded-full bg-surface-300 flex-shrink-0" />
+                        <span className="text-[10px] font-medium text-red-500 flex-shrink-0 flex items-center gap-0.5">
+                          <Clock className="w-2.5 h-2.5" />
+                          {item.days_overdue === 1 ? '1 día' : `${item.days_overdue} días`} fuera de plazo
                         </span>
                       </div>
                     </div>

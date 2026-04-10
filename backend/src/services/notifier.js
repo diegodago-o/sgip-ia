@@ -14,19 +14,25 @@ const { sendMail } = require('./mailer');
 // ─── Notification type definitions (shared truth) ────────────────────────────
 const NOTIFICATION_TYPES = [
   // ── Immediate ──
-  { id: 'acta.created',           category: 'instant',   label: 'Acta creada',                  desc: 'Al firmar y crear una nueva acta de comité',             default_recipients: 'project_team' },
-  { id: 'commitment.created',     category: 'instant',   label: 'Compromiso creado',             desc: 'Al registrar un nuevo compromiso en un acta',            default_recipients: 'project_team' },
-  { id: 'correspondence.received',category: 'instant',   label: 'Correspondencia recibida',      desc: 'Al ingresar nueva correspondencia al sistema',           default_recipients: 'project_team' },
-  { id: 'payment.approved',       category: 'instant',   label: 'Pago aprobado',                 desc: 'Al aprobar un pago de proyecto',                         default_recipients: 'admins'       },
+  { id: 'acta.created',                    category: 'instant',   label: 'Acta creada',                        desc: 'Al firmar y crear una nueva acta de comité',                              default_recipients: 'project_team' },
+  { id: 'commitment.created',              category: 'instant',   label: 'Compromiso creado',                  desc: 'Al registrar un nuevo compromiso en un acta',                             default_recipients: 'project_team' },
+  { id: 'correspondence.received',         category: 'instant',   label: 'Correspondencia recibida',           desc: 'Al ingresar nueva correspondencia al sistema',                            default_recipients: 'project_team' },
+  { id: 'correspondence.radicada',         category: 'instant',   label: 'Acuse de recibo al remitente',       desc: 'Envía confirmación de radicación al remitente externo (entrada)',          default_recipients: 'direct'       },
+  { id: 'correspondence.assigned',         category: 'instant',   label: 'Correspondencia asignada',           desc: 'Avisa al responsable interno cuando se le asigna una comunicación',       default_recipients: 'direct'       },
+  { id: 'correspondence.sent',             category: 'instant',   label: 'Correspondencia enviada',            desc: 'Notifica al equipo cuando una correspondencia de salida es enviada',      default_recipients: 'project_team' },
+  { id: 'payment.approved',               category: 'instant',   label: 'Pago aprobado',                      desc: 'Al aprobar un pago de proyecto',                                          default_recipients: 'admins'       },
   // ── Scheduled ──
-  { id: 'commitment.reminder',    category: 'scheduled', label: 'Recordatorio de compromiso',       desc: 'Días antes del vencimiento de un compromiso',                      default_recipients: 'project_team', default_lead_days: 3  },
-  { id: 'commitment.overdue',     category: 'scheduled', label: 'Alerta de compromisos vencidos',   desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',        default_recipients: 'admins',       schedule: 'daily'     },
-  { id: 'payment.due_reminder',   category: 'scheduled', label: 'Recordatorio de corte de pago',    desc: 'Días antes del cierre de período de un pago',                      default_recipients: 'admins',       default_lead_days: 5  },
+  { id: 'commitment.reminder',             category: 'scheduled', label: 'Recordatorio de compromiso',         desc: 'Días antes del vencimiento de un compromiso',                             default_recipients: 'project_team', default_lead_days: 3  },
+  { id: 'commitment.overdue',              category: 'scheduled', label: 'Alerta de compromisos vencidos',     desc: 'Resumen diario de compromisos sin cumplir que ya vencieron',               default_recipients: 'admins',       schedule: 'daily'     },
+  { id: 'payment.due_reminder',            category: 'scheduled', label: 'Recordatorio de corte de pago',      desc: 'Días antes del cierre de período de un pago',                             default_recipients: 'admins',       default_lead_days: 5  },
   // ── Vencimientos ──
-  { id: 'policy.expiring',        category: 'scheduled', label: 'Póliza próxima a vencer',          desc: 'Alerta cuando una póliza vence en los próximos días (30/15/7/1)',  default_recipients: 'project_team', default_lead_days: 30 },
-  { id: 'policy.expired',         category: 'scheduled', label: 'Póliza vencida',                   desc: 'Resumen diario de pólizas ya vencidas en proyectos activos',       default_recipients: 'admins',       schedule: 'daily'     },
-  { id: 'contract.ending',        category: 'scheduled', label: 'Contrato próximo a terminar',      desc: 'Alerta cuando el plazo de ejecución está por vencer (60/30/15d)',  default_recipients: 'project_team', default_lead_days: 60 },
-  { id: 'milestone.overdue',      category: 'scheduled', label: 'Hito vencido con entregables',     desc: 'Resumen diario de hitos cuya fecha pasó con entregables sin cerrar',default_recipients: 'project_team', schedule: 'daily'     },
+  { id: 'policy.expiring',                 category: 'scheduled', label: 'Póliza próxima a vencer',            desc: 'Alerta cuando una póliza vence en los próximos días (30/15/7/1)',         default_recipients: 'project_team', default_lead_days: 30 },
+  { id: 'policy.expired',                  category: 'scheduled', label: 'Póliza vencida',                     desc: 'Resumen diario de pólizas ya vencidas en proyectos activos',              default_recipients: 'admins',       schedule: 'daily'     },
+  { id: 'contract.ending',                 category: 'scheduled', label: 'Contrato próximo a terminar',        desc: 'Alerta cuando el plazo de ejecución está por vencer (60/30/15d)',         default_recipients: 'project_team', default_lead_days: 60 },
+  { id: 'milestone.overdue',               category: 'scheduled', label: 'Hito vencido con entregables',       desc: 'Resumen diario de hitos cuya fecha pasó con entregables sin cerrar',      default_recipients: 'project_team', schedule: 'daily'     },
+  // ── Correspondencia ──
+  { id: 'correspondence.deadline.warning', category: 'scheduled', label: 'Aviso de vencimiento de respuesta',  desc: 'Alerta cuando una comunicación está por vencer su plazo de respuesta',   default_recipients: 'project_team', default_lead_days: 3  },
+  { id: 'correspondence.deadline.overdue', category: 'scheduled', label: 'Correspondencia fuera de plazo',     desc: 'Resumen diario de comunicaciones sin respuesta que superaron el plazo',  default_recipients: 'admins',       schedule: 'daily'     },
 ];
 module.exports.NOTIFICATION_TYPES = NOTIFICATION_TYPES;
 
@@ -217,6 +223,148 @@ function buildTemplate(type, data) {
           ${viewBtn()}
         `),
       };
+
+    case 'correspondence.radicada': {
+      // Acuse de recibo al remitente externo — tono formal
+      const orgName = data.org_name || 'SGIP-IA';
+      const fLimite = data.fecha_limite
+        ? new Date(String(data.fecha_limite).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
+        : null;
+      return {
+        subject: `Acuse de recibo — Radicado ${data.radicado_number || data.consecutive_code || ''}`,
+        html: `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid #e2e8f0">
+    <div style="background:${BRAND};padding:24px 28px">
+      <span style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px">${orgName}</span>
+      <span style="color:rgba(255,255,255,.5);font-size:12px;margin-left:10px">Acuse de Recibo</span>
+    </div>
+    <div style="padding:28px">
+      <h2 style="margin:0 0 6px;color:${BRAND};font-size:18px">Confirmación de radicación</h2>
+      <p style="margin:0 0 20px;color:#64748b;font-size:14px">
+        Nos permitimos informarle que su comunicación fue recibida y registrada en nuestro sistema de gestión documental con el siguiente radicado:
+      </p>
+      <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px 20px;margin-bottom:20px;text-align:center">
+        <p style="margin:0 0 4px;font-size:11px;color:#3b82f6;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Número de radicado</p>
+        <p style="margin:0;font-size:24px;font-weight:700;color:${BRAND};letter-spacing:1px">${data.radicado_number || data.consecutive_code || '—'}</p>
+      </div>
+      <table style="width:100%;margin-top:4px;border-collapse:collapse">
+        ${row('Asunto', data.subject || '')}
+        ${row('Tipo', data.correspondence_type || '')}
+        ${row('Fecha de radicación', data.reference_date ? new Date(String(data.reference_date).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '')}
+        ${fLimite ? row('Fecha límite de respuesta', `<strong>${fLimite}</strong>`) : ''}
+        ${row('Proyecto', projLabel)}
+      </table>
+      ${fLimite ? `
+      <div style="margin-top:18px;padding:12px 16px;background:#f0fdf4;border-left:3px solid #22c55e;border-radius:4px">
+        <p style="margin:0;font-size:13px;color:#166534">Su comunicación será atendida a más tardar el <strong>${fLimite}</strong>.</p>
+      </div>` : ''}
+    </div>
+    <div style="padding:16px 28px;border-top:1px solid #f1f5f9;background:#f8fafc">
+      <p style="margin:0;font-size:11px;color:#94a3b8">Este es un mensaje automático generado por el sistema de gestión documental. Por favor conserve este número de radicado para consultas futuras.</p>
+    </div>
+  </div>
+</body></html>`,
+      };
+    }
+
+    case 'correspondence.assigned':
+      return {
+        subject: `[SGIP-IA] Correspondencia asignada a ti — ${projLabel}`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:${BRAND};font-size:18px">📨 Se te ha asignado una comunicación</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">Eres el responsable de dar respuesta a la siguiente comunicación.</p>
+          ${badge('Asignado', '#7c3aed')}
+          <table style="width:100%;margin-top:18px;border-collapse:collapse">
+            ${row('Proyecto', projLabel)}
+            ${row('Radicado', data.radicado_number || data.consecutive_code || '')}
+            ${row('Asunto', data.subject || '')}
+            ${row('Tipo', data.correspondence_type || '')}
+            ${row('Remitente', data.sender_name_external || data.sender_entity_external || '')}
+            ${row('Recibido', data.reference_date ? new Date(String(data.reference_date).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO') : '')}
+            ${data.fecha_limite ? row('Fecha límite', `<strong style="color:#b45309">${new Date(String(data.fecha_limite).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</strong>`) : ''}
+          </table>
+          <div style="margin-top:18px;padding:12px 16px;background:#faf5ff;border-left:3px solid #7c3aed;border-radius:4px">
+            <p style="margin:0;font-size:13px;color:#5b21b6">Ingresa al sistema para revisar el documento y preparar la respuesta correspondiente.</p>
+          </div>
+          ${viewBtn('Ir al proyecto →')}
+        `),
+      };
+
+    case 'correspondence.sent':
+      return {
+        subject: `[SGIP-IA] Correspondencia enviada — ${projLabel}`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:#0f766e;font-size:18px">✉️ Correspondencia enviada exitosamente</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">Se ha enviado una correspondencia de salida en el proyecto.</p>
+          ${badge('Enviada', '#0f766e')}
+          <table style="width:100%;margin-top:18px;border-collapse:collapse">
+            ${row('Proyecto', projLabel)}
+            ${row('Código', data.consecutive_code || '')}
+            ${row('Asunto', data.subject || '')}
+            ${row('Destinatario', data.recipient_name || data.recipient_entity || '')}
+            ${row('Enviado a', data.sent_to || '')}
+            ${data.sent_cc ? row('CC', data.sent_cc) : ''}
+            ${row('Fecha', new Date().toLocaleDateString('es-CO'))}
+          </table>
+          ${viewBtn()}
+        `),
+      };
+
+    case 'correspondence.deadline.warning': {
+      const warnDays = data.days_until ?? 0;
+      const urgColor = warnDays <= 1 ? '#dc2626' : '#b45309';
+      return {
+        subject: `[SGIP-IA] Correspondencia vence en ${warnDays === 1 ? '1 día' : `${warnDays} días`} — ${projLabel}`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:${urgColor};font-size:18px">⏰ Plazo de respuesta próximo a vencer</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">La siguiente comunicación debe ser respondida en <strong>${warnDays === 1 ? '1 día' : `${warnDays} días`}</strong>.</p>
+          ${badge(`Vence en ${warnDays}d`, urgColor)}
+          <table style="width:100%;margin-top:18px;border-collapse:collapse">
+            ${row('Proyecto', projLabel)}
+            ${row('Radicado', data.radicado_number || data.consecutive_code || '')}
+            ${row('Asunto', data.subject || '')}
+            ${row('Remitente', data.sender_name_external || data.sender_entity_external || '')}
+            ${row('Fecha límite', data.fecha_limite ? new Date(String(data.fecha_limite).slice(0,10)+'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '')}
+          </table>
+          <div style="margin-top:18px;padding:12px 16px;background:#fffbeb;border-left:3px solid ${urgColor};border-radius:4px">
+            <p style="margin:0;font-size:13px;color:#92400e">Ingresa al sistema y elabora la respuesta antes de que venza el plazo.</p>
+          </div>
+          ${viewBtn('Ir al proyecto →')}
+        `),
+      };
+    }
+
+    case 'correspondence.deadline.overdue': {
+      const oItems = data.items || [];
+      const oRows = oItems.map(c =>
+        `<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${c.project_code}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${c.radicado_number || c.consecutive_code || '—'}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#1e293b">${c.subject || '—'}</td>
+          <td style="padding:8px 6px;font-size:12px;color:#dc2626;font-weight:600">${c.days_overdue}d</td>
+        </tr>`
+      ).join('');
+      return {
+        subject: `[SGIP-IA] Correspondencias fuera de plazo — ${oItems.length} sin respuesta`,
+        html: wrap(`
+          <h2 style="margin:0 0 6px;color:#dc2626;font-size:18px">⚠️ Correspondencias fuera de plazo de respuesta</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px">Las siguientes comunicaciones han superado su fecha límite de respuesta y requieren atención inmediata.</p>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#f8fafc">
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">PROYECTO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">RADICADO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">ASUNTO</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">VENCIDO</th>
+            </tr></thead>
+            <tbody>${oRows}</tbody>
+          </table>
+          <p style="margin-top:16px;font-size:12px;color:#94a3b8">Total: ${oItems.length} comunicación${oItems.length !== 1 ? 'es' : ''} sin respuesta fuera de plazo.</p>
+        `),
+      };
+    }
 
     case 'payment.approved':
       return {
@@ -717,6 +865,123 @@ async function sendMilestoneOverdueAlerts() {
   } catch (e) { console.warn('[notifier] sendMilestoneOverdueAlerts:', e.message); }
 }
 
+// ─── notifyExternal — enviar a emails específicos (sin resolución de destinatarios) ──
+// Usado para acuse de recibo al remitente externo y aviso al responsable asignado.
+// Verifica que el tipo esté habilitado en la config, pero ignora la resolución de destinatarios.
+async function notifyExternal(type, data = {}, toEmails = []) {
+  try {
+    const validEmails = toEmails.filter(e => e && typeof e === 'string' && e.includes('@'));
+    if (!validEmails.length) return;
+
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled) return;
+    if (!emailCfg?.provider_type) return;
+
+    const typeCfg = (cfg.notifications || {})[type];
+    if (!typeCfg || !typeCfg.enabled) return;
+
+    const { subject, html } = buildTemplate(type, data);
+    for (const to of validEmails) {
+      sendMail(emailCfg, { to, subject, html }).catch(e =>
+        console.warn(`[notifier] failed to send ${type} to ${to}:`, e.message)
+      );
+    }
+  } catch (e) {
+    console.warn('[notifier] error in notifyExternal():', e.message);
+  }
+}
+
+// ── Correspondence deadline warnings (X days before fecha_limite) ─────────────
+async function sendCorrespondenceDeadlineWarnings() {
+  try {
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled || !emailCfg?.provider_type) return;
+
+    const typeCfg = (cfg.notifications || {})['correspondence.deadline.warning'];
+    if (!typeCfg?.enabled) return;
+
+    const leadDays = typeCfg.lead_days ?? 3;
+
+    // Warn for each lead day: 1, 2, 3 (up to leadDays)
+    const daysToCheck = Array.from({ length: leadDays }, (_, i) => i + 1);
+
+    for (const days of daysToCheck) {
+      const [rows] = await db.execute(`
+        SELECT c.id, c.subject, c.consecutive_code, c.radicado_number,
+               c.correspondence_type, c.fecha_limite,
+               c.sender_name_external, c.sender_entity_external,
+               p.id AS project_id, p.code AS project_code, p.name AS project_name,
+               DATEDIFF(c.fecha_limite, CURDATE()) AS days_until
+        FROM correspondence c
+        JOIN projects p ON p.id = c.project_id
+        WHERE c.direction = 'entrada'
+          AND c.fecha_limite = DATE_ADD(CURDATE(), INTERVAL ? DAY)
+          AND c.status NOT IN ('respondido', 'archivado', 'cerrado')
+          AND p.status NOT IN ('cerrado', 'liquidado')
+      `, [days]);
+
+      for (const item of rows) {
+        if (await wasAlreadySent('correspondence.deadline.warning', 'correspondence', item.id)) continue;
+
+        const recipients = await getRecipients(
+          typeCfg.recipients || 'project_team',
+          typeCfg.custom_emails,
+          item.project_id
+        );
+        if (!recipients.length) { await markSent('correspondence.deadline.warning', 'correspondence', item.id); continue; }
+
+        const { subject, html } = buildTemplate('correspondence.deadline.warning', {
+          ...item,
+          project_name: item.project_name,
+          project_code: item.project_code,
+        });
+        for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+        await markSent('correspondence.deadline.warning', 'correspondence', item.id);
+      }
+
+      if (rows.length) console.log(`[notifier] correspondence.deadline.warning (${days}d): ${rows.length} alertas`);
+    }
+  } catch (e) { console.warn('[notifier] sendCorrespondenceDeadlineWarnings:', e.message); }
+}
+
+// ── Correspondence overdue digest ──────────────────────────────────────────────
+async function sendCorrespondenceOverdueAlerts() {
+  try {
+    const [cfg, emailCfg] = await Promise.all([loadNotifConfig(), loadEmailConfig()]);
+    if (!cfg.enabled || !emailCfg?.provider_type) return;
+
+    const typeCfg = (cfg.notifications || {})['correspondence.deadline.overdue'];
+    if (!typeCfg?.enabled) return;
+    if (await wasAlreadySent('correspondence.deadline.overdue', 'digest', 0)) return;
+
+    const [overdue] = await db.execute(`
+      SELECT c.id, c.subject, c.consecutive_code, c.radicado_number,
+             c.fecha_limite, c.status,
+             p.code AS project_code, p.name AS project_name, p.id AS project_id,
+             DATEDIFF(CURDATE(), c.fecha_limite) AS days_overdue
+      FROM correspondence c
+      JOIN projects p ON p.id = c.project_id
+      WHERE c.direction = 'entrada'
+        AND c.fecha_limite IS NOT NULL
+        AND c.fecha_limite < CURDATE()
+        AND c.status NOT IN ('respondido', 'archivado', 'cerrado')
+        AND p.status NOT IN ('cerrado', 'liquidado')
+      ORDER BY c.fecha_limite ASC
+      LIMIT 50
+    `);
+
+    if (!overdue.length) return;
+
+    const recipients = await getRecipients(typeCfg.recipients || 'admins', typeCfg.custom_emails, null);
+    if (!recipients.length) return;
+
+    const { subject, html } = buildTemplate('correspondence.deadline.overdue', { items: overdue });
+    for (const to of recipients) sendMail(emailCfg, { to, subject, html }).catch(() => {});
+    await markSent('correspondence.deadline.overdue', 'digest', 0);
+    console.log(`[notifier] correspondence.deadline.overdue digest: ${overdue.length} items`);
+  } catch (e) { console.warn('[notifier] sendCorrespondenceOverdueAlerts:', e.message); }
+}
+
 // Run all scheduled checks
 async function runScheduledChecks() {
   await Promise.allSettled([
@@ -726,7 +991,9 @@ async function runScheduledChecks() {
     sendPolicyExpiryAlerts(),
     sendContractEndingAlerts(),
     sendMilestoneOverdueAlerts(),
+    sendCorrespondenceDeadlineWarnings(),
+    sendCorrespondenceOverdueAlerts(),
   ]);
 }
 
-module.exports = { notify, runScheduledChecks, NOTIFICATION_TYPES };
+module.exports = { notify, notifyExternal, runScheduledChecks, NOTIFICATION_TYPES };

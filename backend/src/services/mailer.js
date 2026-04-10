@@ -46,13 +46,21 @@ async function getM365AccessToken(tenantId, clientId, clientSecret) {
 }
 
 // ─── Send via Microsoft Graph API ───────────────────────────────────────────
-async function sendViaGraph(accessToken, { from, fromName, to, subject, html, text, attachments }) {
+async function sendViaGraph(accessToken, { from, fromName, to, cc, subject, html, text, attachments }) {
+  // to y cc pueden ser string "a@b.com, c@d.com" o array
+  const parseEmails = (val) => {
+    if (!val) return [];
+    const arr = Array.isArray(val) ? val : String(val).split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    return arr.map(addr => ({ emailAddress: { address: addr } }));
+  };
   const message = {
     subject,
     body: { contentType: 'HTML', content: html || text || '' },
-    toRecipients: [{ emailAddress: { address: to } }],
+    toRecipients: parseEmails(to),
     from: { emailAddress: { address: from, name: fromName || from } },
   };
+  const ccList = parseEmails(cc);
+  if (ccList.length) message.ccRecipients = ccList;
   if (attachments && attachments.length) {
     message.attachments = attachments.map(a => ({
       '@odata.type': '#microsoft.graph.fileAttachment',
@@ -127,7 +135,7 @@ function buildTransporter(cfg) {
 }
 
 // ─── Main sendMail function ──────────────────────────────────────────────────
-async function sendMail(cfg, { to, subject, html, text, attachments }) {
+async function sendMail(cfg, { to, cc, subject, html, text, attachments }) {
   const type = cfg.provider_type || 'smtp';
   const fromEmail = cfg.from_email || cfg.username;
   const fromName = cfg.from_name || 'SGIP-IA';
@@ -137,17 +145,18 @@ async function sendMail(cfg, { to, subject, html, text, attachments }) {
       throw new Error('Configuración OAuth2 incompleta: se requiere tenant_id, client_id y client_secret');
     }
     const token = await getM365AccessToken(cfg.tenant_id, cfg.client_id, cfg.client_secret);
-    return sendViaGraph(token, { from: fromEmail, fromName, to, subject, html, text, attachments });
+    return sendViaGraph(token, { from: fromEmail, fromName, to, cc, subject, html, text, attachments });
   }
 
   const transporter = buildTransporter(cfg);
   return transporter.sendMail({
     from: fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
     to,
+    cc: cc || undefined, // nodemailer: cc string "a@b.com, c@d.com" o array
     subject,
     html,
     text,
-    attachments, // nodemailer accepts: [{ filename, content (Buffer), contentType }]
+    attachments,
   });
 }
 

@@ -536,11 +536,17 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
   }, [isEdit, initial?.id, projectId]);
 
   const openPreview = (pid, cid, att) => {
-    const ext  = getFileExt(att.original_name);
-    const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : 'application/octet-stream');
-    correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
-      .then(r => setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime }))
-      .catch(() => {});
+    const ext     = getFileExt(att.original_name);
+    const mime    = att.mime_type || (ext === '.pdf' ? 'application/pdf' : 'application/octet-stream');
+    const viewUrl = correspondenceAPI.attachmentViewUrl(pid, cid, att.id);
+    if (OFFICE_EXTS.includes(ext)) {
+      // No descargar blob para Office — evita descargas automáticas del navegador
+      setPreview({ url: viewUrl, viewUrl, name: att.original_name, mime });
+    } else {
+      correspondenceAPI.downloadAttachmentById(pid, cid, att.id)
+        .then(r => setPreview({ url: URL.createObjectURL(new Blob([r.data], { type: mime })), name: att.original_name, mime }))
+        .catch(() => {});
+    }
   };
 
   const handleSave = async () => {
@@ -829,7 +835,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
           </button>
         </div>
       </div>
-      <AttachmentPreviewModal preview={preview} onClose={() => { URL.revokeObjectURL(preview?.url); setPreview(null); }} />
+      <AttachmentPreviewModal preview={preview} onClose={() => { if (preview?.url?.startsWith('blob:')) URL.revokeObjectURL(preview.url); setPreview(null); }} />
     </div>
   );
 }
@@ -1528,15 +1534,13 @@ function EntradaCard({ item, perms, projectId, deadlinesMap = {}, onEdit, onDele
   const openPreview = (att) => {
     const ext  = getFileExt(att.original_name);
     const mime = att.mime_type || (ext === '.pdf' ? 'application/pdf' : ['.png','.jpg','.jpeg','.gif','.webp'].includes(ext) ? `image/${ext.slice(1)}` : 'application/octet-stream');
-    // Para Office: usar viewUrl (Google Docs Viewer) + blob para descarga
     const viewUrl = correspondenceAPI.attachmentViewUrl(projectId, item.id, att.id);
     if (OFFICE_EXTS.includes(ext)) {
-      // Para Office no necesitamos blob; usamos viewUrl directamente
-      correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
-        .then(r => {
-          const blobUrl = URL.createObjectURL(new Blob([r.data], { type: mime }));
-          setPreview({ url: blobUrl, viewUrl, name: att.original_name, mime });
-        }).catch(() => setPreview({ url: null, viewUrl, name: att.original_name, mime }));
+      // Para Office: NO descargar blob — res.download() con Content-Disposition:attachment
+      // hace que Edge/Chrome descarguen el archivo automáticamente al disco en lugar de
+      // mantenerlo en memoria. Usar viewUrl directamente: el iframe de Office Online
+      // la consume y el botón Descargar usa el atributo download del <a> (same-origin).
+      setPreview({ url: viewUrl, viewUrl, name: att.original_name, mime });
     } else {
       correspondenceAPI.downloadAttachmentById(projectId, item.id, att.id)
         .then(r => {
@@ -1545,7 +1549,8 @@ function EntradaCard({ item, perms, projectId, deadlinesMap = {}, onEdit, onDele
     }
   };
 
-  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };
+  // Solo revocar blob URLs (las viewUrls son HTTPS normales, no blobs)
+  const closePreview = () => { if (preview?.url?.startsWith('blob:')) URL.revokeObjectURL(preview.url); setPreview(null); };
 
   return (
     <div className="group bg-white border border-surface-100 rounded-xl hover:border-teal-200 hover:shadow-sm transition-all">

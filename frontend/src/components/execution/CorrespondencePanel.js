@@ -456,6 +456,7 @@ function RadicarModal({ projectId, initial, onClose, onSaved, teamMembers, reply
       ...initial,
       reference_date: toInputDate(initial.reference_date),
       received_date:  toInputDate(initial.received_date),
+      fecha_limite:   toInputDate(initial.fecha_limite),
       assigned_to:    initial.assigned_to || '',
       parent_id:      initial.parent_id || '',
     } : {}),

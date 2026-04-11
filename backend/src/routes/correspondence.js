@@ -420,6 +420,13 @@ router.put('/:projectId/correspondence/:id',
       ]);
       const [[updated]] = await pool.execute('SELECT * FROM correspondence WHERE id = ?', [req.params.id]);
 
+      // Auto-timeline para salidas cuando cambia el status via edición
+      if (prev && prev.direction === 'salida' && b.status && b.status !== prev.status) {
+        const notes = { radicado: 'Comunicación radicada', enviado: 'Comunicación enviada', archivado: 'Comunicación archivada' }[b.status] || `Estado cambiado a ${b.status}`;
+        await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+          [req.params.id, prev.status, b.status, notes, req.user.id]).catch(() => {});
+      }
+
       // Auto-timeline para entradas cuando cambia el asignado
       if (prev && prev.direction === 'entrada' && b.assigned_to) {
         const newAssigned = Number(b.assigned_to);

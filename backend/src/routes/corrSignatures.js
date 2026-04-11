@@ -788,6 +788,12 @@ router.post('/', authenticate, async (req, res) => {
       await pool.execute("UPDATE corr_signature_signers SET status='notified' WHERE token=?", [first.token]);
     }
 
+    // Timeline: enviado a firma
+    await pool.execute(
+      'INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+      [correspondenceId, corr.status, corr.status, `Enviado a firma (${signerRecords.length} firmante${signerRecords.length > 1 ? 's' : ''})`, req.user.id]
+    ).catch(() => {});
+
     res.status(201).json({ success: true, data: { requestId } });
   } catch (e) { console.error('[corrSig POST /]', e); res.status(500).json({ error: e.message }); }
 });
@@ -926,10 +932,15 @@ router.post('/send-email', authenticate, async (req, res) => {
       attachments: [{ filename: pdfFilename, content: pdfResult.buffer, contentType: 'application/pdf' }],
     });
 
-    // Actualizar estado de la correspondencia a 'enviado' y registrar
+    // Actualizar estado de la correspondencia a 'enviado' y registrar timeline
+    const prevStatus = corr.status;
     await pool.execute(
       "UPDATE correspondence SET status = 'enviado', sent_date = CURDATE() WHERE id = ? AND project_id = ?",
       [correspondenceId, projectId]
+    ).catch(() => {});
+    await pool.execute(
+      'INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+      [correspondenceId, prevStatus, 'enviado', `Comunicación enviada por correo a: ${to}`, req.user.id]
     ).catch(() => {});
 
     // Notificación interna: equipo del proyecto
@@ -1116,6 +1127,12 @@ publicRouter.post('/:token/firmar', async (req, res) => {
           attachments: pdfAttachment,
         });
       }
+      // Timeline: proceso de firma completado
+      await pool.execute(
+        'INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+        [req_.correspondence_id, corr.status, corr.status, 'Documento firmado por todos los firmantes', 1]
+      ).catch(() => {});
+
       return res.json({ success: true, message: 'Firma registrada. Todos los firmantes han completado el proceso.', allSigned: true });
     }
 

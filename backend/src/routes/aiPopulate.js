@@ -396,7 +396,7 @@ router.post('/:projectId/analyze', [param('projectId').isInt()], async (req, res
       });
     }
 
-    const targetModules = modules || ['obligations', 'risks', 'team', 'schedule', 'budget'];
+    const targetModules = modules || ['obligations', 'risks', 'team', 'schedule', 'budget', 'policies'];
 
     const systemPrompt = `Eres un asistente experto en gestión de proyectos de infraestructura y contratación pública colombiana.
 Analizas documentos contractuales (contratos, anexos técnicos, pliegos) y extraes información estructurada.
@@ -434,6 +434,9 @@ Responde con un JSON con esta estructura exacta (incluye SOLO los módulos solic
     "income": { "contract_value": número, "payment_scheme": "mensual|hitos|unico", "payments": [{ "month": número, "description": "desc", "value": número }] },
     "expenses": [{ "category": "nomina|contratistas|arriendo|seguros|servicios|otros", "item": "descripción", "monthly_value": número, "months": número }]
   },` : ''}
+  ${targetModules.includes('policies') ? `"policies": [
+    { "policy_type": "cumplimiento|calidad|pago_salarios|responsabilidad_civil|estabilidad_obra|todo_riesgo|otra", "insurer": "nombre aseguradora o null", "policy_number": "número o null", "coverage_pct": número_o_null, "insured_value": número_o_null, "issue_date": "YYYY-MM-DD o null", "expiry_date": "YYYY-MM-DD o null", "required_by_contract": true }
+  ],` : ''}
   "summary": "resumen ejecutivo del contrato en 2-3 párrafos",
   "warnings": ["alertas o inconsistencias detectadas en los documentos"],
   "confidence": { "obligations": 0.0-1.0, "risks": 0.0-1.0, "team": 0.0-1.0, "schedule": 0.0-1.0, "budget": 0.0-1.0 }
@@ -445,6 +448,7 @@ IMPORTANTE:
 - Si hay anexo técnico con especificaciones de personal, extrae los cargos exactos
 - Para cronograma, basa las fases en el objeto del contrato y el plazo
 - Para presupuesto, extrae o estima basado en el valor del contrato y los items mencionados
+- Para pólizas, extrae TODAS las pólizas mencionadas (cumplimiento, calidad, pago de salarios, responsabilidad civil, etc.) con sus valores, porcentajes de cobertura y fechas de vigencia. Si el valor se expresa como porcentaje del contrato, calcula el insured_value.
 - Si no hay información suficiente para un módulo, devuelve array vacío pero incluye advertencia`;
 
     let result;
@@ -654,6 +658,42 @@ router.post('/:projectId/apply', [param('projectId').isInt()], async (req, res) 
       results.applied.budget = count;
       if (errs.length) results.errors.budget = errs;
       console.log(`   ✅ Gastos: ${count}/${data.budget.expenses.length} insertados`);
+    }
+
+    // Apply policies
+    if (modules.includes('policies') && data.policies?.length > 0) {
+      let count = 0; const errs = [];
+      const validTypes = ['cumplimiento','calidad','pago_salarios','responsabilidad_civil','estabilidad_obra','todo_riesgo','otra'];
+      for (const pol of data.policies) {
+        try {
+          const policyType = validTypes.includes(pol.policy_type) ? pol.policy_type : 'otra';
+          const coveragePct = pol.coverage_pct ? parseFloat(pol.coverage_pct) : null;
+          const insuredValue = pol.insured_value ? parseFloat(pol.insured_value) : null;
+          const issueDate = pol.issue_date || null;
+          const expiryDate = pol.expiry_date || null;
+          const requiredByContract = pol.required_by_contract ? 1 : 0;
+
+          // Determine status based on expiry date
+          let status = 'vigente';
+          if (expiryDate) {
+            const now = new Date();
+            const expiry = new Date(expiryDate);
+            const diffDays = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+            if (diffDays < 0) status = 'vencida';
+            else if (diffDays <= 30) status = 'por_vencer';
+          }
+
+          await pool.execute(
+            `INSERT INTO policies (project_id, policy_type, insurer, policy_number, coverage_pct, insured_value, issue_date, expiry_date, status, required_by_contract, notes)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+            [pid, policyType, pol.insurer || null, pol.policy_number || null, coveragePct, insuredValue, issueDate, expiryDate, status, requiredByContract, 'Auto-generado por IA']
+          );
+          count++;
+        } catch (e) { errs.push(`${pol.policy_type}: ${e.message}`); console.log(`   ❌ Póliza: ${e.message}`); }
+      }
+      results.applied.policies = count;
+      if (errs.length) results.errors.policies = errs;
+      console.log(`   ✅ Pólizas: ${count}/${data.policies.length} insertadas`);
     }
 
     console.log(`\n✅ Apply completado:`, JSON.stringify(results.applied));

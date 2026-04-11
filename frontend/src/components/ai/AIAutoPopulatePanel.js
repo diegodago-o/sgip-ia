@@ -2,21 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { aiAPI, documentsAPI } from '../../services/api';
 import {
   Loader2, Sparkles, FileText, CheckCircle2, AlertTriangle, ChevronDown,
-  ChevronRight, Shield, Users, CalendarRange, DollarSign, ClipboardList, Settings,
+  ChevronRight, Shield, ShieldCheck, Users, CalendarRange, DollarSign, ClipboardList, Settings,
 } from 'lucide-react';
 
 const MODULE_CONFIG = {
-  obligations: { label: 'Obligaciones', icon: ClipboardList, color: 'blue' },
-  risks: { label: 'Riesgos', icon: Shield, color: 'red' },
-  team: { label: 'Equipo/Personal', icon: Users, color: 'purple' },
-  schedule: { label: 'Cronograma', icon: CalendarRange, color: 'amber' },
-  budget: { label: 'Presupuesto (gastos)', icon: DollarSign, color: 'emerald' },
+  obligations: { label: 'Obligaciones',       icon: ClipboardList, color: 'blue' },
+  risks:       { label: 'Riesgos',            icon: Shield,        color: 'red' },
+  team:        { label: 'Equipo/Personal',    icon: Users,         color: 'purple' },
+  schedule:    { label: 'Cronograma',         icon: CalendarRange, color: 'amber' },
+  budget:      { label: 'Presupuesto (gastos)', icon: DollarSign,  color: 'emerald' },
+  policies:    { label: 'Pólizas',            icon: ShieldCheck,   color: 'orange' },
 };
 
 export default function AIAutoPopulatePanel({ projectId, provider, apiKey, model }) {
   const [docs, setDocs] = useState([]);
   const [selectedDocs, setSelectedDocs] = useState([]);
-  const [selectedModules, setSelectedModules] = useState(['obligations', 'risks', 'team', 'schedule', 'budget']);
+  const [selectedModules, setSelectedModules] = useState(['obligations', 'risks', 'team', 'schedule', 'budget', 'policies']);
   const [step, setStep] = useState('config'); // config | analyzing | review | applying | done
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
@@ -294,6 +295,18 @@ export default function AIAutoPopulatePanel({ projectId, provider, apiKey, model
                             {mod === 'team' && <p className="text-surface-800">{item.role} <span className="text-surface-400">x{item.quantity} — {item.dedication} {item.estimated_salary ? `— ${new Intl.NumberFormat('es-CO', {style:'currency',currency:'COP',maximumFractionDigits:0}).format(item.estimated_salary)}/mes` : ''}</span></p>}
                             {mod === 'schedule' && <p className="text-surface-800">{item.activity} <span className="text-surface-400">Mes {item.start_month}-{item.end_month} → {item.deliverable}</span></p>}
                             {mod === 'budget' && <p className="text-surface-800">{item.item} <span className="text-surface-400">[{item.category}] — {new Intl.NumberFormat('es-CO', {style:'currency',currency:'COP',maximumFractionDigits:0}).format(item.monthly_value)}/mes x {item.months}m</span></p>}
+                            {mod === 'policies' && (
+                              <div>
+                                <p className="text-surface-800 font-medium">{item.policy_type?.replace(/_/g,' ')} {item.insurer ? `— ${item.insurer}` : ''} {item.policy_number ? `(No. ${item.policy_number})` : ''}</p>
+                                <p className="text-surface-400 mt-0.5">
+                                  {item.coverage_pct ? `${item.coverage_pct}% cobertura` : ''}
+                                  {item.insured_value ? ` | Valor: ${new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(item.insured_value)}` : ''}
+                                  {item.issue_date ? ` | Exp: ${item.issue_date}` : ''}
+                                  {item.expiry_date ? ` | Vence: ${item.expiry_date}` : ''}
+                                  {item.required_by_contract ? ' | Requerida por contrato' : ''}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </label>
                       );

@@ -1180,7 +1180,7 @@ function EnviarCorreoModal({ item, projectId, onClose, onSent }) {
   );
 }
 
-function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSign, onThread, onReply, onSendEmail, sigStatus, deleting }) {
+function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSign, onThread, onReply, onSendEmail, onTrace, sigStatus, deleting }) {
   const typeLabel = TYPES.find(t => t.value === item.correspondence_type)?.label || item.correspondence_type;
   const hasThread = Number(item.reply_count) > 0 || !!item.parent_id;
   const sigLabel  = sigStatus?.status === 'completed' ? 'Firmado' : sigStatus?.status === 'in_progress' ? 'En proceso' : 'Firmar';
@@ -1237,6 +1237,11 @@ function SalidaCard({ item, perms, projectId, onEdit, onDelete, onPreview, onSig
           <button onClick={() => onPreview(item)} title="Vista previa"
             className="p-1.5 hover:bg-brand-50 rounded-lg transition-colors text-surface-400 hover:text-brand-600">
             <Eye className="w-4 h-4" />
+          </button>
+          {/* Trazabilidad */}
+          <button onClick={() => onTrace(item)} title="Ver trazabilidad"
+            className="p-1.5 hover:bg-teal-50 rounded-lg transition-colors text-surface-400 hover:text-teal-600">
+            <Activity className="w-4 h-4" />
           </button>
           {perms?.canEdit && <button onClick={() => onEdit(item)} title="Editar" className="p-1.5 hover:bg-brand-50 rounded-lg transition-colors text-surface-400 hover:text-brand-600"><Pencil className="w-4 h-4" /></button>}
           {perms?.canEdit && <button onClick={() => onDelete(item.id)} disabled={deleting === item.id} title="Eliminar" className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-surface-400 hover:text-red-500 disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>}
@@ -1379,7 +1384,8 @@ function TraceabilityPanel({ projectId, item: initItem, onClose }) {
 
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
 
-  const dotColor = s => ({ recibido:'bg-teal-500', asignado:'bg-blue-500', en_revision:'bg-amber-500', soporte_solicitado:'bg-orange-500', respondido:'bg-emerald-500', cerrado:'bg-surface-400', archivado:'bg-purple-500', en_atencion:'bg-amber-500' }[s] || 'bg-surface-300');
+  const ALL_STATUS = { ...STATUS_SALIDA, ...STATUS_ENTRADA };
+  const dotColor = s => ({ recibido:'bg-teal-500', asignado:'bg-blue-500', en_revision:'bg-amber-500', soporte_solicitado:'bg-orange-500', respondido:'bg-emerald-500', cerrado:'bg-surface-400', archivado:'bg-purple-500', en_atencion:'bg-amber-500', borrador:'bg-surface-400', radicado:'bg-blue-500', enviado:'bg-brand-500' }[s] || 'bg-surface-300');
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
@@ -1419,7 +1425,7 @@ function TraceabilityPanel({ projectId, item: initItem, onClose }) {
               <div className="absolute left-3.5 top-2 bottom-2 w-px bg-surface-100" />
               <div className="space-y-5">
                 {timeline.map((ev, i) => {
-                  const Icon = STATUS_ENTRADA[ev.to_status]?.icon || Activity;
+                  const Icon = ALL_STATUS[ev.to_status]?.icon || Activity;
                   return (
                     <div key={ev.id || i} className="flex gap-3 relative">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${dotColor(ev.to_status)}`}>
@@ -1699,6 +1705,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
 
   // Trazabilidad correspondencia entrada
   const [traceEntradaItem, setTraceEntradaItem] = useState(null);
+  const [traceSalidaItem,  setTraceSalidaItem]  = useState(null);
 
   // Acciones de estado entrada
   const [supportItem, setSupportItem] = useState(null); // item para "Pedir soporte"
@@ -1961,6 +1968,7 @@ export default function CorrespondencePanel({ projectId, perms }) {
                   onSign={i  => setSigModal(i)}
                   onSendEmail={i => setSendEmailItem(i)}
                   onThread={i => setThreadItem(i)}
+                  onTrace={i => setTraceSalidaItem(i)}
                   onReply={i  => { setReplyToItem(null); setEditSalidaItem(null); setShowSalidaForm(false);
                                    // Abrir formulario entrada como respuesta a este item de salida
                                    setReplyEntradaTo(i); setEditEntradaItem(null); setShowEntradaForm(true); }}
@@ -2266,6 +2274,15 @@ export default function CorrespondencePanel({ projectId, perms }) {
           projectId={projectId}
           item={traceEntradaItem}
           onClose={() => setTraceEntradaItem(null)}
+        />
+      )}
+
+      {/* Trazabilidad correspondencia salida */}
+      {traceSalidaItem && (
+        <TraceabilityPanel
+          projectId={projectId}
+          item={traceSalidaItem}
+          onClose={() => setTraceSalidaItem(null)}
         />
       )}
 

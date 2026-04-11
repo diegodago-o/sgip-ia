@@ -292,6 +292,9 @@ router.post('/:projectId/correspondence',
           await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, assigned_to_user_id, created_by) VALUES (?,?,?,?,?,?)',
             [r.insertId, 'recibido', 'asignado', 'Responsable asignado al radicar', Number(b.assigned_to), req.user.id]).catch(() => {});
         }
+      } else if (direction === 'salida') {
+        await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+          [r.insertId, null, 'borrador', 'Comunicación creada como borrador', req.user.id]).catch(() => {});
       }
 
       // Notificaciones
@@ -478,12 +481,27 @@ router.patch('/:projectId/correspondence/:id/status',
       if (req.body.radicado_number)  extra.radicado_number  = req.body.radicado_number;
       if (req.body.assigned_to)      extra.assigned_to      = Number(req.body.assigned_to);
 
+      const [[cur]] = await pool.execute('SELECT status FROM correspondence WHERE id = ? AND project_id = ?', [req.params.id, req.params.projectId]);
+      const prevStatus = cur?.status || null;
+
       let sql = 'UPDATE correspondence SET status = ?';
       const params = [req.body.status];
       for (const [k, v] of Object.entries(extra)) { sql += `, ${k} = ?`; params.push(v); }
       sql += ' WHERE id = ? AND project_id = ?';
       params.push(req.params.id, req.params.projectId);
       await pool.execute(sql, params);
+
+      // Registrar en timeline
+      if (prevStatus !== req.body.status) {
+        const notes = req.body.notes || {
+          radicado: 'Comunicación radicada',
+          enviado:  'Comunicación enviada',
+          archivado: 'Comunicación archivada',
+        }[req.body.status] || `Estado cambiado a ${req.body.status}`;
+        await pool.execute('INSERT INTO correspondence_timeline (correspondence_id, from_status, to_status, notes, created_by) VALUES (?,?,?,?,?)',
+          [req.params.id, prevStatus, req.body.status, notes, req.user.id]).catch(() => {});
+      }
+
       res.json({ message: 'Estado actualizado' });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error' }); }
   }

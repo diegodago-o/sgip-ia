@@ -684,9 +684,9 @@ router.post('/:projectId/apply', [param('projectId').isInt()], async (req, res) 
           }
 
           await pool.execute(
-            `INSERT INTO policies (project_id, policy_type, insurer, policy_number, coverage_pct, insured_value, issue_date, expiry_date, status, required_by_contract, notes)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-            [pid, policyType, pol.insurer || null, pol.policy_number || null, coveragePct, insuredValue, issueDate, expiryDate, status, requiredByContract, 'Auto-generado por IA']
+            `INSERT INTO policies (project_id, policy_type, insurer, policy_number, coverage_pct, insured_value, issue_date, expiry_date, status, required_by_contract)
+             VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            [pid, policyType, pol.insurer || null, pol.policy_number || null, coveragePct, insuredValue, issueDate, expiryDate, status, requiredByContract]
           );
           count++;
         } catch (e) { errs.push(`${pol.policy_type}: ${e.message}`); console.log(`   ❌ Póliza: ${e.message}`); }

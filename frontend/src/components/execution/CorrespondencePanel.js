@@ -1250,6 +1250,10 @@ const NO_PREVIEW_EXTS = ['.zip', '.rar', '.7z', '.gz', '.tar'];
 function getFileExt(name) { return ('.' + (name || '').split('.').pop()).toLowerCase(); }
 
 function AttachmentPreviewModal({ preview, onClose }) {
+  const [officeError, setOfficeError]   = useState(false);
+  const [officeLoading, setOfficeLoading] = useState(true);
+  // Reset office state when a new file is previewed
+  React.useEffect(() => { setOfficeError(false); setOfficeLoading(true); }, [preview?.viewUrl, preview?.name]);
   if (!preview) return null;
   const ext = getFileExt(preview.name);
 
@@ -1259,10 +1263,13 @@ function AttachmentPreviewModal({ preview, onClose }) {
   const isOffice  = OFFICE_EXTS.includes(ext);
   const isNoPreview = NO_PREVIEW_EXTS.includes(ext);
 
-  // Para Office usamos Microsoft Office Online con la viewUrl del servidor (token en query param)
+  // Para Office usamos Microsoft Office Online con la viewUrl del servidor
   const officeViewerUrl = preview.viewUrl
-    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.viewUrl)}&wdStartOn=1`
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.viewUrl)}`
     : null;
+
+  // URL de descarga: blob URL si existe, sino la viewUrl directa
+  const downloadUrl = preview.url || preview.viewUrl || null;
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
@@ -1272,11 +1279,12 @@ function AttachmentPreviewModal({ preview, onClose }) {
           <div className="flex items-center gap-2 min-w-0">
             <Paperclip className="w-4 h-4 text-surface-400 flex-shrink-0" />
             <span className="text-sm font-medium text-surface-700 truncate">{preview.name}</span>
-            {isOffice && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Office Online</span>}
+            {isOffice && !officeError && <span className="text-[10px] text-surface-400 ml-1">· Vista previa via Office Online</span>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {preview.url && (
-              <a href={preview.url} download={preview.name}
+            {downloadUrl && (
+              <a href={downloadUrl} download={preview.url ? preview.name : undefined}
+                target={preview.url ? undefined : '_blank'} rel="noreferrer"
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 transition-colors">
                 <Download className="w-3.5 h-3.5" />Descargar
               </a>
@@ -1292,19 +1300,43 @@ function AttachmentPreviewModal({ preview, onClose }) {
           <img src={preview.url} alt={preview.name} className="object-contain max-h-[80vh] p-4" />
         ) : isPdf ? (
           <iframe src={preview.url} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
-        ) : isOffice && officeViewerUrl ? (
-          <iframe src={officeViewerUrl} title={preview.name} className="flex-1 w-full" style={{ minHeight: '75vh' }} />
-        ) : isNoPreview ? (
+        ) : isOffice && officeViewerUrl && !officeError ? (
+          <div className="relative flex-1 flex flex-col" style={{ minHeight: '75vh' }}>
+            {officeLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-surface-50 z-10">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-8 h-8 border-2 border-brand-300 border-t-brand-600 rounded-full animate-spin" />
+                  <span className="text-xs text-surface-500">Cargando vista previa Office Online…</span>
+                </div>
+              </div>
+            )}
+            <iframe
+              src={officeViewerUrl}
+              title={preview.name}
+              className="flex-1 w-full h-full"
+              style={{ minHeight: '75vh' }}
+              onLoad={() => setOfficeLoading(false)}
+              onError={() => { setOfficeLoading(false); setOfficeError(true); }}
+            />
+          </div>
+        ) : (isNoPreview || (isOffice && officeError)) ? (
           <div className="flex flex-col items-center justify-center gap-4 py-14 px-8 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-100 flex items-center justify-center">
               <Paperclip className="w-8 h-8 text-surface-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-surface-700">Vista previa no disponible</p>
-              <p className="text-xs text-surface-400 mt-1">Los archivos comprimidos ({ext}) no se pueden previsualizar.</p>
+              <p className="text-sm font-semibold text-surface-700">
+                {isOffice && officeError ? 'Vista previa no disponible' : 'Vista previa no disponible'}
+              </p>
+              <p className="text-xs text-surface-400 mt-1">
+                {isOffice && officeError
+                  ? 'Office Online no pudo cargar el archivo. Descárgalo para abrirlo localmente.'
+                  : `Los archivos comprimidos (${ext}) no se pueden previsualizar.`}
+              </p>
             </div>
-            {preview.url && (
-              <a href={preview.url} download={preview.name}
+            {downloadUrl && (
+              <a href={downloadUrl} download={preview.url ? preview.name : undefined}
+                target={preview.url ? undefined : '_blank'} rel="noreferrer"
                 className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 transition-colors">
                 <Download className="w-4 h-4" />Descargar archivo
               </a>

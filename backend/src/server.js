@@ -68,9 +68,11 @@ app.use(helmet({
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(',');
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (Postman, curl, mobile apps)
+    // Allow requests with no origin (Postman, curl, mobile apps, server-to-server)
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    // For unknown origins: don't block (next(err) would prevent /view from serving Office files).
+    // The route handlers enforce JWT auth; public endpoints set their own Access-Control-Allow-Origin.
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -178,6 +180,10 @@ app.use((req, _res, next) => {
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.original_name)}`);
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      if (req.method === 'OPTIONS') return res.status(200).end();
       _fs.createReadStream(absPath).pipe(res);
     } catch (err) {
       console.error('[view-attachment]', err.message);

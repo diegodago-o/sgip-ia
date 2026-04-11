@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { budgetAPI } from '../../services/api';
 import {
   Loader2, ChevronDown, ChevronRight, Save, AlertTriangle,
-  TrendingUp, TrendingDown, CheckCircle2, X, BarChart3, ArrowLeft, Plus, Trash2,
+  TrendingUp, TrendingDown, CheckCircle2, X, BarChart3, ArrowLeft, Plus, Trash2, Download,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -25,6 +25,7 @@ export default function BudgetTrackingPanel({ projectId, perms = {} }) {
   const [selectedMonth, setSelectedMonth] = useState(null); // null = overview, number = detail
   const [viewMode, setViewMode] = useState('table');
   const [toast, setToast] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     try { const r = await budgetAPI.tracking(projectId); setOverview(r.data); }
@@ -33,6 +34,24 @@ export default function BudgetTrackingPanel({ projectId, perms = {} }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const r = await budgetAPI.trackingExport(projectId);
+      const url = URL.createObjectURL(new Blob([r.data], { type: r.headers['content-type'] }));
+      const a = document.createElement('a');
+      a.href = url;
+      const disp = r.headers['content-disposition'] || '';
+      const match = disp.match(/filename="?([^"]+)"?/);
+      a.download = match ? match[1] : `Seguimiento_Presupuestal.xlsx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setToast({ type: 'error', msg: 'Error al generar el Excel' });
+      setTimeout(() => setToast(null), 3000);
+    } finally { setExporting(false); }
+  };
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>;
   if (!overview) return <p className="text-sm text-surface-400 text-center py-8">No hay datos de seguimiento. Configure el presupuesto primero.</p>;
@@ -85,12 +104,19 @@ export default function BudgetTrackingPanel({ projectId, perms = {} }) {
         </div>
       </div>
 
-      {/* View toggle */}
+      {/* View toggle + export */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-surface-400">Haga clic en un mes para ver y registrar el detalle por ítem</p>
-        <div className="flex gap-1 bg-surface-100 rounded-lg p-0.5">
-          <button onClick={() => setViewMode('table')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'table' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>Tabla</button>
-          <button onClick={() => setViewMode('chart')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'chart' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>Gráfico</button>
+        <div className="flex items-center gap-2">
+          <button onClick={exportExcel} disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Exportar Excel
+          </button>
+          <div className="flex gap-1 bg-surface-100 rounded-lg p-0.5">
+            <button onClick={() => setViewMode('table')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'table' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>Tabla</button>
+            <button onClick={() => setViewMode('chart')} className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === 'chart' ? 'bg-white shadow text-brand-700 font-medium' : 'text-surface-500'}`}>Gráfico</button>
+          </div>
         </div>
       </div>
 

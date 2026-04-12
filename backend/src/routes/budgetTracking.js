@@ -265,7 +265,7 @@ router.delete('/:projectId/tracking/extra/:id', async (req, res) => {
 // ═══════════════════════════════════════════
 // GET - Export Excel (Seguimiento Presupuestal)
 // ═══════════════════════════════════════════
-router.get('/:projectId/tracking/export', [param('projectId').isInt()], async (req, res) => {
+router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (req, res) => {
   if (!validate(req, res)) return;
   try {
     const XLSX = require('xlsx');

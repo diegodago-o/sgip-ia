@@ -119,7 +119,7 @@ export const budgetAPI = {
   trackingSave: (projectId, mes, data) => api.post(`/budget/${projectId}/tracking/${mes}`, data),
   trackingAddExtra: (projectId, mes, data) => api.post(`/budget/${projectId}/tracking/${mes}/extra`, data),
   trackingDeleteExtra: (projectId, id) => api.delete(`/budget/${projectId}/tracking/extra/${id}`),
-  trackingExport: (projectId) => api.get(`/budget/${projectId}/tracking/export`, { responseType: 'blob' }),
+  trackingExport: (projectId) => api.get(`/budget/${projectId}/tracking-export`, { responseType: 'blob' }),
 };
 
 export const teamAPI = {

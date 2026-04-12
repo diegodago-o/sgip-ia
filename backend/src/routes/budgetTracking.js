@@ -374,7 +374,6 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
       { key:'plan',  width:20 },
       { key:'exec',  width:20 },
       { key:'dev',   width:20 },
-      { key:'aplan', width:20 },
       { key:'aexec', width:20 },
       { key:'adev',  width:20 },
     ];
@@ -384,32 +383,32 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
     const isOver    = kpiDev >= 0;
 
     // Fila 1 — Título principal
-    ws.mergeCells('A1:G1');
+    ws.mergeCells('A1:F1');
     const t1 = ws.getCell('A1');
     t1.value = `SEGUIMIENTO PRESUPUESTAL — ${(project?.code||'').toUpperCase()}`;
     applyStyle(t1, { bold:true, sz:16, color:C.WHITE, bg:C.TEAL, align:'center', borders:borderMed(C.TEAL) });
     ws.getRow(1).height = 32;
 
     // Fila 2 — Nombre proyecto
-    ws.mergeCells('A2:G2');
+    ws.mergeCells('A2:F2');
     const t2 = ws.getCell('A2');
     t2.value = project?.name || '';
     applyStyle(t2, { bold:true, sz:12, color:'B2DFDB', bg:C.TEAL, align:'center', borders:borderMed(C.TEAL) });
     ws.getRow(2).height = 22;
 
     // Fila 3 — Info cliente
-    ws.mergeCells('A3:G3');
+    ws.mergeCells('A3:F3');
     const t3 = ws.getCell('A3');
     t3.value = `Cliente: ${project?.client_name||''}   |   Plazo: ${project?.execution_term||''} ${project?.execution_term_unit||''}   |   Valor contrato: ${fmtCOP(project?.contract_value)}`;
     applyStyle(t3, { sz:9, color:'B2DFDB', bg:C.TEAL, align:'center', italic:true, borders:borderMed(C.TEAL) });
     ws.getRow(3).height = 16;
 
     // Fila 4 — Separador
-    ws.mergeCells('A4:G4');
+    ws.mergeCells('A4:F4');
     ws.getCell('A4').fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF'+C.GRAY } };
     ws.getRow(4).height = 8;
 
-    // Fila 5 — KPIs (3 bloques x2 columnas + 1)
+    // Fila 5 — KPIs (2 bloques x2 columnas + 1 x2)
     const kpiRow = ws.getRow(5);
     kpiRow.height = 50;
     // KPI 1: Planeado (A5:B5)
@@ -430,8 +429,8 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
     ]};
     applyStyle(kpi2, { bg:C.PURPLE_L, align:'center', wrap:true, borders:borderMed(C.PURPLE) });
 
-    // KPI 3: Desviación (E5:G5)
-    ws.mergeCells('E5:G5');
+    // KPI 3: Desviación (E5:F5)
+    ws.mergeCells('E5:F5');
     const kpi3 = ws.getCell('E5');
     kpi3.value = { richText: [
       { text: (isOver ? 'SOBRECOSTO' : 'AHORRO')+'\n', font:{ name:'Calibri', size:9, bold:true, color:{ argb:'FF'+(isOver?C.RED:C.GREEN) } } },
@@ -441,12 +440,12 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
     applyStyle(kpi3, { bg: isOver?C.RED_L:C.GREEN_L, align:'center', wrap:true, borders:borderMed(isOver?C.RED:C.GREEN) });
 
     // Fila 6 — Separador
-    ws.mergeCells('A6:G6');
+    ws.mergeCells('A6:F6');
     ws.getCell('A6').fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF'+C.GRAY } };
     ws.getRow(6).height = 8;
 
-    // Fila 7 — Encabezados tabla
-    const cols7 = ['MES','PLANEADO','EJECUTADO','DESVIACIÓN','ACUM. PLANEADO','ACUM. EJECUTADO','ACUM. DESVIACIÓN'];
+    // Fila 7 — Encabezados tabla (6 columnas)
+    const cols7 = ['MES','PLANEADO','EJECUTADO','DESVIACIÓN','ACUM. EJECUTADO','ACUM. DESVIACIÓN'];
     cols7.forEach((h, i) => {
       const c = ws.getRow(7).getCell(i+1);
       c.value = h;
@@ -475,14 +474,11 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
       const c4 = row.getCell(4); c4.value = m.tieneData ? m.desviacion : null;
       applyStyle(c4, { sz:10, bold:m.tieneData, color:devCol, bg:devBg, align:'right', numFmt:NUM_FMT });
 
-      const c5 = row.getCell(5); c5.value = m.tieneData ? m.acumPlan : null;
-      applyStyle(c5, { sz:10, color:m.tieneData?C.BLUE:'CBD5E1', bg:m.tieneData?C.BLUE_L:C.SLATE_L, align:'right', numFmt:NUM_FMT });
+      const c5 = row.getCell(5); c5.value = m.tieneData ? m.acumExec : null;
+      applyStyle(c5, { sz:10, color:m.tieneData?C.PURPLE:'CBD5E1', bg:m.tieneData?C.PURPLE_L:C.SLATE_L, align:'right', numFmt:NUM_FMT });
 
-      const c6 = row.getCell(6); c6.value = m.tieneData ? m.acumExec : null;
-      applyStyle(c6, { sz:10, color:m.tieneData?C.PURPLE:'CBD5E1', bg:m.tieneData?C.PURPLE_L:C.SLATE_L, align:'right', numFmt:NUM_FMT });
-
-      const c7 = row.getCell(7); c7.value = m.tieneData ? m.acumDev : null;
-      applyStyle(c7, { sz:10, bold:m.tieneData, color:adevCol, bg:adevBg, align:'right', numFmt:NUM_FMT });
+      const c6 = row.getCell(6); c6.value = m.tieneData ? m.acumDev : null;
+      applyStyle(c6, { sz:10, bold:m.tieneData, color:adevCol, bg:adevBg, align:'right', numFmt:NUM_FMT });
     }
 
     // Fila TOTAL
@@ -493,7 +489,7 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
       { v:totalPlan, bg:'164E63', col:C.WHITE, bold:true, align:'right',  nm:NUM_FMT },
       { v:totalExec, bg:'2E1065', col:C.WHITE, bold:true, align:'right',  nm:NUM_FMT },
       { v:kpiDev,    bg:isOver?'7F1D1D':'064E3B', col:C.WHITE, bold:true, align:'right', nm:NUM_FMT },
-      { v:'', bg:C.TEAL, col:C.WHITE }, { v:'', bg:C.TEAL, col:C.WHITE }, { v:'', bg:C.TEAL, col:C.WHITE },
+      { v:'', bg:C.TEAL, col:C.WHITE }, { v:'', bg:C.TEAL, col:C.WHITE },
     ];
     totCells.forEach((t,i) => {
       const c = totRow.getCell(i+1);
@@ -504,7 +500,7 @@ router.get('/:projectId/tracking-export', [param('projectId').isInt()], async (r
     // Fila fecha generación
     ws.addRow([]);
     const fecRow = ws.addRow([]);
-    ws.mergeCells(`A${fecRow.number}:G${fecRow.number}`);
+    ws.mergeCells(`A${fecRow.number}:F${fecRow.number}`);
     const fecCell = fecRow.getCell(1);
     fecCell.value = `Generado el ${new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'})} — SGIP-IA`;
     applyStyle(fecCell, { sz:8, color:'94A3B8', italic:true, align:'right', bg:C.GRAY, borders:border('E2E8F0') });

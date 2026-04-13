@@ -281,7 +281,7 @@ export default function ProjectFormPage() {
                 ))}
               </div>
             </Field>
-            <Field label="Prioridad" required>
+            <Field label="Prioridad">
               <select value={form.priority} onChange={set('priority')} className="input-field">
                 <option value="alta">Alta</option>
                 <option value="media">Media</option>
@@ -306,14 +306,14 @@ export default function ProjectFormPage() {
             <Field label="Cliente / Contratante" required>
               <input value={form.client_name} onChange={set('client_name')} className="input-field" required placeholder="Nombre de la entidad" />
             </Field>
-            <Field label="NIT / Identificación">
-              <input value={form.client_nit} onChange={set('client_nit')} className="input-field" placeholder="Ej: 899999999-1" />
+            <Field label="NIT / Identificación" required>
+              <input value={form.client_nit} onChange={set('client_nit')} className="input-field" required placeholder="Ej: 899999999-1" />
             </Field>
             <Field label="Número de Contrato">
               <input value={form.contract_number} onChange={set('contract_number')} className="input-field" placeholder="Ej: LP-2026-001" />
             </Field>
-            <Field label="Valor del Contrato">
-              <input type="number" value={form.contract_value} onChange={set('contract_value')} className="input-field" placeholder="0" min="0" step="0.01" />
+            <Field label="Valor del Contrato" required>
+              <input type="number" value={form.contract_value} onChange={set('contract_value')} className="input-field" required placeholder="0" min="0" step="0.01" />
             </Field>
             <Field label="Objeto del Contrato" span={2}>
               <textarea value={form.contract_object} onChange={set('contract_object')} className="input-field min-h-[80px] resize-y" placeholder="Descripción del objeto contractual..." />
@@ -330,12 +330,12 @@ export default function ProjectFormPage() {
             <Field label="Fecha de Firma">
               <input type="date" value={form.sign_date} onChange={set('sign_date')} className="input-field" />
             </Field>
-            <Field label="Fecha de Inicio">
-              <input type="date" value={form.start_date} onChange={set('start_date')} className="input-field" />
+            <Field label="Fecha de Inicio" required>
+              <input type="date" value={form.start_date} onChange={set('start_date')} className="input-field" required />
             </Field>
-            <Field label="Plazo de Ejecución">
+            <Field label="Plazo de Ejecución" required>
               <div className="flex gap-2">
-                <input type="number" value={form.execution_term} onChange={set('execution_term')} className="input-field flex-1" placeholder="12" min="1" />
+                <input type="number" value={form.execution_term} onChange={set('execution_term')} className="input-field flex-1" required placeholder="12" min="1" />
                 <select value={form.execution_term_unit} onChange={set('execution_term_unit')} className="input-field w-40">
                   {TERM_UNIT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>

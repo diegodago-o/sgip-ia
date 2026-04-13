@@ -20,7 +20,7 @@ const MODULE_ACCESS = {
   gerente_proyecto: ['adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
   director_pmo:     ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
   ceo:              ['dashboard', 'adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
-  apoyo:            ['adjudicacion', 'ejecucion', 'ia'],
+  apoyo:            ['adjudicacion', 'ejecucion', 'cierre', 'indicadores', 'ia'],
 };
 
 const ALL_MODULES = [

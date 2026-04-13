@@ -2,6 +2,8 @@ const express = require('express');
 const { param, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
+// Roles que pueden escribir en seguimiento presupuestal
+const CAN_TRACK = roleMiddleware('admin', 'gerente_proyecto', 'apoyo');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -199,7 +201,7 @@ router.get('/:projectId/tracking/:mes', [param('projectId').isInt()], async (req
 // ═══════════════════════════════════════════
 // POST - Save executed values (item-level)
 // ═══════════════════════════════════════════
-router.post('/:projectId/tracking/:mes', async (req, res) => {
+router.post('/:projectId/tracking/:mes', CAN_TRACK, async (req, res) => {
   try {
     const pid = req.params.projectId;
     const mes = parseInt(req.params.mes);
@@ -231,7 +233,7 @@ router.post('/:projectId/tracking/:mes', async (req, res) => {
 // ═══════════════════════════════════════════
 // POST - Add extra expense (not in budget)
 // ═══════════════════════════════════════════
-router.post('/:projectId/tracking/:mes/extra', async (req, res) => {
+router.post('/:projectId/tracking/:mes/extra', CAN_TRACK, async (req, res) => {
   try {
     const pid = req.params.projectId;
     const mes = parseInt(req.params.mes);
@@ -253,7 +255,7 @@ router.post('/:projectId/tracking/:mes/extra', async (req, res) => {
 // ═══════════════════════════════════════════
 // DELETE - Remove extra expense
 // ═══════════════════════════════════════════
-router.delete('/:projectId/tracking/extra/:id', async (req, res) => {
+router.delete('/:projectId/tracking/extra/:id', CAN_TRACK, async (req, res) => {
   try {
     await pool.execute(
       "DELETE FROM budget_tracking WHERE id=? AND project_id=? AND fuente='extra'",

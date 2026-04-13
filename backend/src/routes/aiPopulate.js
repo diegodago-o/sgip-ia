@@ -5,7 +5,7 @@
 const express = require('express');
 const { param } = require('express-validator');
 const pool = require('../config/database');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, projectAccessMiddleware } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 
@@ -250,8 +250,9 @@ async function extractPDFText(filePath) {
 // ═══════════════════════════════════════════
 // POST /api/ai-populate/:projectId/analyze
 // Analyze uploaded docs and return structured data preview
+// Acceso: admin, gerente_proyecto (read + analysis)
 // ═══════════════════════════════════════════
-router.post('/:projectId/analyze', [param('projectId').isInt()], async (req, res) => {
+router.post('/:projectId/analyze', roleMiddleware('admin', 'gerente_proyecto'), [param('projectId').isInt()], async (req, res) => {
   try {
     const pid = req.params.projectId;
     const { provider, apiKey, model } = await getAIConfig(req);
@@ -483,8 +484,9 @@ IMPORTANTE:
 // ═══════════════════════════════════════════
 // POST /api/ai-populate/:projectId/apply
 // Apply extracted data to actual modules
+// Acceso: admin, gerente_proyecto (escritura en módulos)
 // ═══════════════════════════════════════════
-router.post('/:projectId/apply', [param('projectId').isInt()], async (req, res) => {
+router.post('/:projectId/apply', roleMiddleware('admin', 'gerente_proyecto'), [param('projectId').isInt()], async (req, res) => {
   try {
     const pid = parseInt(req.params.projectId);
     const uid = req.user.id;

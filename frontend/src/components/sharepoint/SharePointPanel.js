@@ -81,14 +81,15 @@ function getPreviewStrategy(filename) {
   return 'none';
 }
 
-function PreviewModal({ item, projectId, onClose }) {
+function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
   const [downloadUrl,  setDownloadUrl]  = useState(null);
   const [blobUrl,      setBlobUrl]      = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [iframeError,  setIframeError]  = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [timedOut,     setTimedOut]     = useState(false);
-  const [retryKey,     setRetryKey]     = useState(0); // incrementar para reintentar
+  const [retryKey,     setRetryKey]     = useState(0);
+  const [elapsed,      setElapsed]      = useState(0); // B: cronómetro visible para Office
   const blobRef  = useRef(null);
   const timerRef = useRef(null);
 
@@ -102,7 +103,15 @@ function PreviewModal({ item, projectId, onClose }) {
     };
   }, []);
 
-  // Efecto unificado: obtiene URL y arranca la siguiente etapa sin ciclo extra de render
+  // B: cronómetro — corre solo mientras Office Viewer está renderizando (no mientras carga URL)
+  useEffect(() => {
+    if (strategy !== 'office' || loading || iframeLoaded || timedOut) return;
+    setElapsed(0);
+    const interval = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [strategy, loading, iframeLoaded, timedOut, retryKey]);
+
+  // Efecto unificado: D usa cache de URL, luego arranca etapa siguiente
   useEffect(() => {
     let cancelled = false;
     setDownloadUrl(null);
@@ -111,20 +120,19 @@ function PreviewModal({ item, projectId, onClose }) {
     setIframeError(false);
     setIframeLoaded(false);
     setTimedOut(false);
+    setElapsed(0);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
     if (strategy === 'none') { setLoading(false); return; }
 
     const run = async () => {
       try {
-        // Paso 1: obtener URL pre-autenticada del backend
-        const r = await sharepointAPI.getDownloadUrl(projectId, item.id);
-        const url = r.data?.url || r.data;
+        // D: usa cache de URL del panel padre (getDownloadUrl cachea por itemId)
+        const url = await getDownloadUrl(item.id);
         if (cancelled) return;
         setDownloadUrl(url);
 
         if (strategy === 'pdf') {
-          // Paso 2 (PDF): fetch blob inmediatamente sin esperar re-render
           try {
             const resp = await fetch(url);
             const blob = await resp.blob();
@@ -139,11 +147,10 @@ function PreviewModal({ item, projectId, onClose }) {
             if (!cancelled) setLoading(false);
           }
         } else if (strategy === 'office') {
-          // Paso 2 (Office): URL lista → quitar spinner + iniciar timeout 30s
           if (!cancelled) {
             setLoading(false);
             if (timerRef.current) clearTimeout(timerRef.current);
-            timerRef.current = setTimeout(() => setTimedOut(true), 30000);
+            timerRef.current = setTimeout(() => setTimedOut(true), 45000); // B: 45s timeout
           }
         }
       } catch {
@@ -156,7 +163,7 @@ function PreviewModal({ item, projectId, onClose }) {
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [projectId, item.id, strategy, retryKey]); // retryKey fuerza re-ejecución en retry
+  }, [item.id, strategy, retryKey, getDownloadUrl]);
 
   const officeEmbedUrl = downloadUrl
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}&wdStartOn=1`
@@ -166,7 +173,14 @@ function PreviewModal({ item, projectId, onClose }) {
   const showIframe   = !iframeError && !loading && !!iframeSrc && !timedOut;
   const showFallback = !loading && (strategy === 'none' || iframeError || !downloadUrl || timedOut);
 
-  const handleRetry = () => setRetryKey(k => k + 1);
+  // B: mensaje contextual según tiempo transcurrido
+  const officeStatusMsg = elapsed < 5
+    ? 'Microsoft Office Online está procesando el documento...'
+    : elapsed < 12
+    ? `Procesando... (${elapsed}s) — el visor de Microsoft puede tardar unos segundos`
+    : `Tardando más de lo esperado (${elapsed}s) — puedes abrirlo directamente en SharePoint`;
+
+  const handleRetry = () => { setElapsed(0); setRetryKey(k => k + 1); };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -205,11 +219,24 @@ function PreviewModal({ item, projectId, onClose }) {
           {/* Office Online / PDF embed */}
           {showIframe && (
             <>
-              {/* Spinner superpuesto mientras el iframe carga contenido */}
+              {/* B: Overlay contextual mientras Office Online renderiza */}
               {!iframeLoaded && strategy === 'office' && (
-                <div className="absolute inset-0 flex items-center justify-center gap-2 text-surface-400 bg-surface-50 z-10 pointer-events-none">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="text-sm">Renderizando documento...</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface-50/95 z-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+                  <p className="text-sm text-surface-600 text-center max-w-xs px-4 leading-relaxed">
+                    {officeStatusMsg}
+                  </p>
+                  {elapsed >= 3 && (
+                    <a
+                      href={item.webUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs text-brand-600 border border-brand-200 bg-white rounded-xl hover:bg-brand-50 transition-colors shadow-sm"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Abrir directamente en SharePoint
+                    </a>
+                  )}
                 </div>
               )}
               <iframe
@@ -278,15 +305,38 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
   const [previewItem,  setPreviewItem]  = useState(null);
   const [analyzeItem,  setAnalyzeItem]  = useState(null);
 
-  const fileInputRef  = useRef(null);
+  const fileInputRef   = useRef(null);
   const folderCacheRef = useRef(new Map()); // key: subpath → items[]
   const loadAbortRef   = useRef(null);       // AbortController para cancelar requests en vuelo
+  const urlCacheRef    = useRef(new Map()); // D: cache de download URLs por itemId (sesión)
 
   // Quick-access subfolders derived from first load (top-level folders)
   const [quickFolders, setQuickFolders] = useState([]);
 
-  // Limpiar cache si cambia el proyecto
-  useEffect(() => { folderCacheRef.current.clear(); }, [projectId]);
+  // Limpiar caches si cambia el proyecto
+  useEffect(() => {
+    folderCacheRef.current.clear();
+    urlCacheRef.current.clear();
+  }, [projectId]);
+
+  // A: prefetch silencioso de URL al hacer hover en archivo Office
+  const prefetchUrl = useCallback(async (itemId) => {
+    if (urlCacheRef.current.has(itemId)) return; // ya en cache
+    try {
+      const r = await sharepointAPI.getDownloadUrl(projectId, itemId);
+      const url = r.data?.url || r.data;
+      if (url) urlCacheRef.current.set(itemId, url);
+    } catch { /* ignorar errores silenciosos de prefetch */ }
+  }, [projectId]);
+
+  // D: obtener URL con cache primero (usado por PreviewModal)
+  const getDownloadUrl = useCallback(async (itemId) => {
+    if (urlCacheRef.current.has(itemId)) return urlCacheRef.current.get(itemId);
+    const r = await sharepointAPI.getDownloadUrl(projectId, itemId);
+    const url = r.data?.url || r.data;
+    if (url) urlCacheRef.current.set(itemId, url);
+    return url;
+  }, [projectId]);
 
   // ── Load current folder ──────────────────────────────────────────
   const loadFolder = useCallback(async (subpath, forceRefresh = false) => {
@@ -479,10 +529,12 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
               {files.map(item => {
                 const Icon = getFileIcon(item);
                 const color = getFileColor(item);
+                const isOffice = item.type === 'file' && getPreviewStrategy(item.name) === 'office';
                 return (
                   <tr key={item.id}
                     className="hover:bg-surface-50 transition-colors cursor-pointer group"
-                    onClick={() => handleItemClick(item)}>
+                    onClick={() => handleItemClick(item)}
+                    onMouseEnter={() => { if (isOffice) prefetchUrl(item.id); }}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Icon className={`w-4 h-4 flex-shrink-0 ${color}`} />
@@ -549,6 +601,7 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
           key={previewItem.id}
           item={previewItem}
           projectId={projectId}
+          getDownloadUrl={getDownloadUrl}
           onClose={() => setPreviewItem(null)}
         />
       )}

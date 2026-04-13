@@ -262,18 +262,7 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
           </div>
         </div>
 
-        {/* ── Pestañas XLSX ── */}
-        {!loading && strategy === 'xlsx' && sheets.length > 1 && (
-          <div className="flex items-center gap-1 px-4 py-2 border-b border-surface-100 bg-surface-50 overflow-x-auto flex-shrink-0">
-            {sheets.map((s, i) => (
-              <button key={i} onClick={() => setActiveSheet(i)}
-                className={`px-3 py-1 text-xs rounded-md font-medium whitespace-nowrap transition-colors
-                  ${i === activeSheet ? 'bg-green-600 text-white' : 'text-surface-500 hover:bg-surface-200'}`}>
-                {s.name}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Pestañas XLSX se muestran dentro del visor Excel, no aquí */}
 
         {/* ── Contenido ── */}
         <div className="flex-1 overflow-hidden relative">
@@ -317,67 +306,182 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
             <iframe src={blobUrl} title={item.name} className="w-full h-full border-0" />
           )}
 
-          {/* DOCX → HTML renderizado localmente */}
+          {/* ── VISOR WORD ── fondo gris, página blanca centrada con sombra */}
           {!loading && !error && strategy === 'docx' && docHtml !== null && (
-            <div className="h-full overflow-y-auto bg-gray-50">
-              <div className="max-w-3xl mx-auto my-6 bg-white shadow-sm rounded-lg px-10 py-8
-                text-sm text-gray-800 leading-relaxed font-sans
-                [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h1]:text-gray-900
-                [&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-gray-900
-                [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-3
-                [&_p]:mb-1.5 [&_p]:leading-relaxed
-                [&_p:empty]:hidden
-                [&_br+br]:hidden
-                [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2
-                [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-2
-                [&_li]:mb-0.5
-                [&_table]:w-full [&_table]:border-collapse [&_table]:mb-3 [&_table]:text-xs
-                [&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1.5
-                [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1.5 [&_th]:bg-gray-100 [&_th]:font-semibold [&_th]:text-left
-                [&_strong]:font-semibold [&_em]:italic
-                [&_img]:max-w-full [&_img]:h-auto [&_img]:my-2 [&_img]:rounded"
-                dangerouslySetInnerHTML={{ __html: docHtml }}
-              />
+            <div className="h-full overflow-y-auto" style={{ background: '#c8c8c8' }}>
+              {/* Barra superior estilo Word */}
+              <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5"
+                style={{ background: '#2b579a' }}>
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white flex-shrink-0">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/>
+                </svg>
+                <span className="text-white text-xs font-medium truncate">{item.name}</span>
+                <span className="ml-auto text-blue-200 text-[10px] font-medium">Vista previa — Solo lectura</span>
+              </div>
+              {/* Estilos del documento Word */}
+              <style>{`
+                .sgip-word-page p { margin: 0 0 6px 0; }
+                .sgip-word-page p:empty { display: none; }
+                .sgip-word-page h1 { font-size: 20px; font-weight: 700; margin: 20px 0 8px; color: #1a1a1a; }
+                .sgip-word-page h2 { font-size: 16px; font-weight: 700; margin: 16px 0 6px; color: #1a1a1a; }
+                .sgip-word-page h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+                .sgip-word-page ul, .sgip-word-page ol { padding-left: 24px; margin: 6px 0 8px; }
+                .sgip-word-page li { margin-bottom: 3px; }
+                .sgip-word-page table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
+                .sgip-word-page td, .sgip-word-page th { border: 1px solid #d0d0d0; padding: 5px 10px; vertical-align: top; }
+                .sgip-word-page th { background: #f2f2f2; font-weight: 600; }
+                .sgip-word-page strong { font-weight: 600; }
+                .sgip-word-page em { font-style: italic; }
+                .sgip-word-page img { max-width: 100%; height: auto; margin: 6px 0; }
+                .sgip-word-page a { color: #2b579a; text-decoration: underline; }
+              `}</style>
+              {/* Página del documento */}
+              <div className="py-8 px-4 flex justify-center">
+                <div
+                  className="sgip-word-page w-full bg-white"
+                  style={{
+                    maxWidth: '816px',
+                    minHeight: '1056px',
+                    padding: '72px 96px',
+                    boxShadow: '0 1px 4px rgba(0,0,0,.3), 0 0 0 1px rgba(0,0,0,.1)',
+                    fontFamily: '"Calibri","Segoe UI",Arial,sans-serif',
+                    fontSize: '13px',
+                    lineHeight: '1.6',
+                    color: '#1a1a1a',
+                  }}
+                  dangerouslySetInnerHTML={{ __html: docHtml }}
+                />
+              </div>
             </div>
           )}
 
-          {/* XLSX → tabla React (sin celdas vacías, sin filas en blanco) */}
+          {/* ── VISOR EXCEL ── fondo gris, toolbar verde, tabla con encabezados A/B/C */}
           {!loading && !error && strategy === 'xlsx' && sheets.length > 0 && (() => {
             const { rows, maxCol } = sheets[activeSheet] || { rows: [], maxCol: 0 };
+            // Generar letras de columna (A, B, ..., Z, AA, AB...)
+            const colLetter = n => {
+              let s = ''; let i = n + 1;
+              while (i > 0) { i--; s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i / 26); }
+              return s;
+            };
             return (
-              <div className="h-full overflow-auto bg-gray-50">
-                {rows.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-sm text-surface-400">Esta hoja no tiene datos</p>
+              <div className="h-full flex flex-col" style={{ background: '#f0f0f0' }}>
+                {/* Barra superior estilo Excel */}
+                <div className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
+                  style={{ background: '#217346' }}>
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white flex-shrink-0">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/>
+                  </svg>
+                  <span className="text-white text-xs font-medium truncate">{item.name}</span>
+                  <span className="ml-auto text-green-200 text-[10px] font-medium">Vista previa — Solo lectura</span>
+                </div>
+
+                {/* Barra de fórmulas simulada */}
+                <div className="flex items-center gap-0 flex-shrink-0 border-b"
+                  style={{ background: '#ffffff', borderColor: '#c8c8c8' }}>
+                  <div className="px-2 py-1 text-xs font-medium text-slate-500 border-r min-w-[52px] text-center"
+                    style={{ borderColor: '#c8c8c8', background: '#f8f8f8' }}>A1</div>
+                  <div className="flex-1 px-3 py-1 text-xs text-slate-700 truncate">
+                    {rows[0]?.[0] ?? ''}
                   </div>
-                ) : (
-                  <div className="p-4">
-                    <table className="border-collapse text-xs bg-white shadow-sm rounded-lg overflow-hidden">
-                      <tbody>
-                        {rows.map((row, ri) => (
-                          <tr key={ri}
-                            className={ri === 0
-                              ? 'bg-slate-100 font-semibold text-slate-700 sticky top-0'
-                              : ri % 2 === 0 ? 'bg-white hover:bg-blue-50/40' : 'bg-slate-50/60 hover:bg-blue-50/40'}>
-                            {/* Número de fila */}
-                            <td className="border border-slate-200 px-2 py-1.5 text-slate-400 text-right select-none bg-slate-50 min-w-[36px]">
-                              {ri + 1}
-                            </td>
-                            {Array.from({ length: maxCol + 1 }, (_, ci) => {
-                              const val = row[ci] ?? '';
-                              const str = String(val);
-                              return (
-                                <td key={ci}
-                                  className="border border-slate-200 px-2 py-1.5 whitespace-nowrap text-slate-800 max-w-[280px] truncate"
-                                  title={str.length > 30 ? str : undefined}>
-                                  {str}
-                                </td>
-                              );
-                            })}
+                </div>
+
+                {/* Tabla con scroll */}
+                <div className="flex-1 overflow-auto" style={{ background: '#f0f0f0' }}>
+                  {rows.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-sm text-slate-400">Esta hoja no tiene datos</p>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '0', overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"Calibri","Segoe UI",Arial,sans-serif' }}>
+                        <thead>
+                          <tr>
+                            {/* Esquina vacía */}
+                            <th style={{ width: 40, minWidth: 40, background: '#f2f2f2', border: '1px solid #d0d0d0', position: 'sticky', top: 0, left: 0, zIndex: 3 }} />
+                            {/* Letras de columna A, B, C... */}
+                            {Array.from({ length: maxCol + 1 }, (_, ci) => (
+                              <th key={ci}
+                                style={{
+                                  background: '#f2f2f2', border: '1px solid #d0d0d0',
+                                  padding: '2px 8px', fontWeight: 600, fontSize: '11px',
+                                  color: '#444', textAlign: 'center', whiteSpace: 'nowrap',
+                                  minWidth: 80, position: 'sticky', top: 0, zIndex: 2,
+                                  userSelect: 'none',
+                                }}>
+                                {colLetter(ci)}
+                              </th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {rows.map((row, ri) => (
+                            <tr key={ri}>
+                              {/* Número de fila */}
+                              <td style={{
+                                background: '#f2f2f2', border: '1px solid #d0d0d0',
+                                padding: '2px 6px', textAlign: 'right', fontSize: '11px',
+                                color: '#666', fontWeight: 500, userSelect: 'none',
+                                position: 'sticky', left: 0, zIndex: 1, minWidth: 40,
+                              }}>
+                                {ri + 1}
+                              </td>
+                              {Array.from({ length: maxCol + 1 }, (_, ci) => {
+                                const val = row[ci] ?? '';
+                                const str = String(val);
+                                // Detectar si es número para alineación derecha
+                                const isNum = str !== '' && !isNaN(str.replace(/[$,%]/g, '').replace(/\./g, '').replace(/,/g, '.'));
+                                return (
+                                  <td key={ci}
+                                    title={str.length > 25 ? str : undefined}
+                                    style={{
+                                      border: '1px solid #d0d0d0',
+                                      padding: '2px 8px',
+                                      whiteSpace: 'nowrap',
+                                      maxWidth: 260,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      background: ri % 2 === 0 ? '#ffffff' : '#f9fafb',
+                                      textAlign: isNum ? 'right' : 'left',
+                                      color: '#1a1a1a',
+                                    }}>
+                                    {str}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Pestañas de hojas — parte inferior como Excel */}
+                {sheets.length > 1 && (
+                  <div className="flex items-center gap-0 flex-shrink-0 overflow-x-auto"
+                    style={{ background: '#c8c8c8', borderTop: '1px solid #a0a0a0', minHeight: 28 }}>
+                    <div className="flex items-end px-2 gap-0.5">
+                      {sheets.map((s, i) => (
+                        <button key={i} onClick={() => setActiveSheet(i)}
+                          style={{
+                            padding: '3px 14px',
+                            fontSize: '11px',
+                            fontFamily: '"Calibri","Segoe UI",Arial,sans-serif',
+                            border: '1px solid',
+                            borderBottom: i === activeSheet ? 'none' : '1px solid #a0a0a0',
+                            borderColor: i === activeSheet ? '#a0a0a0' : '#b0b0b0',
+                            background: i === activeSheet ? '#ffffff' : '#d8d8d8',
+                            color: i === activeSheet ? '#217346' : '#555',
+                            fontWeight: i === activeSheet ? 600 : 400,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            marginBottom: i === activeSheet ? -1 : 0,
+                          }}>
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

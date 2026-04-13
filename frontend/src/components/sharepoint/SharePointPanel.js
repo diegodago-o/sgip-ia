@@ -15,6 +15,7 @@ import {
   ChevronRight, Home, Loader2, AlertTriangle, X, ExternalLink,
   RefreshCw, File, Brain,
 } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { sharepointAPI } from '../../services/api';
 import SPCoveragePanel from './SPCoveragePanel';
 import DocumentAnalysisModal, { canAnalyze } from './DocumentAnalysisModal';
@@ -66,127 +67,160 @@ async function openDownload(projectId, itemId) {
 
 // ─────────────────────────────────────────────
 // Preview Modal
-// SharePoint blocks direct iframe embed (X-Frame-Options).
-// Strategy:
-//   • Office files  → Office Online Viewer (embed.aspx?src=downloadUrl)
-//   • PDF           → embed download URL directly in <iframe>
-//   • Others        → show actions only (open in SP + download)
+// Estrategia por formato:
+//   • DOCX/DOC  → mammoth.js  (blob → HTML local, sin servicio externo)
+//   • XLSX/XLS  → SheetJS     (blob → tabla HTML local, sin servicio externo)
+//   • PPTX/PPT  → Office Online Viewer (sin alternativa JS viable)
+//   • PDF       → blob URL en <iframe> (nativo del navegador)
+//   • Otros     → acciones solamente
 // ─────────────────────────────────────────────
-const OFFICE_EXTS = ['doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp'];
 
 function getPreviewStrategy(filename) {
   const ext = (filename || '').split('.').pop().toLowerCase();
-  if (OFFICE_EXTS.includes(ext)) return 'office';
-  if (ext === 'pdf') return 'pdf';
+  if (['docx', 'doc'].includes(ext))        return 'docx';
+  if (['xlsx', 'xls'].includes(ext))        return 'xlsx';
+  if (['pptx', 'ppt', 'odp'].includes(ext)) return 'pptx';
+  if (['odt'].includes(ext))                return 'docx';
+  if (['ods'].includes(ext))                return 'xlsx';
+  if (ext === 'pdf')                        return 'pdf';
   return 'none';
 }
 
 function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
-  const [downloadUrl,  setDownloadUrl]  = useState(null);
-  const [blobUrl,      setBlobUrl]      = useState(null);
   const [loading,      setLoading]      = useState(true);
-  const [iframeError,  setIframeError]  = useState(false);
+  const [error,        setError]        = useState(null);
+  const [retryKey,     setRetryKey]     = useState(0);
+
+  // PDF: blob URL para iframe
+  const [blobUrl,      setBlobUrl]      = useState(null);
+
+  // DOCX: HTML sanitizado
+  const [docHtml,      setDocHtml]      = useState(null);
+
+  // XLSX: hojas [{name, html}]
+  const [sheets,       setSheets]       = useState([]);
+  const [activeSheet,  setActiveSheet]  = useState(0);
+
+  // PPTX: Office Online iframe state
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [timedOut,     setTimedOut]     = useState(false);
-  const [retryKey,     setRetryKey]     = useState(0);
-  const [elapsed,      setElapsed]      = useState(0); // B: cronómetro visible para Office
+  const [elapsed,      setElapsed]      = useState(0);
+  const [officeUrl,    setOfficeUrl]    = useState(null);
+
   const blobRef  = useRef(null);
   const timerRef = useRef(null);
-
   const strategy = getPreviewStrategy(item.name);
 
-  // Limpiar al desmontar
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-    };
+  // Limpieza al desmontar
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (blobRef.current)  URL.revokeObjectURL(blobRef.current);
   }, []);
 
-  // B: cronómetro — corre solo mientras Office Viewer está renderizando (no mientras carga URL)
+  // Cronómetro PPTX mientras Office Online renderiza
   useEffect(() => {
-    if (strategy !== 'office' || loading || iframeLoaded || timedOut) return;
+    if (strategy !== 'pptx' || loading || iframeLoaded || timedOut) return;
     setElapsed(0);
-    const interval = setInterval(() => setElapsed(s => s + 1), 1000);
-    return () => clearInterval(interval);
+    const iv = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(iv);
   }, [strategy, loading, iframeLoaded, timedOut, retryKey]);
 
-  // Efecto unificado: D usa cache de URL, luego arranca etapa siguiente
+  // Efecto principal: descarga y renderiza según estrategia
   useEffect(() => {
     let cancelled = false;
-    setDownloadUrl(null);
-    setBlobUrl(null);
-    setLoading(true);
-    setIframeError(false);
-    setIframeLoaded(false);
-    setTimedOut(false);
-    setElapsed(0);
+    // reset state
+    setLoading(true); setError(null);
+    setBlobUrl(null); setDocHtml(null); setSheets([]); setActiveSheet(0);
+    setIframeLoaded(false); setTimedOut(false); setElapsed(0); setOfficeUrl(null);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
     if (strategy === 'none') { setLoading(false); return; }
 
     const run = async () => {
       try {
-        // D: usa cache de URL del panel padre (getDownloadUrl cachea por itemId)
         const url = await getDownloadUrl(item.id);
         if (cancelled) return;
-        setDownloadUrl(url);
 
+        // ── PDF ──────────────────────────────────────────────────────
         if (strategy === 'pdf') {
-          try {
-            const resp = await fetch(url);
-            const blob = await resp.blob();
-            if (cancelled) return;
-            if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-            const objectUrl = URL.createObjectURL(blob);
-            blobRef.current = objectUrl;
-            setBlobUrl(objectUrl);
-          } catch {
-            if (!cancelled) setIframeError(true);
-          } finally {
-            if (!cancelled) setLoading(false);
-          }
-        } else if (strategy === 'office') {
-          if (!cancelled) {
-            setLoading(false);
-            if (timerRef.current) clearTimeout(timerRef.current);
-            timerRef.current = setTimeout(() => setTimedOut(true), 45000); // B: 45s timeout
-          }
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('Error descargando archivo');
+          const blob = await resp.blob();
+          if (cancelled) return;
+          const objUrl = URL.createObjectURL(blob);
+          blobRef.current = objUrl;
+          setBlobUrl(objUrl);
+          setLoading(false);
+          return;
         }
-      } catch {
-        if (!cancelled) { setDownloadUrl(null); setLoading(false); }
+
+        // ── DOCX / DOC ────────────────────────────────────────────────
+        if (strategy === 'docx') {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('Error descargando archivo');
+          const buffer = await resp.arrayBuffer();
+          if (cancelled) return;
+          const mammoth = (await import('mammoth')).default || (await import('mammoth'));
+          const result  = await mammoth.convertToHtml({ arrayBuffer: buffer });
+          if (cancelled) return;
+          const clean = DOMPurify.sanitize(result.value, { USE_PROFILES: { html: true } });
+          setDocHtml(clean);
+          setLoading(false);
+          return;
+        }
+
+        // ── XLSX / XLS ────────────────────────────────────────────────
+        if (strategy === 'xlsx') {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('Error descargando archivo');
+          const buffer = await resp.arrayBuffer();
+          if (cancelled) return;
+          const XLSX = (await import('xlsx'));
+          const wb   = XLSX.read(buffer, { type: 'array', cellFormula: false });
+          if (cancelled) return;
+          const parsed = wb.SheetNames.map(name => ({
+            name,
+            html: DOMPurify.sanitize(
+              XLSX.utils.sheet_to_html(wb.Sheets[name]),
+              { USE_PROFILES: { html: true } }
+            ),
+          }));
+          setSheets(parsed);
+          setActiveSheet(0);
+          setLoading(false);
+          return;
+        }
+
+        // ── PPTX / PPT ────────────────────────────────────────────────
+        if (strategy === 'pptx') {
+          const embedUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+          setOfficeUrl(embedUrl);
+          setLoading(false);
+          timerRef.current = setTimeout(() => setTimedOut(true), 20000);
+          return;
+        }
+      } catch (e) {
+        if (!cancelled) { setError(e.message || 'Error cargando vista previa'); setLoading(false); }
       }
     };
 
     run();
-    return () => {
-      cancelled = true;
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { cancelled = true; if (timerRef.current) clearTimeout(timerRef.current); };
   }, [item.id, strategy, retryKey, getDownloadUrl]);
 
-  const officeEmbedUrl = downloadUrl
-    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}&wdStartOn=1`
-    : null;
+  const handleRetry = () => { setRetryKey(k => k + 1); setElapsed(0); };
 
-  const iframeSrc    = strategy === 'office' ? officeEmbedUrl : blobUrl;
-  const showIframe   = !iframeError && !loading && !!iframeSrc && !timedOut;
-  const showFallback = !loading && (strategy === 'none' || iframeError || !downloadUrl || timedOut);
-
-  // B: mensaje contextual según tiempo transcurrido
-  const officeStatusMsg = elapsed < 5
-    ? 'Microsoft Office Online está procesando el documento...'
-    : elapsed < 12
-    ? `Procesando... (${elapsed}s) — el visor de Microsoft puede tardar unos segundos`
-    : `Tardando más de lo esperado (${elapsed}s) — puedes abrirlo directamente en SharePoint`;
-
-  const handleRetry = () => { setElapsed(0); setRetryKey(k => k + 1); };
+  // Mensaje contextual PPTX
+  const pptxMsg = elapsed < 5  ? 'Cargando visor de PowerPoint...'
+    : elapsed < 12 ? `Procesando... (${elapsed}s)`
+    : `Tardando más de lo esperado (${elapsed}s)`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-200 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <FileText className="w-4 h-4 text-brand-500 flex-shrink-0" />
             <span className="font-medium text-brand-900 truncate text-sm">{item.name}</span>
@@ -200,79 +234,144 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
               <Download className="w-3.5 h-3.5" /> Descargar
             </button>
-            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-100 transition-colors">
+            <button onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-100 transition-colors">
               <X className="w-4 h-4 text-surface-400" />
             </button>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden bg-surface-50 relative">
-          {/* Spinner mientras obtiene URL */}
+        {/* ── Pestañas XLSX ── */}
+        {!loading && strategy === 'xlsx' && sheets.length > 1 && (
+          <div className="flex items-center gap-1 px-4 py-2 border-b border-surface-100 bg-surface-50 overflow-x-auto flex-shrink-0">
+            {sheets.map((s, i) => (
+              <button key={i} onClick={() => setActiveSheet(i)}
+                className={`px-3 py-1 text-xs rounded-md font-medium whitespace-nowrap transition-colors
+                  ${i === activeSheet ? 'bg-green-600 text-white' : 'text-surface-500 hover:bg-surface-200'}`}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Contenido ── */}
+        <div className="flex-1 overflow-hidden relative">
+
+          {/* Spinner carga inicial */}
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center gap-2 text-surface-400 z-10 bg-surface-50">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm">Cargando vista previa...</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white z-10">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+              <p className="text-sm text-surface-500">
+                {strategy === 'docx' ? 'Procesando documento Word...'
+                  : strategy === 'xlsx' ? 'Procesando hoja de cálculo...'
+                  : strategy === 'pptx' ? 'Preparando presentación...'
+                  : 'Cargando vista previa...'}
+              </p>
             </div>
           )}
 
-          {/* Office Online / PDF embed */}
-          {showIframe && (
+          {/* Error */}
+          {!loading && error && (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <AlertTriangle className="w-10 h-10 text-red-300" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-surface-700">No se pudo cargar la vista previa</p>
+                <p className="text-xs text-surface-400 mt-1">{error}</p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={handleRetry}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">
+                  <RefreshCw className="w-4 h-4" /> Reintentar
+                </button>
+                <a href={item.webUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-brand-600 border border-brand-200 rounded-xl hover:bg-brand-50 transition-colors">
+                  <ExternalLink className="w-4 h-4" /> Abrir en SharePoint
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* PDF → iframe nativo */}
+          {!loading && !error && strategy === 'pdf' && blobUrl && (
+            <iframe src={blobUrl} title={item.name} className="w-full h-full border-0" />
+          )}
+
+          {/* DOCX → HTML renderizado localmente */}
+          {!loading && !error && strategy === 'docx' && docHtml !== null && (
+            <div className="h-full overflow-y-auto bg-white">
+              <div className="max-w-3xl mx-auto px-10 py-8 text-sm text-gray-800 leading-relaxed
+                [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
+                [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
+                [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4
+                [&_p]:mb-3 [&_p]:leading-relaxed
+                [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-3
+                [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-3
+                [&_li]:mb-1
+                [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4 [&_table]:text-xs
+                [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1
+                [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-gray-100 [&_th]:font-semibold
+                [&_strong]:font-semibold [&_em]:italic
+                [&_img]:max-w-full [&_img]:h-auto [&_img]:my-2"
+                dangerouslySetInnerHTML={{ __html: docHtml }}
+              />
+            </div>
+          )}
+
+          {/* XLSX → tabla HTML renderizada localmente */}
+          {!loading && !error && strategy === 'xlsx' && sheets.length > 0 && (
+            <div className="h-full overflow-auto bg-white">
+              <div className="min-w-max p-4">
+                <div className="text-xs
+                  [&_table]:border-collapse [&_table]:text-xs
+                  [&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_td]:min-w-[60px]
+                  [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-gray-100 [&_th]:font-semibold [&_th]:whitespace-nowrap
+                  [&_tr:hover_td]:bg-blue-50/40"
+                  dangerouslySetInnerHTML={{ __html: sheets[activeSheet]?.html || '' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PPTX → Office Online (único con iframe externo) */}
+          {!loading && !error && strategy === 'pptx' && officeUrl && !timedOut && (
             <>
-              {/* B: Overlay contextual mientras Office Online renderiza */}
-              {!iframeLoaded && strategy === 'office' && (
+              {!iframeLoaded && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface-50/95 z-10">
                   <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
-                  <p className="text-sm text-surface-600 text-center max-w-xs px-4 leading-relaxed">
-                    {officeStatusMsg}
-                  </p>
-                  {elapsed >= 3 && (
-                    <a
-                      href={item.webUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1.5 px-4 py-2 text-xs text-brand-600 border border-brand-200 bg-white rounded-xl hover:bg-brand-50 transition-colors shadow-sm"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Abrir directamente en SharePoint
+                  <p className="text-sm text-surface-600 text-center max-w-xs px-4">{pptxMsg}</p>
+                  {elapsed >= 5 && (
+                    <a href={item.webUrl} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs text-brand-600 border border-brand-200 bg-white rounded-xl hover:bg-brand-50 transition-colors shadow-sm">
+                      <ExternalLink className="w-3.5 h-3.5" /> Abrir en SharePoint
                     </a>
                   )}
                 </div>
               )}
-              <iframe
-                key={`${item.id}-${iframeSrc}`}
-                src={iframeSrc}
-                title={item.name}
-                className="w-full h-full border-0"
+              <iframe src={officeUrl} title={item.name} className="w-full h-full border-0"
                 allowFullScreen
-                onLoad={() => {
-                  setIframeLoaded(true);
-                  if (timerRef.current) clearTimeout(timerRef.current);
-                }}
-                onError={() => setIframeError(true)}
+                onLoad={() => { setIframeLoaded(true); if (timerRef.current) clearTimeout(timerRef.current); }}
+                onError={() => setTimedOut(true)}
               />
             </>
           )}
 
-          {/* Fallback: no preview / error / timeout */}
-          {showFallback && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-surface-400">
+          {/* Timeout PPTX o formato sin preview */}
+          {!loading && !error && (strategy === 'none' || (strategy === 'pptx' && timedOut)) && (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
               <File className="w-12 h-12 text-surface-300" />
               <div className="text-center">
                 <p className="text-sm font-medium text-surface-600">
-                  {timedOut ? 'El visor tardó demasiado en cargar' : 'Vista previa no disponible'}
+                  {strategy === 'pptx' ? 'El visor de presentaciones tardó demasiado' : 'Vista previa no disponible para este formato'}
                 </p>
                 <p className="text-xs text-surface-400 mt-1">
-                  {timedOut
-                    ? 'Puede ser un problema temporal de Microsoft Office Online'
-                    : 'Usa los botones de arriba para abrir o descargar el archivo'}
+                  Usa los botones de arriba para abrir o descargar el archivo
                 </p>
               </div>
               <div className="flex gap-3">
-                {timedOut && (
+                {strategy === 'pptx' && (
                   <button onClick={handleRetry}
                     className="flex items-center gap-1.5 px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">
-                    <Loader2 className="w-4 h-4" /> Reintentar
+                    <RefreshCw className="w-4 h-4" /> Reintentar
                   </button>
                 )}
                 <a href={item.webUrl} target="_blank" rel="noreferrer"
@@ -529,7 +628,8 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
               {files.map(item => {
                 const Icon = getFileIcon(item);
                 const color = getFileColor(item);
-                const isOffice = item.type === 'file' && getPreviewStrategy(item.name) === 'office';
+                // Prefetch solo para PPTX (los otros formatos descargan el blob completo al abrir)
+                const isOffice = item.type === 'file' && getPreviewStrategy(item.name) === 'pptx';
                 return (
                   <tr key={item.id}
                     className="hover:bg-surface-50 transition-colors cursor-pointer group"

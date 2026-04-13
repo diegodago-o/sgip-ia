@@ -163,7 +163,12 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
           const mammoth = (await import('mammoth')).default || (await import('mammoth'));
           const result  = await mammoth.convertToHtml({ arrayBuffer: buffer });
           if (cancelled) return;
-          const clean = DOMPurify.sanitize(result.value, { USE_PROFILES: { html: true } });
+          // Limpiar párrafos vacíos consecutivos (>2 seguidos → 1)
+          let html = result.value
+            .replace(/(<p>\s*<\/p>\s*){3,}/gi, '<p></p>')
+            .replace(/^(\s*<p>\s*<\/p>\s*)+/, '')   // quitar vacíos al inicio
+            .replace(/(\s*<p>\s*<\/p>\s*)+$/, '');  // quitar vacíos al final
+          const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
           setDocHtml(clean);
           setLoading(false);
           return;
@@ -176,15 +181,31 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
           const buffer = await resp.arrayBuffer();
           if (cancelled) return;
           const XLSX = (await import('xlsx'));
-          const wb   = XLSX.read(buffer, { type: 'array', cellFormula: false });
+          const wb   = XLSX.read(buffer, { type: 'array', cellFormula: false, cellStyles: false });
           if (cancelled) return;
-          const parsed = wb.SheetNames.map(name => ({
-            name,
-            html: DOMPurify.sanitize(
-              XLSX.utils.sheet_to_html(wb.Sheets[name]),
-              { USE_PROFILES: { html: true } }
-            ),
-          }));
+          const parsed = wb.SheetNames.map(name => {
+            const ws = wb.Sheets[name];
+            // Obtener filas como arrays, sin blankrows
+            const allRows = XLSX.utils.sheet_to_json(ws, {
+              header: 1, defval: null, raw: false, blankrows: false,
+            });
+            // Filtrar filas completamente vacías
+            const rows = allRows.filter(row =>
+              Array.isArray(row) && row.some(c => c !== null && c !== undefined && String(c).trim() !== '')
+            );
+            // Calcular columna máxima con contenido (recortar vacíos al final)
+            let maxCol = 0;
+            rows.forEach(row => {
+              for (let i = row.length - 1; i >= 0; i--) {
+                const v = row[i];
+                if (v !== null && v !== undefined && String(v).trim() !== '') {
+                  if (i > maxCol) maxCol = i;
+                  break;
+                }
+              }
+            });
+            return { name, rows, maxCol };
+          });
           setSheets(parsed);
           setActiveSheet(0);
           setLoading(false);
@@ -298,39 +319,70 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
 
           {/* DOCX → HTML renderizado localmente */}
           {!loading && !error && strategy === 'docx' && docHtml !== null && (
-            <div className="h-full overflow-y-auto bg-white">
-              <div className="max-w-3xl mx-auto px-10 py-8 text-sm text-gray-800 leading-relaxed
-                [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
-                [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
-                [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4
-                [&_p]:mb-3 [&_p]:leading-relaxed
-                [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-3
-                [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-3
-                [&_li]:mb-1
-                [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4 [&_table]:text-xs
-                [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1
-                [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-gray-100 [&_th]:font-semibold
+            <div className="h-full overflow-y-auto bg-gray-50">
+              <div className="max-w-3xl mx-auto my-6 bg-white shadow-sm rounded-lg px-10 py-8
+                text-sm text-gray-800 leading-relaxed font-sans
+                [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h1]:text-gray-900
+                [&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-gray-900
+                [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-3
+                [&_p]:mb-1.5 [&_p]:leading-relaxed
+                [&_p:empty]:hidden
+                [&_br+br]:hidden
+                [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2
+                [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-2
+                [&_li]:mb-0.5
+                [&_table]:w-full [&_table]:border-collapse [&_table]:mb-3 [&_table]:text-xs
+                [&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1.5
+                [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1.5 [&_th]:bg-gray-100 [&_th]:font-semibold [&_th]:text-left
                 [&_strong]:font-semibold [&_em]:italic
-                [&_img]:max-w-full [&_img]:h-auto [&_img]:my-2"
+                [&_img]:max-w-full [&_img]:h-auto [&_img]:my-2 [&_img]:rounded"
                 dangerouslySetInnerHTML={{ __html: docHtml }}
               />
             </div>
           )}
 
-          {/* XLSX → tabla HTML renderizada localmente */}
-          {!loading && !error && strategy === 'xlsx' && sheets.length > 0 && (
-            <div className="h-full overflow-auto bg-white">
-              <div className="min-w-max p-4">
-                <div className="text-xs
-                  [&_table]:border-collapse [&_table]:text-xs
-                  [&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_td]:min-w-[60px]
-                  [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-gray-100 [&_th]:font-semibold [&_th]:whitespace-nowrap
-                  [&_tr:hover_td]:bg-blue-50/40"
-                  dangerouslySetInnerHTML={{ __html: sheets[activeSheet]?.html || '' }}
-                />
+          {/* XLSX → tabla React (sin celdas vacías, sin filas en blanco) */}
+          {!loading && !error && strategy === 'xlsx' && sheets.length > 0 && (() => {
+            const { rows, maxCol } = sheets[activeSheet] || { rows: [], maxCol: 0 };
+            return (
+              <div className="h-full overflow-auto bg-gray-50">
+                {rows.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-sm text-surface-400">Esta hoja no tiene datos</p>
+                  </div>
+                ) : (
+                  <div className="p-4">
+                    <table className="border-collapse text-xs bg-white shadow-sm rounded-lg overflow-hidden">
+                      <tbody>
+                        {rows.map((row, ri) => (
+                          <tr key={ri}
+                            className={ri === 0
+                              ? 'bg-slate-100 font-semibold text-slate-700 sticky top-0'
+                              : ri % 2 === 0 ? 'bg-white hover:bg-blue-50/40' : 'bg-slate-50/60 hover:bg-blue-50/40'}>
+                            {/* Número de fila */}
+                            <td className="border border-slate-200 px-2 py-1.5 text-slate-400 text-right select-none bg-slate-50 min-w-[36px]">
+                              {ri + 1}
+                            </td>
+                            {Array.from({ length: maxCol + 1 }, (_, ci) => {
+                              const val = row[ci] ?? '';
+                              const str = String(val);
+                              return (
+                                <td key={ci}
+                                  className="border border-slate-200 px-2 py-1.5 whitespace-nowrap text-slate-800 max-w-[280px] truncate"
+                                  title={str.length > 30 ? str : undefined}>
+                                  {str}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* PPTX → Office Online (único con iframe externo) */}
           {!loading && !error && strategy === 'pptx' && officeUrl && !timedOut && (

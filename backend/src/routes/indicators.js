@@ -23,6 +23,7 @@ router.get('/:projectId/panel', async (req, res) => {
       [msRows],
       [delivRows],
       [changeRows],
+      [minRows],
       [trackRows],
       [progressRows],
       [payrollBac],
@@ -127,6 +128,14 @@ router.get('/:projectId/panel', async (req, res) => {
         COALESCE(SUM(impact_cost),0) as total_impact_cost,
         COALESCE(SUM(impact_days),0) as total_impact_days
         FROM change_orders WHERE project_id=?`, [pid]),
+
+      // Meeting minutes
+      pool.execute(`SELECT COUNT(*) as total,
+        SUM(status='borrador') as borrador,
+        SUM(status='firmada') as firmadas,
+        SUM(status='anulada') as anuladas,
+        MAX(meeting_date) as last_meeting
+        FROM meeting_minutes WHERE project_id=?`, [pid]),
 
       // Budget tracking
       pool.execute(`SELECT
@@ -267,6 +276,7 @@ router.get('/:projectId/panel', async (req, res) => {
           milestones:      { ...msRows[0], next_name: nextMsRows[0]?.name || null },
           deliverables:    { ...delivRows[0] },
           changes:         { ...changeRows[0] },
+          minutes:         { ...minRows[0] },
           budget:          { ...trackRows[0] },
         },
         progress_records: progressRows,

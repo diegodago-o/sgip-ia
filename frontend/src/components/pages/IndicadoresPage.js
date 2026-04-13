@@ -395,7 +395,7 @@ export default function IndicadoresPage() {
                 stats={[
                   { label: 'Total pagado', value: fmt(mod.payments?.total_paid), color: 'text-emerald-600' },
                   { label: 'Recaudado vs contrato', value: proj.contract_value > 0 ? pct(parseFloat(mod.payments?.total_paid || 0) / proj.contract_value * 100) : '—' },
-                  { label: `${mod.payments?.pagados || 0} pagados · ${mod.payments?.pendientes || 0} pendientes` },
+                  { label: `${mod.payments?.total || 0} pagos`, value: `${mod.payments?.pagados || 0} pagados · ${parseInt(mod.payments?.aprobados || 0) + parseInt(mod.payments?.pendientes || 0)} pendientes` },
                 ].filter(Boolean)} />
 
               {/* Cronograma */}
@@ -453,9 +453,9 @@ export default function IndicadoresPage() {
                 semColor="verde"
                 onClick={() => goExec('minutes')}
                 stats={[
-                  { label: 'Actas registradas', value: `${mod.milestones?.total || 0}` },
-                  { label: 'Hitos cumplidos', value: `${mod.milestones?.cumplidos || 0} / ${mod.milestones?.total || 0}`, color: 'text-emerald-600' },
-                  { label: 'Próximo hito', value: mod.milestones?.next_name ? DATE(mod.milestones.next_due) : 'Sin pendientes' },
+                  { label: 'Actas registradas', value: `${mod.minutes?.total || 0}` },
+                  { label: 'Firmadas', value: `${mod.minutes?.firmadas || 0}`, color: 'text-emerald-600' },
+                  { label: 'Borrador', value: `${mod.minutes?.borrador || 0}`, color: parseInt(mod.minutes?.borrador) > 0 ? 'text-amber-600' : 'text-surface-500' },
                 ]} />
 
               {/* Correspondencia */}
@@ -473,7 +473,7 @@ export default function IndicadoresPage() {
                 semColor={sem.calidad}
                 onClick={() => goAdj('milestones')}
                 stats={[
-                  { label: 'Entregables aprobados', value: `${mod.deliverables?.aprobados || 0}`, color: 'text-emerald-600' },
+                  { label: 'Entregables aprobados', value: `${mod.deliverables?.aprobados || 0} / ${mod.deliverables?.total || 0}`, color: 'text-emerald-600' },
                   { label: 'Rechazados', value: `${mod.deliverables?.rechazados || 0}`, color: parseInt(mod.deliverables?.rechazados) > 0 ? 'text-red-600' : 'text-surface-500' },
                   { label: 'Pendientes / En elaboración', value: `${mod.deliverables?.pendientes || 0} / ${mod.deliverables?.en_elaboracion || 0}` },
                 ]} />

@@ -78,7 +78,7 @@ function PayModal({ item, projectId, onClose, onSaved }) {
           <div className="p-3 bg-blue-50 rounded-lg space-y-2">
             <p className="text-xs font-semibold text-blue-800 flex items-center gap-1"><Calculator className="w-3 h-3" /> Base e IVA</p>
             <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2"><label className="block text-[10px] text-blue-700 mb-0.5">Base (sin IVA)</label><input type="number" min="0" step="1" value={form.base_value} onChange={set('base_value')} className="input-field text-sm" /></div>
+              <div className="col-span-2"><label className="block text-[10px] text-blue-700 mb-0.5">Base (sin IVA) <span className="text-red-400">*</span></label><input type="number" min="0" step="1" value={form.base_value} onChange={set('base_value')} className="input-field text-sm" required /></div>
               <div><label className="block text-[10px] text-blue-700 mb-0.5">IVA %</label><input type="number" min="0" max="100" step="0.01" value={form.iva_pct} onChange={set('iva_pct')} className="input-field text-sm" /></div>
             </div>
             <div className="flex justify-between text-xs text-blue-700 pt-1 border-t border-blue-100">

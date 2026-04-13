@@ -65,7 +65,7 @@ function ItemModal({ type, item, projectId, spFolder, obligations, milestones, o
           <div><label className="block text-sm font-medium text-brand-800 mb-1">Nombre *</label><input value={form.name} onChange={set('name')} required className="input-field"/></div>
           <div><label className="block text-sm font-medium text-brand-800 mb-1">Descripción</label><textarea value={form.description} onChange={set('description')} className="input-field min-h-[60px] resize-y"/></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-brand-800 mb-1">Fecha límite</label><input type="date" value={form.due_date} onChange={set('due_date')} className="input-field"/></div>
+            <div><label className="block text-sm font-medium text-brand-800 mb-1">Fecha límite <span className="text-red-400">*</span></label><input type="date" value={form.due_date} onChange={set('due_date')} className="input-field" required /></div>
             {isMilestone && <div><label className="block text-sm font-medium text-brand-800 mb-1">Regla de fecha</label><input value={form.due_date_rule} onChange={set('due_date_rule')} className="input-field" placeholder="Ej: 30 días después del inicio"/></div>}
             {!isMilestone && <>
               <div><label className="block text-sm font-medium text-brand-800 mb-1">Formato requerido</label><input value={form.required_format} onChange={set('required_format')} className="input-field" placeholder="PDF, Excel..."/></div>

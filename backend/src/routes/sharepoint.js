@@ -75,6 +75,49 @@ function isProjectConfigured(project) {
   return !!(project.sharepoint_connection_id || project.sharepoint_folder);
 }
 
+/**
+ * Combined project + connection loader — 1 DB round-trip via LEFT JOIN.
+ * Used by files, download, preview routes.
+ * Upload and analyze keep their separate two-step loaders (different flow).
+ */
+async function getProjectWithConn(req, res) {
+  const [rows] = await pool.execute(
+    `SELECT
+       p.id, p.name, p.sharepoint_folder, p.sharepoint_site_url,
+       p.sharepoint_connection_id, p.sharepoint_drive_id,
+       sc.tenant_id, sc.client_id, sc.client_secret,
+       sc.site_url AS conn_site_url
+     FROM projects p
+     LEFT JOIN sharepoint_connections sc ON sc.id = p.sharepoint_connection_id
+     WHERE p.id = ?`,
+    [req.params.id]
+  );
+  if (!rows.length) { res.status(404).json({ error: 'Proyecto no encontrado' }); return null; }
+
+  const row = rows[0];
+  const project = {
+    id:                       row.id,
+    name:                     row.name,
+    sharepoint_folder:        row.sharepoint_folder,
+    sharepoint_site_url:      row.sharepoint_site_url,
+    sharepoint_connection_id: row.sharepoint_connection_id,
+    sharepoint_drive_id:      row.sharepoint_drive_id,
+  };
+
+  let conn;
+  if (row.sharepoint_connection_id) {
+    if (!row.tenant_id) {
+      res.status(500).json({ error: 'La conexión SharePoint asignada a este proyecto no fue encontrada.' });
+      return null;
+    }
+    conn = { tenant_id: row.tenant_id, client_id: row.client_id, client_secret: row.client_secret, site_url: row.conn_site_url };
+  } else {
+    conn = sp.connFromEnv(row.sharepoint_site_url || null);
+  }
+
+  return { project, conn };
+}
+
 // ─────────────────────────────────────────────
 // Auth on all routes
 // ─────────────────────────────────────────────
@@ -106,16 +149,16 @@ router.get('/test', requireAdmin, async (req, res) => {
 router.get('/projects/:id/files', [param('id').isInt()], async (req, res) => {
   if (!validate(req, res)) return;
   try {
-    const project = await getProject(req, res);
-    if (!project) return;
+    const pc = await getProjectWithConn(req, res);
+    if (!pc) return;
+    const { project, conn } = pc;
 
     if (!isProjectConfigured(project)) {
       return res.status(400).json({ error: 'Este proyecto no tiene SharePoint configurado.' });
     }
 
-    const conn     = await getProjectConn(project);
-    const driveId  = project.sharepoint_drive_id || null;
-    const subpath  = req.query.subpath || '';
+    const driveId    = project.sharepoint_drive_id || null;
+    const subpath    = req.query.subpath || '';
     const baseFolder = project.sharepoint_folder || '';
     const folderPath = subpath
       ? `${baseFolder.replace(/\/+$/, '')}/${subpath}`.replace(/^\/+/, '')
@@ -177,10 +220,10 @@ router.post('/projects/:id/upload', [param('id').isInt()], upload.single('file')
 router.get('/projects/:id/download/:itemId', [param('id').isInt()], async (req, res) => {
   if (!validate(req, res)) return;
   try {
-    const project = await getProject(req, res);
-    if (!project) return;
+    const pc = await getProjectWithConn(req, res);
+    if (!pc) return;
+    const { project, conn } = pc;
 
-    const conn    = await getProjectConn(project);
     const driveId = project.sharepoint_drive_id || null;
     const url     = await sp.getDownloadUrl(conn, req.params.itemId, driveId);
     res.json({ url });
@@ -197,13 +240,13 @@ router.get('/projects/:id/download/:itemId', [param('id').isInt()], async (req, 
 router.get('/projects/:id/preview/:itemId', [param('id').isInt()], async (req, res) => {
   if (!validate(req, res)) return;
   try {
-    const project = await getProject(req, res);
-    if (!project) return;
+    const pc = await getProjectWithConn(req, res);
+    if (!pc) return;
+    const { project, conn } = pc;
 
-    const conn    = await getProjectConn(project);
-    const driveId = project.sharepoint_drive_id || null;
-    const result  = await sp.getPreviewUrl(conn, req.params.itemId, driveId);
-    res.json(result);
+    const driveId    = project.sharepoint_drive_id || null;
+    const previewData = await sp.getPreviewUrl(conn, req.params.itemId, driveId);
+    res.json(previewData);
   } catch (err) {
     const msg = err.response?.data?.error?.message || err.message;
     res.status(500).json({ error: msg });

@@ -17,6 +17,10 @@ import {
 import { sharepointAPI, policiesAPI, deliverablesAPI, minutesAPI } from '../../services/api';
 import SharePointPicker from './SharePointPicker';
 
+// ── Module-level TTL cache — evita recargar en cada apertura del tab ──────────
+const _coverageCache = new Map(); // key: projectId → { data, expiresAt }
+const COVERAGE_TTL_MS = 2 * 60 * 1000; // 2 minutos
+
 // ── Quick-link: opens SP picker and saves link to entity ──────────────────
 function QuickLinkModal({ entity, entityType, projectId, onLinked, onClose }) {
   const handleSelect = async (item) => {
@@ -168,11 +172,24 @@ export default function SPCoveragePanel({ projectId }) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
-  const load = useCallback(() => {
+  const load = useCallback((forceRefresh = false) => {
+    // Servir desde cache si está fresco y no se fuerza refresco
+    if (!forceRefresh) {
+      const entry = _coverageCache.get(projectId);
+      if (entry && entry.expiresAt > Date.now()) {
+        setData(entry.data);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     sharepointAPI.coverage(projectId)
-      .then(r => setData(r.data))
+      .then(r => {
+        _coverageCache.set(projectId, { data: r.data, expiresAt: Date.now() + COVERAGE_TTL_MS });
+        setData(r.data);
+      })
       .catch(e => setError(e.response?.data?.error || 'Error cargando cobertura'))
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -215,7 +232,7 @@ export default function SPCoveragePanel({ projectId }) {
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => load(true)}
           className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-200 transition-colors text-surface-400 hover:text-surface-600"
           title="Actualizar cobertura"
         >
@@ -234,7 +251,7 @@ export default function SPCoveragePanel({ projectId }) {
             data={data[c.key]}
             entityType={c.entityType}
             projectId={projectId}
-            onRefresh={load}
+            onRefresh={() => load(true)}
           />
         ))}
       </div>

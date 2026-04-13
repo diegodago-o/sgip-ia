@@ -10,6 +10,10 @@ const axios = require('axios');
 const _tokenCache = new Map();
 // site ID cache: key = site_url → siteId
 const _siteIdCache = new Map();
+// download URL cache: key = `${siteId}|${itemId}` → { url, expiresAt }
+// Microsoft pre-auth URLs are valid ~1 h; we cache 45 min to stay safe
+const _downloadUrlCache = new Map();
+const DOWNLOAD_URL_TTL_MS = 45 * 60 * 1000;
 
 // ─────────────────────────────────────────────
 // Internal helpers
@@ -237,10 +241,18 @@ module.exports = {
    * @param {string|null} driveId
    */
   async getDownloadUrl(conn, itemId, driveId) {
-    const siteId = await getSiteId(conn);
-    const base   = drivePath(siteId, driveId);
-    const data   = await graphGet(conn, `${base}/items/${itemId}`);
-    return data['@microsoft.graph.downloadUrl'] || data.webUrl;
+    const siteId   = await getSiteId(conn);
+    const cacheKey = `${siteId}|${itemId}`;
+
+    const cached = _downloadUrlCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.url;
+
+    const base = drivePath(siteId, driveId);
+    const data = await graphGet(conn, `${base}/items/${itemId}`);
+    const url  = data['@microsoft.graph.downloadUrl'] || data.webUrl;
+
+    _downloadUrlCache.set(cacheKey, { url, expiresAt: Date.now() + DOWNLOAD_URL_TTL_MS });
+    return url;
   },
 
   /**

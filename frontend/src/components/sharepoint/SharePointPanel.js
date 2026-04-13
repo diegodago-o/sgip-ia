@@ -82,18 +82,19 @@ function getPreviewStrategy(filename) {
 }
 
 function PreviewModal({ item, projectId, onClose }) {
-  const [downloadUrl, setDownloadUrl] = useState(null);
-  const [blobUrl,     setBlobUrl]     = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [iframeError, setIframeError] = useState(false);
-  const [iframeLoaded, setIframeLoaded] = useState(false); // Office Viewer confirmó carga
-  const [timedOut,    setTimedOut]    = useState(false);   // timeout de seguridad
-  const blobRef   = useRef(null);
-  const timerRef  = useRef(null);
+  const [downloadUrl,  setDownloadUrl]  = useState(null);
+  const [blobUrl,      setBlobUrl]      = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [iframeError,  setIframeError]  = useState(false);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [timedOut,     setTimedOut]     = useState(false);
+  const [retryKey,     setRetryKey]     = useState(0); // incrementar para reintentar
+  const blobRef  = useRef(null);
+  const timerRef = useRef(null);
 
   const strategy = getPreviewStrategy(item.name);
 
-  // Limpiar timer al desmontar
+  // Limpiar al desmontar
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -101,75 +102,71 @@ function PreviewModal({ item, projectId, onClose }) {
     };
   }, []);
 
-  // Step 1: obtener URL pre-autenticada del backend
+  // Efecto unificado: obtiene URL y arranca la siguiente etapa sin ciclo extra de render
   useEffect(() => {
     let cancelled = false;
     setDownloadUrl(null);
+    setBlobUrl(null);
     setLoading(true);
     setIframeError(false);
     setIframeLoaded(false);
     setTimedOut(false);
+    if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
-    sharepointAPI.getDownloadUrl(projectId, item.id)
-      .then(r => { if (!cancelled) setDownloadUrl(r.data?.url || r.data); })
-      .catch(() => { if (!cancelled) { setDownloadUrl(null); setLoading(false); } });
+    if (strategy === 'none') { setLoading(false); return; }
 
-    return () => { cancelled = true; };
-  }, [projectId, item.id]);
-
-  // Step 2: PDFs → blob local para evitar CORS
-  // 'none'   → setLoading(false) inmediato (no hay nada que cargar)
-  // 'office' → espera a Step 3 (cuando llega downloadUrl)
-  // 'pdf'    → espera al fetch del blob
-  useEffect(() => {
-    if (strategy !== 'pdf' || !downloadUrl) {
-      if (strategy === 'none') setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    fetch(downloadUrl)
-      .then(r => r.blob())
-      .then(blob => {
+    const run = async () => {
+      try {
+        // Paso 1: obtener URL pre-autenticada del backend
+        const r = await sharepointAPI.getDownloadUrl(projectId, item.id);
+        const url = r.data?.url || r.data;
         if (cancelled) return;
-        if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-        const url = URL.createObjectURL(blob);
-        blobRef.current = url;
-        setBlobUrl(url);
-      })
-      .catch(() => { if (!cancelled) setIframeError(true); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [downloadUrl, strategy]);
+        setDownloadUrl(url);
 
-  // Step 3: Office → quitar spinner cuando llega URL; iniciar timeout de 30s
-  useEffect(() => {
-    if (strategy !== 'office' || downloadUrl === null) return;
-    setLoading(false);
-    // Si el Office Viewer no reporta carga en 30s → mostrar fallback
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setTimedOut(true), 30000);
-    return () => clearTimeout(timerRef.current);
-  }, [downloadUrl, strategy]);
+        if (strategy === 'pdf') {
+          // Paso 2 (PDF): fetch blob inmediatamente sin esperar re-render
+          try {
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            if (cancelled) return;
+            if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+            const objectUrl = URL.createObjectURL(blob);
+            blobRef.current = objectUrl;
+            setBlobUrl(objectUrl);
+          } catch {
+            if (!cancelled) setIframeError(true);
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        } else if (strategy === 'office') {
+          // Paso 2 (Office): URL lista → quitar spinner + iniciar timeout 30s
+          if (!cancelled) {
+            setLoading(false);
+            if (timerRef.current) clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(() => setTimedOut(true), 30000);
+          }
+        }
+      } catch {
+        if (!cancelled) { setDownloadUrl(null); setLoading(false); }
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [projectId, item.id, strategy, retryKey]); // retryKey fuerza re-ejecución en retry
 
   const officeEmbedUrl = downloadUrl
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(downloadUrl)}&wdStartOn=1`
     : null;
 
-  const iframeSrc  = strategy === 'office' ? officeEmbedUrl : blobUrl;
-  const showIframe = !iframeError && !loading && !!iframeSrc && !timedOut;
+  const iframeSrc    = strategy === 'office' ? officeEmbedUrl : blobUrl;
+  const showIframe   = !iframeError && !loading && !!iframeSrc && !timedOut;
   const showFallback = !loading && (strategy === 'none' || iframeError || !downloadUrl || timedOut);
 
-  const handleRetry = () => {
-    setTimedOut(false);
-    setIframeError(false);
-    setIframeLoaded(false);
-    setDownloadUrl(null);
-    setLoading(true);
-    sharepointAPI.getDownloadUrl(projectId, item.id)
-      .then(r => setDownloadUrl(r.data?.url || r.data))
-      .catch(() => { setDownloadUrl(null); setLoading(false); });
-  };
+  const handleRetry = () => setRetryKey(k => k + 1);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -281,27 +278,47 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
   const [previewItem,  setPreviewItem]  = useState(null);
   const [analyzeItem,  setAnalyzeItem]  = useState(null);
 
-  const fileInputRef = useRef(null);
+  const fileInputRef  = useRef(null);
+  const folderCacheRef = useRef(new Map()); // key: subpath → items[]
+  const loadAbortRef   = useRef(null);       // AbortController para cancelar requests en vuelo
 
   // Quick-access subfolders derived from first load (top-level folders)
   const [quickFolders, setQuickFolders] = useState([]);
 
+  // Limpiar cache si cambia el proyecto
+  useEffect(() => { folderCacheRef.current.clear(); }, [projectId]);
+
   // ── Load current folder ──────────────────────────────────────────
-  const loadFolder = useCallback(async (subpath) => {
+  const loadFolder = useCallback(async (subpath, forceRefresh = false) => {
+    // Servir desde cache si está disponible y no se fuerza refresco
+    if (!forceRefresh && folderCacheRef.current.has(subpath)) {
+      const cached = folderCacheRef.current.get(subpath);
+      setFiles(cached);
+      if (!subpath) setQuickFolders(cached.filter(i => i.type === 'folder'));
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    // Cancelar request anterior en vuelo
+    if (loadAbortRef.current) loadAbortRef.current.abort();
+    loadAbortRef.current = new AbortController();
+    const signal = loadAbortRef.current.signal;
+
     setLoading(true);
     setError(null);
     try {
       const res = await sharepointAPI.listFiles(projectId, subpath);
+      if (signal.aborted) return;
       const items = res.data?.data || [];
+      folderCacheRef.current.set(subpath, items); // guardar en cache
       setFiles(items);
-      if (!subpath) {
-        // Store quick-access folders from root
-        setQuickFolders(items.filter(i => i.type === 'folder'));
-      }
+      if (!subpath) setQuickFolders(items.filter(i => i.type === 'folder'));
     } catch (e) {
+      if (e.name === 'CanceledError' || e.name === 'AbortError' || signal.aborted) return;
       setError(e.response?.data?.error || e.message || 'Error cargando archivos');
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [projectId]);
 
@@ -334,7 +351,8 @@ export default function SharePointPanel({ projectId, folderPath, pickerMode = fa
     setUploading(true);
     try {
       await sharepointAPI.upload(projectId, file, currentPath);
-      await loadFolder(currentPath);
+      folderCacheRef.current.delete(currentPath); // invalidar cache tras subida
+      await loadFolder(currentPath, true);
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Error subiendo archivo');
     } finally {

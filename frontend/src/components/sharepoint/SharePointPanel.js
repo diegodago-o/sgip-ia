@@ -237,8 +237,8 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
     : `Tardando más de lo esperado (${elapsed}s)`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[94vh] flex flex-col overflow-hidden" style={{ border: '1px solid #d0d0d0' }}>
 
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-200 flex-shrink-0">
@@ -306,47 +306,62 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
             <iframe src={blobUrl} title={item.name} className="w-full h-full border-0" />
           )}
 
-          {/* ── VISOR WORD ── fondo gris, página blanca centrada con sombra */}
+          {/* ── VISOR WORD ── */}
           {!loading && !error && strategy === 'docx' && docHtml !== null && (
-            <div className="h-full overflow-y-auto" style={{ background: '#c8c8c8' }}>
-              {/* Barra superior estilo Word */}
-              <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5"
+            <div className="h-full flex flex-col" style={{ background: '#c8c8c8' }}>
+              {/* Barra superior Word — sticky fija */}
+              <div className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
                 style={{ background: '#2b579a' }}>
-                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white flex-shrink-0">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/>
+                <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="white">
+                  <path d="M21.17 3.25Q21.5 3.25 21.76 3.5 22 3.74 22 4.08V19.92Q22 20.26 21.76 20.5 21.5 20.75 21.17 20.75H7.83Q7.5 20.75 7.24 20.5 7 20.26 7 19.92V17H2.83Q2.5 17 2.24 16.76 2 16.5 2 16.17V7.83Q2 7.5 2.24 7.24 2.5 7 2.83 7H7V4.08Q7 3.74 7.24 3.5 7.5 3.25 7.83 3.25M7 13.06L8.18 17H10L11.19 13.09 12.37 17H14.19L15.34 13V17H17V7H14.19L12.99 10.9 11.79 7H9.99L8.81 10.91 7.62 7H7M19 17V15H18V17M19 13V11H18V13M19 9V7H18V9"/>
                 </svg>
-                <span className="text-white text-xs font-medium truncate">{item.name}</span>
-                <span className="ml-auto text-blue-200 text-[10px] font-medium">Vista previa — Solo lectura</span>
+                <span className="text-white text-xs font-semibold truncate">{item.name}</span>
+                <span className="ml-auto text-blue-200 text-[10px]">Vista previa · Solo lectura</span>
               </div>
-              {/* Estilos del documento Word */}
+              {/* Regla horizontal */}
+              <div className="flex-shrink-0 flex items-center justify-center"
+                style={{ background: '#e8e8e8', borderBottom: '1px solid #c0c0c0', height: 20 }}>
+                <div style={{ width: 816, position: 'relative', height: '100%' }}>
+                  {[0,1,2,3,4,5,6,7,8].map(i => (
+                    <span key={i} style={{
+                      position: 'absolute', left: `${i * 96}px`, fontSize: 9,
+                      color: '#888', userSelect: 'none', top: 4,
+                    }}>{i > 0 ? i : ''}</span>
+                  ))}
+                </div>
+              </div>
+              {/* Estilos Word */}
               <style>{`
-                .sgip-word-page p { margin: 0 0 6px 0; }
-                .sgip-word-page p:empty { display: none; }
-                .sgip-word-page h1 { font-size: 20px; font-weight: 700; margin: 20px 0 8px; color: #1a1a1a; }
-                .sgip-word-page h2 { font-size: 16px; font-weight: 700; margin: 16px 0 6px; color: #1a1a1a; }
-                .sgip-word-page h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
-                .sgip-word-page ul, .sgip-word-page ol { padding-left: 24px; margin: 6px 0 8px; }
-                .sgip-word-page li { margin-bottom: 3px; }
-                .sgip-word-page table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
-                .sgip-word-page td, .sgip-word-page th { border: 1px solid #d0d0d0; padding: 5px 10px; vertical-align: top; }
-                .sgip-word-page th { background: #f2f2f2; font-weight: 600; }
-                .sgip-word-page strong { font-weight: 600; }
-                .sgip-word-page em { font-style: italic; }
-                .sgip-word-page img { max-width: 100%; height: auto; margin: 6px 0; }
-                .sgip-word-page a { color: #2b579a; text-decoration: underline; }
+                .sgip-word-page p        { margin: 0 0 8px 0; }
+                .sgip-word-page p:empty  { display: none; }
+                .sgip-word-page h1 { font-size:22px; font-weight:700; margin:22px 0 10px; color:#1f3864; border-bottom:2px solid #bfbfbf; padding-bottom:4px; }
+                .sgip-word-page h2 { font-size:17px; font-weight:700; margin:18px 0 8px; color:#1f3864; }
+                .sgip-word-page h3 { font-size:14px; font-weight:600; margin:14px 0 6px; color:#2e4057; }
+                .sgip-word-page ul, .sgip-word-page ol { padding-left:28px; margin:4px 0 10px; }
+                .sgip-word-page li  { margin-bottom:4px; }
+                .sgip-word-page table { border-collapse:collapse; width:100%; margin:12px 0; font-size:12px; }
+                .sgip-word-page td, .sgip-word-page th { border:1px solid #bfbfbf; padding:5px 10px; vertical-align:top; }
+                .sgip-word-page th   { background:#dce6f1; font-weight:600; color:#1f3864; }
+                .sgip-word-page tr:nth-child(even) td { background:#f2f7fd; }
+                .sgip-word-page strong { font-weight:700; }
+                .sgip-word-page em     { font-style:italic; }
+                .sgip-word-page img    { max-width:100%; height:auto; margin:8px 0; }
+                .sgip-word-page a      { color:#2b579a; text-decoration:underline; }
+                .sgip-word-page blockquote { border-left:4px solid #2b579a; padding-left:12px; margin:10px 0; color:#555; }
               `}</style>
-              {/* Página del documento */}
-              <div className="py-8 px-4 flex justify-center">
+              {/* Canvas con scroll — flex-1 min-h-0 para que el scroll quede al fondo del viewport */}
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-6 px-4 flex justify-center"
+                style={{ background: '#c8c8c8' }}>
                 <div
                   className="sgip-word-page w-full bg-white"
                   style={{
                     maxWidth: '816px',
                     minHeight: '1056px',
                     padding: '72px 96px',
-                    boxShadow: '0 1px 4px rgba(0,0,0,.3), 0 0 0 1px rgba(0,0,0,.1)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,.35), 0 0 0 1px rgba(0,0,0,.12)',
                     fontFamily: '"Calibri","Segoe UI",Arial,sans-serif',
                     fontSize: '13px',
-                    lineHeight: '1.6',
+                    lineHeight: '1.65',
                     color: '#1a1a1a',
                   }}
                   dangerouslySetInnerHTML={{ __html: docHtml }}
@@ -355,135 +370,165 @@ function PreviewModal({ item, projectId, getDownloadUrl, onClose }) {
             </div>
           )}
 
-          {/* ── VISOR EXCEL ── fondo gris, toolbar verde, tabla con encabezados A/B/C */}
+          {/* ── VISOR EXCEL ── */}
           {!loading && !error && strategy === 'xlsx' && sheets.length > 0 && (() => {
             const { rows, maxCol } = sheets[activeSheet] || { rows: [], maxCol: 0 };
-            // Generar letras de columna (A, B, ..., Z, AA, AB...)
             const colLetter = n => {
               let s = ''; let i = n + 1;
               while (i > 0) { i--; s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i / 26); }
               return s;
             };
+            // Primera fila como cabecera si tiene contenido
+            const hasHeader = rows.length > 1 && rows[0].some(c => c !== null && c !== undefined && String(c).trim() !== '');
             return (
-              <div className="h-full flex flex-col" style={{ background: '#f0f0f0' }}>
-                {/* Barra superior estilo Excel */}
-                <div className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
+              <div className="h-full flex flex-col" style={{ background: '#f0f0f0', fontFamily: '"Calibri","Segoe UI",Arial,sans-serif' }}>
+
+                {/* Barra superior Excel */}
+                <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
                   style={{ background: '#217346' }}>
-                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white flex-shrink-0">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/>
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="white">
+                    <path d="M21.17 3.25Q21.5 3.25 21.76 3.5 22 3.74 22 4.08V19.92Q22 20.26 21.76 20.5 21.5 20.75 21.17 20.75H7.83Q7.5 20.75 7.24 20.5 7 20.26 7 19.92V17H2.83Q2.5 17 2.24 16.76 2 16.5 2 16.17V7.83Q2 7.5 2.24 7.24 2.5 7 2.83 7H7V4.08Q7 3.74 7.24 3.5 7.5 3.25 7.83 3.25M7 13.06L8.18 17H10L11.19 13.09 12.37 17H14.19L15.34 13V17H17V7H14.19L12.99 10.9 11.79 7H9.99L8.81 10.91 7.62 7H7M19 17V15H18V17M19 13V11H18V13M19 9V7H18V9"/>
                   </svg>
-                  <span className="text-white text-xs font-medium truncate">{item.name}</span>
-                  <span className="ml-auto text-green-200 text-[10px] font-medium">Vista previa — Solo lectura</span>
+                  <span className="text-white text-xs font-semibold truncate">{item.name}</span>
+                  <span className="ml-auto text-green-200 text-[10px]">Vista previa · Solo lectura</span>
                 </div>
 
-                {/* Barra de fórmulas simulada */}
-                <div className="flex items-center gap-0 flex-shrink-0 border-b"
-                  style={{ background: '#ffffff', borderColor: '#c8c8c8' }}>
-                  <div className="px-2 py-1 text-xs font-medium text-slate-500 border-r min-w-[52px] text-center"
-                    style={{ borderColor: '#c8c8c8', background: '#f8f8f8' }}>A1</div>
-                  <div className="flex-1 px-3 py-1 text-xs text-slate-700 truncate">
-                    {rows[0]?.[0] ?? ''}
+                {/* Barra de fórmulas */}
+                <div className="flex items-center flex-shrink-0"
+                  style={{ background: '#fff', borderBottom: '1px solid #c0c0c0', height: 26 }}>
+                  <div style={{ width: 52, minWidth: 52, background: '#f5f5f5', borderRight: '1px solid #c0c0c0', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#555', fontWeight: 600 }}>A1</div>
+                  <div style={{ width: 1, height: '100%', background: '#c0c0c0' }} />
+                  <div style={{ flex: 1, padding: '0 10px', fontSize: 12, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {rows[0]?.[0] != null ? String(rows[0][0]) : ''}
                   </div>
                 </div>
 
-                {/* Tabla con scroll */}
-                <div className="flex-1 overflow-auto" style={{ background: '#f0f0f0' }}>
+                {/* ─── TABLA — flex-1 min-h-0 es la clave para scroll fijo al fondo ─── */}
+                <div className="flex-1 min-h-0 overflow-auto" style={{ background: '#f0f0f0' }}>
                   {rows.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-sm text-slate-400">Esta hoja no tiene datos</p>
+                      <p className="text-sm" style={{ color: '#888' }}>Esta hoja no tiene datos</p>
                     </div>
                   ) : (
-                    <div style={{ padding: '0', overflowX: 'auto' }}>
-                      <table style={{ borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"Calibri","Segoe UI",Arial,sans-serif' }}>
-                        <thead>
+                    <table style={{ borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'auto' }}>
+                      <thead>
+                        <tr>
+                          {/* Celda esquina */}
+                          <th style={{ width: 44, minWidth: 44, background: '#f2f2f2', border: '1px solid #c8c8c8', position: 'sticky', top: 0, left: 0, zIndex: 4 }} />
+                          {/* Letras columna */}
+                          {Array.from({ length: maxCol + 1 }, (_, ci) => (
+                            <th key={ci} style={{
+                              background: '#f2f2f2', border: '1px solid #c8c8c8',
+                              padding: '3px 10px', fontWeight: 600, fontSize: '11px',
+                              color: '#555', textAlign: 'center', whiteSpace: 'nowrap',
+                              minWidth: 90, position: 'sticky', top: 0, zIndex: 3,
+                              userSelect: 'none',
+                            }}>
+                              {colLetter(ci)}
+                            </th>
+                          ))}
+                        </tr>
+                        {/* Primera fila como encabezado de datos */}
+                        {hasHeader && (
                           <tr>
-                            {/* Esquina vacía */}
-                            <th style={{ width: 40, minWidth: 40, background: '#f2f2f2', border: '1px solid #d0d0d0', position: 'sticky', top: 0, left: 0, zIndex: 3 }} />
-                            {/* Letras de columna A, B, C... */}
-                            {Array.from({ length: maxCol + 1 }, (_, ci) => (
-                              <th key={ci}
-                                style={{
-                                  background: '#f2f2f2', border: '1px solid #d0d0d0',
-                                  padding: '2px 8px', fontWeight: 600, fontSize: '11px',
-                                  color: '#444', textAlign: 'center', whiteSpace: 'nowrap',
-                                  minWidth: 80, position: 'sticky', top: 0, zIndex: 2,
-                                  userSelect: 'none',
-                                }}>
-                                {colLetter(ci)}
-                              </th>
-                            ))}
+                            <td style={{ background: '#f2f2f2', border: '1px solid #c8c8c8', padding: '3px 6px', textAlign: 'right', fontSize: '11px', color: '#888', position: 'sticky', top: 24, left: 0, zIndex: 3, fontWeight: 600 }}>1</td>
+                            {Array.from({ length: maxCol + 1 }, (_, ci) => {
+                              const val = rows[0]?.[ci] ?? '';
+                              return (
+                                <td key={ci} title={String(val).length > 25 ? String(val) : undefined}
+                                  style={{
+                                    border: '1px solid #c8c8c8',
+                                    padding: '4px 10px',
+                                    whiteSpace: 'nowrap',
+                                    maxWidth: 280,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    background: '#e2efda',  /* verde claro como cabecera Excel */
+                                    fontWeight: 700,
+                                    color: '#1a1a1a',
+                                    fontSize: '12px',
+                                    position: 'sticky',
+                                    top: 24,
+                                    zIndex: 2,
+                                    borderBottom: '2px solid #70ad47',
+                                  }}>
+                                  {String(val)}
+                                </td>
+                              );
+                            })}
                           </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((row, ri) => (
-                            <tr key={ri}>
-                              {/* Número de fila */}
-                              <td style={{
-                                background: '#f2f2f2', border: '1px solid #d0d0d0',
-                                padding: '2px 6px', textAlign: 'right', fontSize: '11px',
-                                color: '#666', fontWeight: 500, userSelect: 'none',
-                                position: 'sticky', left: 0, zIndex: 1, minWidth: 40,
-                              }}>
-                                {ri + 1}
+                        )}
+                      </thead>
+                      <tbody>
+                        {(hasHeader ? rows.slice(1) : rows).map((row, ri) => {
+                          const realRi = hasHeader ? ri + 2 : ri + 1;
+                          return (
+                            <tr key={ri} style={{ background: ri % 2 === 0 ? '#ffffff' : '#f5f5f5' }}
+                              onMouseEnter={e => { Array.from(e.currentTarget.cells).forEach(c => { c.style.background = '#ddeeff'; }); }}
+                              onMouseLeave={e => { Array.from(e.currentTarget.cells).forEach((c, i) => { c.style.background = i === 0 ? '#f2f2f2' : (ri % 2 === 0 ? '#ffffff' : '#f5f5f5'); }); }}>
+                              {/* Número fila */}
+                              <td style={{ background: '#f2f2f2', border: '1px solid #c8c8c8', padding: '3px 6px', textAlign: 'right', fontSize: '11px', color: '#888', position: 'sticky', left: 0, zIndex: 1, fontWeight: 500, userSelect: 'none', minWidth: 44 }}>
+                                {realRi}
                               </td>
                               {Array.from({ length: maxCol + 1 }, (_, ci) => {
                                 const val = row[ci] ?? '';
                                 const str = String(val);
-                                // Detectar si es número para alineación derecha
-                                const isNum = str !== '' && !isNaN(str.replace(/[$,%]/g, '').replace(/\./g, '').replace(/,/g, '.'));
+                                const isNum = str.trim() !== '' && !isNaN(Number(str.replace(/[$,%\s]/g, '')));
                                 return (
-                                  <td key={ci}
-                                    title={str.length > 25 ? str : undefined}
+                                  <td key={ci} title={str.length > 25 ? str : undefined}
                                     style={{
-                                      border: '1px solid #d0d0d0',
-                                      padding: '2px 8px',
+                                      border: '1px solid #e0e0e0',
+                                      padding: '3px 10px',
                                       whiteSpace: 'nowrap',
-                                      maxWidth: 260,
+                                      maxWidth: 280,
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
-                                      background: ri % 2 === 0 ? '#ffffff' : '#f9fafb',
                                       textAlign: isNum ? 'right' : 'left',
                                       color: '#1a1a1a',
+                                      fontSize: '12px',
                                     }}>
                                     {str}
                                   </td>
                                 );
                               })}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   )}
                 </div>
 
-                {/* Pestañas de hojas — parte inferior como Excel */}
-                {sheets.length > 1 && (
-                  <div className="flex items-center gap-0 flex-shrink-0 overflow-x-auto"
-                    style={{ background: '#c8c8c8', borderTop: '1px solid #a0a0a0', minHeight: 28 }}>
-                    <div className="flex items-end px-2 gap-0.5">
-                      {sheets.map((s, i) => (
-                        <button key={i} onClick={() => setActiveSheet(i)}
-                          style={{
-                            padding: '3px 14px',
-                            fontSize: '11px',
-                            fontFamily: '"Calibri","Segoe UI",Arial,sans-serif',
-                            border: '1px solid',
-                            borderBottom: i === activeSheet ? 'none' : '1px solid #a0a0a0',
-                            borderColor: i === activeSheet ? '#a0a0a0' : '#b0b0b0',
-                            background: i === activeSheet ? '#ffffff' : '#d8d8d8',
-                            color: i === activeSheet ? '#217346' : '#555',
-                            fontWeight: i === activeSheet ? 600 : 400,
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            marginBottom: i === activeSheet ? -1 : 0,
-                          }}>
-                          {s.name}
-                        </button>
-                      ))}
-                    </div>
+                {/* Pestañas hojas — parte inferior */}
+                <div className="flex items-center flex-shrink-0 overflow-x-auto"
+                  style={{ background: '#d9d9d9', borderTop: '1px solid #b0b0b0', minHeight: 30 }}>
+                  {/* Botones navegación hoja */}
+                  <div className="flex items-center px-1 gap-0.5 flex-shrink-0" style={{ borderRight: '1px solid #b0b0b0' }}>
+                    {['◀◀','◀','▶','▶▶'].map((a, i) => (
+                      <button key={i} style={{ width: 18, height: 20, fontSize: 8, background: '#e8e8e8', border: '1px solid #b8b8b8', color: '#555', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{a}</button>
+                    ))}
                   </div>
-                )}
+                  <div className="flex items-end px-1 gap-0 overflow-x-auto">
+                    {sheets.map((s, i) => (
+                      <button key={i} onClick={() => setActiveSheet(i)}
+                        style={{
+                          padding: '4px 16px 3px',
+                          fontSize: '11px',
+                          border: '1px solid',
+                          borderBottom: i === activeSheet ? '2px solid #217346' : '1px solid #b0b0b0',
+                          borderColor: i === activeSheet ? '#b0b0b0' : '#c0c0c0',
+                          background: i === activeSheet ? '#ffffff' : '#d0d0d0',
+                          color: i === activeSheet ? '#217346' : '#444',
+                          fontWeight: i === activeSheet ? 700 : 400,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          marginTop: 2,
+                        }}>
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             );
           })()}

@@ -57,6 +57,13 @@ export default function ExecutionPage() {
   const [dropOpen, setDropOpen] = useState(false);
   const perms = usePermissions('ejecucion');
 
+  // Helper: cambiar tab escribiendo en la URL (preserva ?project=)
+  const switchTab = useCallback((tabId) => {
+    const params = new URLSearchParams(location.search);
+    params.set('tab', tabId);
+    navigate({ search: params.toString() }, { replace: true });
+  }, [navigate, location.search]);
+
   // Sync tab y project desde URL cuando cambia location
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -166,7 +173,7 @@ export default function ExecutionPage() {
                 {projects.map(p => {
                   const pst = STATUS_C[p.status] || {};
                   return (
-                    <button key={p.id} onClick={() => { setSelectedId(p.id); setDropOpen(false); setActiveTab('schedule'); }}
+                    <button key={p.id} onClick={() => { setSelectedId(p.id); setDropOpen(false); switchTab('schedule'); }}
                       className={`w-full text-left px-4 py-3 hover:bg-surface-50 transition-colors border-b border-surface-50 last:border-0
                         ${p.id === selectedId ? 'bg-brand-50' : ''}`}>
                       <div className="flex items-center gap-2">
@@ -202,7 +209,7 @@ export default function ExecutionPage() {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              <button key={tab.id} onClick={() => switchTab(tab.id)}
                 className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors
                   ${isActive ? 'border-brand-600 text-brand-700 bg-brand-50/50' : 'border-transparent text-surface-400 hover:text-surface-600'}`}>
                 <Icon className="w-4 h-4" />

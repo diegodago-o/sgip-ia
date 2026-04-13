@@ -298,6 +298,11 @@ export default function ProjectDetailPage() {
     return t && ALL_TABS.find(tab => tab.id === t) ? t : 'info';
   });
 
+  // Helper: cambiar tab escribiendo en la URL
+  const switchTab = (tabId) => {
+    navigate({ search: `?tab=${tabId}` }, { replace: true });
+  };
+
   // Sync tab when URL changes (e.g. navigating from committee dashboard)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -375,13 +380,13 @@ export default function ProjectDetailPage() {
 
       {/* Entity counts */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-        <CountCard icon={FileText}      label="Documentos"    count={c.documents || 0}     color="bg-brand-500"   active={activeTab==='documents'}   onClick={() => setActiveTab('documents')} />
-        <CountCard icon={ClipboardList} label="Obligaciones"  count={c.obligations || 0}   color="bg-amber-500"   active={activeTab==='obligations'} onClick={() => setActiveTab('obligations')} />
-        <CountCard icon={Package}       label="Entregables"   count={c.deliverables || 0}  color="bg-emerald-500" active={activeTab==='milestones'}   onClick={() => setActiveTab('milestones')} />
-        <CountCard icon={Flag}          label="Hitos"         count={c.milestones || 0}    color="bg-violet-500"  active={activeTab==='milestones'}   onClick={() => setActiveTab('milestones')} />
-        <CountCard icon={Shield}        label="Pólizas"       count={c.policies || 0}      color="bg-orange-500"  active={activeTab==='policies'}    onClick={() => setActiveTab('policies')} />
-        <CountCard icon={DollarSign}    label="Presupuesto"   count={c.budget_items || 0}  color="bg-teal-500"    active={activeTab==='budget'}      onClick={() => setActiveTab('budget')} />
-        <CountCard icon={Users}         label="Equipo"        count={c.team_members || 0}  color="bg-pink-500"    active={activeTab==='team'}        onClick={() => setActiveTab('team')} />
+        <CountCard icon={FileText}      label="Documentos"    count={c.documents || 0}     color="bg-brand-500"   active={activeTab==='documents'}   onClick={() => switchTab('documents')} />
+        <CountCard icon={ClipboardList} label="Obligaciones"  count={c.obligations || 0}   color="bg-amber-500"   active={activeTab==='obligations'} onClick={() => switchTab('obligations')} />
+        <CountCard icon={Package}       label="Entregables"   count={c.deliverables || 0}  color="bg-emerald-500" active={activeTab==='milestones'}   onClick={() => switchTab('milestones')} />
+        <CountCard icon={Flag}          label="Hitos"         count={c.milestones || 0}    color="bg-violet-500"  active={activeTab==='milestones'}   onClick={() => switchTab('milestones')} />
+        <CountCard icon={Shield}        label="Pólizas"       count={c.policies || 0}      color="bg-orange-500"  active={activeTab==='policies'}    onClick={() => switchTab('policies')} />
+        <CountCard icon={DollarSign}    label="Presupuesto"   count={c.budget_items || 0}  color="bg-teal-500"    active={activeTab==='budget'}      onClick={() => switchTab('budget')} />
+        <CountCard icon={Users}         label="Equipo"        count={c.team_members || 0}  color="bg-pink-500"    active={activeTab==='team'}        onClick={() => switchTab('team')} />
       </div>
 
       {/* Tabs */}
@@ -392,7 +397,7 @@ export default function ProjectDetailPage() {
             const isActive = activeTab === tab.id;
             return (
               <button key={tab.id}
-                onClick={() => !tab.soon && setActiveTab(tab.id)}
+                onClick={() => !tab.soon && switchTab(tab.id)}
                 className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap
                   ${isActive
                     ? 'border-brand-600 text-brand-700 bg-brand-50/50'
@@ -454,7 +459,7 @@ export default function ProjectDetailPage() {
                 <div className="flex items-center gap-2 py-2 px-3 bg-brand-50 rounded-lg border border-brand-100">
                   <FolderKanban className="w-4 h-4 text-brand-500 flex-shrink-0" />
                   <span className="text-xs text-brand-700 font-medium">SharePoint:</span>
-                  <button onClick={() => setActiveTab('sharepoint')}
+                  <button onClick={() => switchTab('sharepoint')}
                     className="text-xs text-brand-600 hover:underline truncate">
                     {project.sharepoint_folder || 'Biblioteca configurada'}
                   </button>

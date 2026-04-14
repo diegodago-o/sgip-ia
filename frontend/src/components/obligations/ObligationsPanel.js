@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { obligationsAPI, documentsAPI, projectsAPI } from '../../services/api';
+import { obligationsAPI, documentsAPI, projectsAPI, exportsAPI } from '../../services/api';
 import {
   Plus, Search, Filter, X, Edit2, Trash2, AlertTriangle,
   Clock, CheckCircle2, Circle, Ban, Loader2, Save,
   FileText, ChevronDown, ChevronRight, ClipboardList, ListChecks,
+  Download,
 } from 'lucide-react';
 
 // ── Constants ──
@@ -259,6 +260,7 @@ export default function ObligationsPanel({ projectId, perms = {} }) {
   const [toast, setToast] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -326,6 +328,24 @@ export default function ObligationsPanel({ projectId, perms = {} }) {
     finally { setBulkLoading(false); }
   };
 
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await exportsAPI.obligationsToExcel(projectId);
+      const url = URL.createObjectURL(new Blob([res.data], { type: res.headers['content-type'] }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Obligaciones_${projectId}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Reporte exportado exitosamente');
+    } catch { showToast('Error generando el reporte', 'error'); }
+    finally { setExporting(false); }
+  };
+
   const hasFilters = Object.values(filters).some(v => v) || search;
   const hasGroups = STATUS_ORDER.some(s => grouped[s]?.length > 0);
 
@@ -351,6 +371,11 @@ export default function ObligationsPanel({ projectId, perms = {} }) {
           <button onClick={() => { setFilters({ status:'', risk_level:'', obligation_type:'' }); setSearch(''); }}
             className="px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 flex items-center gap-1"><X className="w-3.5 h-3.5" /> Limpiar</button>
         )}
+        <button onClick={handleExport} disabled={exporting || obligations.length === 0}
+          className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-medium flex items-center gap-1.5 hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {exporting ? 'Exportando…' : 'Exportar Excel'}
+        </button>
         {perms.canCreate && <button onClick={() => setModal('new')} className="btn-primary flex items-center gap-2 text-sm"><Plus className="w-4 h-4" /> Nueva Obligación</button>}
       </div>
 

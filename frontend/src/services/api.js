@@ -276,6 +276,7 @@ export const exportsAPI = {
   aiDocToWord: (pid, data) => api.post(`/exports/${pid}/export-word`, data, { responseType: 'blob' }),
   budgetToExcel: (pid) => api.get(`/exports/${pid}/budget/export-excel`, { responseType: 'blob' }),
   liquidationToWord: (pid) => api.get(`/exports/${pid}/liquidation/export-word`, { responseType: 'blob' }),
+  obligationsToExcel: (pid) => api.get(`/exports/${pid}/obligations/export-excel`, { responseType: 'blob' }),
 };
 
 // ═══ COMMITTEE ═══

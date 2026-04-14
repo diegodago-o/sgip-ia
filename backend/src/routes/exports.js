@@ -971,4 +971,363 @@ router.get('/:projectId/liquidation/export-word', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT OBLIGATIONS TO EXCEL
+// ═══════════════════════════════════════════════════════════════════
+router.get('/:projectId/obligations/export-excel', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const pid = req.params.projectId;
+
+    // ── Load project + obligations ──
+    const [[project]] = await pool.execute(
+      `SELECT p.code, p.name, p.client_name, p.client_nit, p.contract_number,
+              p.contract_value, p.start_date, p.execution_term, p.execution_term_unit,
+              p.status, p.priority, u.full_name as director_name
+       FROM projects p LEFT JOIN users u ON p.director_id = u.id WHERE p.id = ?`, [pid]
+    );
+    if (!project) return res.status(404).json({ error: 'Proyecto no encontrado' });
+
+    const [obligations] = await pool.execute(`
+      SELECT o.*,
+        u.full_name  as responsible_name,
+        d.file_name  as source_document_name,
+        CASE
+          WHEN o.status IN ('cumplida','no_aplica')                                                 THEN 'ok'
+          WHEN o.due_date IS NOT NULL AND o.due_date < CURDATE()                                    THEN 'overdue'
+          WHEN o.due_date IS NOT NULL AND o.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)         THEN 'urgent'
+          WHEN o.due_date IS NOT NULL AND o.due_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)        THEN 'upcoming'
+          ELSE 'normal'
+        END as alert_level,
+        CASE
+          WHEN o.due_date IS NOT NULL THEN DATEDIFF(o.due_date, CURDATE())
+          ELSE NULL
+        END as days_remaining
+      FROM obligations o
+      LEFT JOIN users u ON o.responsible_user_id = u.id
+      LEFT JOIN documents d ON o.source_document_id = d.id
+      WHERE o.project_id = ?
+      ORDER BY
+        FIELD(o.status, 'vencida','pendiente','en_curso','cumplida','no_aplica'),
+        o.risk_level = 'alto' DESC,
+        o.due_date ASC,
+        o.created_at DESC
+    `, [pid]);
+
+    // ── Stats ──
+    const total    = obligations.length;
+    const byStatus = { pendiente:0, en_curso:0, cumplida:0, vencida:0, no_aplica:0 };
+    const byRisk   = { alto:0, medio:0, bajo:0 };
+    const byType   = { hacer:0, entregar:0, no_hacer:0, condicion:0 };
+    let overdue=0, dueWeek=0;
+    const now = new Date(); now.setHours(0,0,0,0);
+    const week = new Date(now); week.setDate(week.getDate()+7);
+
+    for (const o of obligations) {
+      if (byStatus[o.status] !== undefined) byStatus[o.status]++;
+      if (byRisk[o.risk_level] !== undefined) byRisk[o.risk_level]++;
+      if (byType[o.obligation_type] !== undefined) byType[o.obligation_type]++;
+      if (o.due_date) {
+        const d = new Date(o.due_date); d.setHours(0,0,0,0);
+        if (d < now && !['cumplida','no_aplica'].includes(o.status)) overdue++;
+        if (d >= now && d <= week && !['cumplida','no_aplica'].includes(o.status)) dueWeek++;
+      }
+    }
+
+    const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+    const fmtCOP  = (v) => v != null ? new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(v) : '—';
+
+    // ── Colour palette ──
+    const C = {
+      INDIGO:   '3730A3', INDIGO_L: 'E0E7FF',
+      VIOLET:   '6D28D9', VIOLET_L: 'EDE9FE',
+      RED:      'B91C1C', RED_L:    'FEE2E2',
+      AMBER:    'B45309', AMBER_L:  'FEF3C7',
+      EMERALD:  '065F46', EMERALD_L:'D1FAE5',
+      BLUE:     '1E40AF', BLUE_L:   'DBEAFE',
+      GRAY:     '475569', GRAY_L:   'F8FAFC',
+      SLATE:    '1E293B', WHITE:    'FFFFFF',
+    };
+
+    const border = (c='CBD5E1') => ({
+      top:    {style:'thin', color:{argb:'FF'+c}},
+      bottom: {style:'thin', color:{argb:'FF'+c}},
+      left:   {style:'thin', color:{argb:'FF'+c}},
+      right:  {style:'thin', color:{argb:'FF'+c}},
+    });
+    const borderMed = (c='64748B') => ({
+      top:    {style:'medium', color:{argb:'FF'+c}},
+      bottom: {style:'medium', color:{argb:'FF'+c}},
+      left:   {style:'medium', color:{argb:'FF'+c}},
+      right:  {style:'medium', color:{argb:'FF'+c}},
+    });
+
+    const sty = (cell, {bold=false,italic=false,sz=10,color=C.SLATE,bg=null,
+      align='left',valign='middle',wrap=false,numFmt=null,borders=null}={}) => {
+      cell.font      = {name:'Calibri',size:sz,bold,italic,color:{argb:'FF'+color}};
+      if (bg) cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+bg}};
+      cell.alignment = {horizontal:align,vertical:valign,wrapText:wrap};
+      if (numFmt) cell.numFmt = numFmt;
+      cell.border    = borders || border();
+    };
+
+    // ── Label helpers ──
+    const statusLabel = {pendiente:'Pendiente',en_curso:'En curso',cumplida:'Cumplida',vencida:'Vencida',no_aplica:'No aplica'};
+    const riskLabel   = {alto:'Alto',medio:'Medio',bajo:'Bajo'};
+    const typeLabel   = {hacer:'Hacer',entregar:'Entregar',no_hacer:'No hacer',condicion:'Condición'};
+    const periodLabel = {unica:'Única',diaria:'Diaria',semanal:'Semanal',quincenal:'Quincenal',mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual',al_cierre:'Al cierre'};
+
+    const statusColor = {
+      pendiente: {bg:C.BLUE_L,   col:C.BLUE},
+      en_curso:  {bg:C.AMBER_L,  col:C.AMBER},
+      cumplida:  {bg:C.EMERALD_L,col:C.EMERALD},
+      vencida:   {bg:C.RED_L,    col:C.RED},
+      no_aplica: {bg:C.GRAY_L,   col:C.GRAY},
+    };
+    const riskColor = {
+      alto:  {bg:C.RED_L,    col:C.RED},
+      medio: {bg:C.AMBER_L,  col:C.AMBER},
+      bajo:  {bg:C.EMERALD_L,col:C.EMERALD},
+    };
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'SGIP-IA';
+    wb.created = new Date();
+
+    // ══════════════════════════════════════════════════════════════════
+    // HOJA 1: RESUMEN
+    // ══════════════════════════════════════════════════════════════════
+    const ws1 = wb.addWorksheet('Resumen', {views:[{showGridLines:false}]});
+    ws1.columns = [
+      {width:22},{width:18},{width:18},{width:18},{width:18},{width:18},
+    ];
+
+    // Título principal
+    ws1.mergeCells('A1:F1');
+    const tit = ws1.getCell('A1');
+    tit.value = `INFORME DE OBLIGACIONES — ${(project.code||'').toUpperCase()}`;
+    sty(tit, {bold:true,sz:16,color:C.WHITE,bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws1.getRow(1).height = 34;
+
+    // Subtítulo nombre proyecto
+    ws1.mergeCells('A2:F2');
+    const sub = ws1.getCell('A2');
+    sub.value = project.name || '';
+    sty(sub, {bold:true,sz:12,color:'C7D2FE',bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws1.getRow(2).height = 22;
+
+    // Info proyecto
+    ws1.mergeCells('A3:F3');
+    const inf = ws1.getCell('A3');
+    inf.value = `Cliente: ${project.client_name||'—'}   |   Contrato N.° ${project.contract_number||'—'}   |   Valor: ${fmtCOP(project.contract_value)}   |   GP: ${project.director_name||'—'}`;
+    sty(inf, {sz:9,italic:true,color:'A5B4FC',bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws1.getRow(3).height = 16;
+
+    // Separador
+    ws1.mergeCells('A4:F4');
+    ws1.getCell('A4').fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.GRAY_L}};
+    ws1.getRow(4).height = 8;
+
+    // KPI cards (fila 5 = totales por estado, fila 6 = riesgos + urgentes)
+    const kpiData5 = [
+      {label:'TOTAL OBLIGACIONES', val:total,                bg:C.INDIGO_L, col:C.INDIGO},
+      {label:'PENDIENTES',          val:byStatus.pendiente,  bg:C.BLUE_L,   col:C.BLUE},
+      {label:'EN CURSO',            val:byStatus.en_curso,   bg:C.AMBER_L,  col:C.AMBER},
+      {label:'CUMPLIDAS',           val:byStatus.cumplida,   bg:C.EMERALD_L,col:C.EMERALD},
+      {label:'VENCIDAS',            val:byStatus.vencida,    bg:C.RED_L,    col:C.RED},
+      {label:'NO APLICA',           val:byStatus.no_aplica,  bg:C.GRAY_L,   col:C.GRAY},
+    ];
+    const cols5 = ['A','B','C','D','E','F'];
+    kpiData5.forEach(({label,val,bg,col},i) => {
+      const cell = ws1.getCell(`${cols5[i]}5`);
+      cell.value = {richText:[
+        {text:`${label}\n`, font:{name:'Calibri',size:8,bold:true,color:{argb:'FF'+col}}},
+        {text:`${val}`,     font:{name:'Calibri',size:22,bold:true,color:{argb:'FF'+col}}},
+      ]};
+      sty(cell, {bg,align:'center',wrap:true,valign:'middle',borders:borderMed(col)});
+    });
+    ws1.getRow(5).height = 52;
+
+    // Fila 6: Riesgo alto/medio/bajo + vencidas + próx 7 días + tipos
+    const kpiData6 = [
+      {label:'RIESGO ALTO',   val:byRisk.alto,     bg:C.RED_L,    col:C.RED},
+      {label:'RIESGO MEDIO',  val:byRisk.medio,    bg:C.AMBER_L,  col:C.AMBER},
+      {label:'RIESGO BAJO',   val:byRisk.bajo,     bg:C.EMERALD_L,col:C.EMERALD},
+      {label:'VENCIDAS HOY',  val:overdue,         bg:C.RED_L,    col:C.RED},
+      {label:'PRÓX. 7 DÍAS',  val:dueWeek,         bg:'FFF7ED',   col:'C2410C'},
+      {label:'HACER / ENTREGAR', val:`${byType.hacer} / ${byType.entregar}`, bg:C.INDIGO_L, col:C.INDIGO},
+    ];
+    kpiData6.forEach(({label,val,bg,col},i) => {
+      const cell = ws1.getCell(`${cols5[i]}6`);
+      cell.value = {richText:[
+        {text:`${label}\n`, font:{name:'Calibri',size:8,bold:true,color:{argb:'FF'+col}}},
+        {text:`${val}`,     font:{name:'Calibri',size:18,bold:true,color:{argb:'FF'+col}}},
+      ]};
+      sty(cell, {bg,align:'center',wrap:true,valign:'middle',borders:borderMed(col)});
+    });
+    ws1.getRow(6).height = 44;
+
+    // Separador
+    ws1.mergeCells('A7:F7');
+    ws1.getCell('A7').fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.GRAY_L}};
+    ws1.getRow(7).height = 8;
+
+    // Tabla resumen por tipo × estado
+    const typeRows = [
+      {key:'hacer',     label:'Hacer'},
+      {key:'entregar',  label:'Entregar'},
+      {key:'no_hacer',  label:'No hacer'},
+      {key:'condicion', label:'Condición'},
+    ];
+    const statCols = ['pendiente','en_curso','cumplida','vencida','no_aplica'];
+
+    // Header tabla resumen
+    const hdrs = ['TIPO', 'PENDIENTE','EN CURSO','CUMPLIDA','VENCIDA','TOTAL'];
+    hdrs.forEach((h,i) => {
+      const c = ws1.getRow(8).getCell(i+1);
+      c.value = h;
+      sty(c, {bold:true,sz:10,color:C.WHITE,bg:C.INDIGO,align:'center',borders:borderMed()});
+    });
+    ws1.getRow(8).height = 20;
+
+    for (const {key, label} of typeRows) {
+      const r = ws1.addRow([]);
+      r.height = 18;
+      const typeObls = obligations.filter(o=>o.obligation_type===key);
+      const vals = [
+        typeObls.filter(o=>o.status==='pendiente').length,
+        typeObls.filter(o=>o.status==='en_curso').length,
+        typeObls.filter(o=>o.status==='cumplida').length,
+        typeObls.filter(o=>o.status==='vencida').length,
+        typeObls.length,
+      ];
+      const c1 = r.getCell(1); c1.value = label;
+      sty(c1, {bold:true,sz:10,color:C.INDIGO,bg:C.INDIGO_L,align:'left'});
+      [[1,C.BLUE_L,C.BLUE],[2,C.AMBER_L,C.AMBER],[3,C.EMERALD_L,C.EMERALD],[4,C.RED_L,C.RED],[5,C.GRAY_L,C.SLATE]].forEach(([idx,bg,col]) => {
+        const c = r.getCell(idx+1); c.value = vals[idx-1];
+        sty(c, {sz:10,color:col,bg,align:'center'});
+      });
+    }
+
+    // Total row tabla resumen
+    const totR = ws1.addRow([]);
+    totR.height = 22;
+    const totVals = [byStatus.pendiente, byStatus.en_curso, byStatus.cumplida, byStatus.vencida, total];
+    const c1t = totR.getCell(1); c1t.value = 'TOTAL';
+    sty(c1t, {bold:true,sz:11,color:C.WHITE,bg:C.INDIGO,align:'center',borders:borderMed()});
+    [[1,C.BLUE,C.WHITE],[2,C.AMBER,C.WHITE],[3,C.EMERALD,C.WHITE],[4,C.RED,C.WHITE],[5,'0F172A',C.WHITE]].forEach(([idx,bg,col]) => {
+      const c = totR.getCell(idx+1); c.value = totVals[idx-1];
+      sty(c, {bold:true,sz:11,color:col,bg,align:'center',borders:borderMed()});
+    });
+
+    // Fecha generación
+    ws1.addRow([]);
+    const fecR1 = ws1.addRow([]);
+    ws1.mergeCells(`A${fecR1.number}:F${fecR1.number}`);
+    fecR1.getCell(1).value = `Generado el ${new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'})} — SGIP-IA`;
+    sty(fecR1.getCell(1), {sz:8,italic:true,color:'94A3B8',align:'right',bg:C.GRAY_L,borders:border('E2E8F0')});
+    fecR1.height = 14;
+
+    // ══════════════════════════════════════════════════════════════════
+    // HOJA 2: TODAS LAS OBLIGACIONES
+    // ══════════════════════════════════════════════════════════════════
+    const ws2 = wb.addWorksheet('Obligaciones', {views:[{showGridLines:false,state:'frozen',ySplit:4}]});
+    ws2.columns = [
+      {key:'code',         width:22},
+      {key:'type',         width:14},
+      {key:'description',  width:52},
+      {key:'status',       width:14},
+      {key:'risk',         width:12},
+      {key:'periodicity',  width:14},
+      {key:'due_date',     width:14},
+      {key:'days',         width:12},
+      {key:'responsible',  width:22},
+      {key:'source_doc',   width:28},
+      {key:'clause',       width:16},
+      {key:'notes',        width:36},
+      {key:'created',      width:14},
+    ];
+
+    // Encabezado
+    ws2.mergeCells('A1:M1');
+    sty(ws2.getCell('A1'), {bold:true,sz:15,color:C.WHITE,bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws2.getCell('A1').value = `OBLIGACIONES DEL PROYECTO — ${(project.code||'').toUpperCase()}`;
+    ws2.getRow(1).height = 30;
+
+    ws2.mergeCells('A2:M2');
+    sty(ws2.getCell('A2'), {bold:true,sz:11,color:'C7D2FE',bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws2.getCell('A2').value = project.name || '';
+    ws2.getRow(2).height = 20;
+
+    ws2.mergeCells('A3:M3');
+    sty(ws2.getCell('A3'), {sz:8,italic:true,color:'A5B4FC',bg:C.INDIGO,align:'center',borders:borderMed(C.INDIGO)});
+    ws2.getCell('A3').value = `${total} obligaciones registradas   |   Vencidas: ${byStatus.vencida}   |   Riesgo alto: ${byRisk.alto}   |   Generado: ${new Date().toLocaleDateString('es-CO')}`;
+    ws2.getRow(3).height = 14;
+
+    // Encabezados columnas
+    const hdrs2 = ['CÓDIGO','TIPO','DESCRIPCIÓN','ESTADO','RIESGO','PERIODICIDAD','FECHA LÍMITE','DÍAS REST.','RESPONSABLE','DOC. FUENTE','CLÁUSULA','NOTAS','CREADA'];
+    hdrs2.forEach((h,i) => {
+      const c = ws2.getRow(4).getCell(i+1);
+      c.value = h;
+      sty(c, {bold:true,sz:10,color:C.WHITE,bg:C.VIOLET,align:'center',borders:borderMed(C.VIOLET)});
+    });
+    ws2.getRow(4).height = 20;
+
+    // Filas de obligaciones
+    for (const o of obligations) {
+      const row = ws2.addRow([]);
+      row.height = 30;
+
+      const sc = statusColor[o.status] || {bg:C.GRAY_L,col:C.GRAY};
+      const rc = riskColor[o.risk_level] || {bg:C.GRAY_L,col:C.GRAY};
+
+      // días restantes — color
+      const daysLeft = o.days_remaining != null ? parseInt(o.days_remaining) : null;
+      const daysBg   = daysLeft == null ? C.GRAY_L : daysLeft < 0 ? C.RED_L : daysLeft <= 7 ? C.AMBER_L : C.GRAY_L;
+      const daysCol  = daysLeft == null ? C.GRAY    : daysLeft < 0 ? C.RED   : daysLeft <= 7 ? C.AMBER   : C.SLATE;
+      const daysVal  = daysLeft == null ? '—' : daysLeft < 0 ? `${Math.abs(daysLeft)}d venc.` : `${daysLeft}d`;
+
+      const cells = [
+        {v: o.code||'—',                                              bg:C.INDIGO_L, col:C.INDIGO, bold:true,  al:'center'},
+        {v: typeLabel[o.obligation_type]||o.obligation_type||'—',     bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'center'},
+        {v: o.description||'—',                                       bg:C.WHITE,    col:C.SLATE,  bold:false, al:'left', wrap:true},
+        {v: statusLabel[o.status]||o.status||'—',                     bg:sc.bg,      col:sc.col,   bold:true,  al:'center'},
+        {v: riskLabel[o.risk_level]||o.risk_level||'—',               bg:rc.bg,      col:rc.col,   bold:true,  al:'center'},
+        {v: periodLabel[o.periodicity]||o.periodicity||'Única',        bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'center'},
+        {v: fmtDate(o.due_date),                                       bg:o.due_date?C.WHITE:C.GRAY_L, col:o.due_date?C.SLATE:C.GRAY, bold:false, al:'center'},
+        {v: daysVal,                                                   bg:daysBg,     col:daysCol,  bold:daysLeft!=null&&daysLeft<=7, al:'center'},
+        {v: o.responsible_name||o.responsible_role||'—',               bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'left'},
+        {v: o.source_document_name||'—',                               bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'left'},
+        {v: o.source_clause||'—',                                      bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'center'},
+        {v: o.notes||'—',                                              bg:C.WHITE,    col:C.GRAY,   bold:false, al:'left', wrap:true},
+        {v: fmtDate(o.created_at),                                     bg:C.GRAY_L,   col:C.SLATE,  bold:false, al:'center'},
+      ];
+
+      cells.forEach(({v,bg,col,bold,al,wrap},i) => {
+        const c = row.getCell(i+1);
+        c.value = v;
+        sty(c, {sz:9,color:col,bg,align:al,bold,wrap:!!wrap,valign:'middle'});
+      });
+    }
+
+    // Fecha generación hoja 2
+    ws2.addRow([]);
+    const fecR2 = ws2.addRow([]);
+    ws2.mergeCells(`A${fecR2.number}:M${fecR2.number}`);
+    fecR2.getCell(1).value = `Generado el ${new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'})} — SGIP-IA`;
+    sty(fecR2.getCell(1), {sz:8,italic:true,color:'94A3B8',align:'right',bg:C.GRAY_L,borders:border('E2E8F0')});
+    fecR2.height = 14;
+
+    // ── Send response ──
+    const filename = `Obligaciones_${project.code||pid}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Obligations export error:', err);
+    res.status(500).json({ error: err.message || 'Error exportando obligaciones' });
+  }
+});
+
 module.exports = router;

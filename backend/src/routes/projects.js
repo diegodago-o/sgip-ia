@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const pool = require('../config/database');
-const { authMiddleware, roleMiddleware, getVisibleProjectIds } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, getVisibleProjectIds, normalizeRole } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -291,6 +291,16 @@ router.post('/',
         for (const tag of req.body.tags) {
           await pool.execute('INSERT IGNORE INTO project_tags (project_id, tag) VALUES (?,?)', [result.insertId, tag.trim()]);
         }
+      }
+
+      // Auto-asignar al creador si es gerente_proyecto
+      if (normalizeRole(req.user.role) === 'gerente_proyecto') {
+        await pool.execute(
+          `INSERT INTO project_assignments (project_id, user_id, role_in_project, assigned_by, is_active)
+           VALUES (?, ?, 'gerente_proyecto', ?, 1)
+           ON DUPLICATE KEY UPDATE is_active=1, role_in_project='gerente_proyecto', assigned_by=?`,
+          [result.insertId, req.user.id, req.user.id, req.user.id]
+        );
       }
 
       await pool.execute(

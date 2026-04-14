@@ -230,6 +230,123 @@ function emailRejected({ rejector, reason, minute, project }) {
 </body></html>`;
 }
 
+// ── Notificaciones al CREADOR del flujo ──────────────────────────────────────
+
+function emailCreatorStarted({ creator, minute, project, signers }) {
+  const mtDate = minute.meeting_date
+    ? new Date(minute.meeting_date).toLocaleDateString('es-CO', { day:'2-digit', month:'long', year:'numeric', timeZone:'America/Bogota' })
+    : '';
+  const signerList = signers
+    .sort((a, b) => (a.sign_order||1) - (b.sign_order||1))
+    .map((s, i) => `
+      <tr style="background:${i%2===0?'#f8fafc':'white'}">
+        <td style="padding:8px 12px;font-size:13px;color:#374151;">${s.sign_order||i+1}</td>
+        <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#1e293b;">${s.signer_name}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#64748b;">${s.signer_role||'—'}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#64748b;">${s.signer_email}</td>
+        <td style="padding:8px 12px;"><span style="background:#FEF3C7;color:#92400E;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;">Pendiente</span></td>
+      </tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:640px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:#1B5FAA;padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;font-weight:bold;">🔔 Flujo de firmas iniciado</h1>
+      <p style="color:#93C5FD;margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:15px;">Hola <strong>${creator.full_name}</strong>,</p>
+      <p style="color:#374151;font-size:14px;line-height:1.6;">
+        Has iniciado un proceso de firma digital para el siguiente documento:
+      </p>
+      <div style="background:#f0f7ff;border-left:4px solid #1B5FAA;border-radius:8px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#64748b;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;">Documento</p>
+        <p style="margin:0;font-size:16px;font-weight:bold;color:#1B5FAA;">${minute.title}</p>
+        <p style="margin:6px 0 0;font-size:13px;color:#374151;">${MT_LABEL[minute.minute_type]||'Reunión'}${mtDate ? ' · '+mtDate : ''}</p>
+        <p style="margin:4px 0 0;font-size:12px;color:#64748b;">Proyecto: <strong>${project.name} (${project.code})</strong></p>
+      </div>
+      <p style="color:#374151;font-size:13px;font-weight:600;margin:0 0 8px;">Firmantes configurados (${signers.length}):</p>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+        <thead><tr style="background:#1B5FAA;">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:white;text-transform:uppercase;">#</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:white;text-transform:uppercase;">Nombre</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:white;text-transform:uppercase;">Cargo</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:white;text-transform:uppercase;">Correo</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:white;text-transform:uppercase;">Estado</th>
+        </tr></thead>
+        <tbody>${signerList}</tbody>
+      </table>
+      <p style="font-size:13px;color:#64748b;background:#f8fafc;padding:12px 16px;border-radius:8px;">
+        Te notificaremos por correo cada vez que un firmante complete su firma y cuando el proceso esté completado te enviaremos copia del documento firmado.
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;">
+      <p style="font-size:11px;color:#94a3b8;margin:0;">SGIP-IA · Firma electrónica con validez jurídica — Ley 527 de 1999, Decreto 1074 de 2015 (Colombia).</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+}
+
+function emailCreatorProgress({ creator, signer, allSigners, minute, project }) {
+  const signed   = allSigners.filter(s => s.status === 'signed');
+  const pending  = allSigners.filter(s => s.status !== 'signed');
+  const progress = Math.round((signed.length / allSigners.length) * 100);
+  const signerRows = allSigners
+    .sort((a,b) => (a.sign_order||1)-(b.sign_order||1))
+    .map(s => {
+      const isDone = s.status === 'signed';
+      const badge  = isDone
+        ? `<span style="background:#D1FAE5;color:#065F46;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;">✅ Firmó</span>`
+        : `<span style="background:#FEF3C7;color:#92400E;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;">⏳ Pendiente</span>`;
+      const ts = isDone && s.signed_at ? `<br><span style="font-size:11px;color:#94a3b8;">${new Date(s.signed_at).toLocaleString('es-CO',{timeZone:'America/Bogota'})}</span>` : '';
+      return `<tr style="background:${isDone?'#f0fdf4':'white'}">
+        <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#1e293b;">${s.signer_name}${ts}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#64748b;">${s.signer_role||'—'}</td>
+        <td style="padding:8px 12px;">${badge}</td>
+      </tr>`;
+    }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:#0369a1;padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;font-weight:bold;">✅ Nueva firma registrada</h1>
+      <p style="color:#BAE6FD;margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:15px;">Hola <strong>${creator.full_name}</strong>,</p>
+      <div style="background:#f0fdf4;border-left:4px solid #059669;border-radius:8px;padding:16px 20px;margin:16px 0;">
+        <p style="margin:0;font-size:15px;color:#065F46;font-weight:bold;">
+          ${signer.signer_name} <span style="font-weight:normal;font-size:13px;">(${signer.signer_role||'Firmante'})</span> acaba de firmar
+        </p>
+        <p style="margin:6px 0 0;font-size:13px;color:#374151;">Documento: <strong>${minute.title}</strong> · ${project.name}</p>
+      </div>
+      <div style="margin:20px 0;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:12px;color:#64748b;font-weight:600;">Progreso del flujo</span>
+          <span style="font-size:12px;color:#1B5FAA;font-weight:bold;">${signed.length} de ${allSigners.length} firmantes (${progress}%)</span>
+        </div>
+        <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+          <div style="background:#1B5FAA;height:100%;width:${progress}%;border-radius:999px;"></div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:16px;">
+        <thead><tr style="background:#f8fafc;">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Firmante</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Cargo</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Estado</th>
+        </tr></thead>
+        <tbody>${signerRows}</tbody>
+      </table>
+      ${pending.length > 0 ? `<p style="font-size:13px;color:#64748b;">Próximo firmante: <strong>${pending[0].signer_name}</strong> — se le acaba de enviar notificación.</p>` : ''}
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+      <p style="font-size:11px;color:#94a3b8;margin:0;">SGIP-IA · Firma electrónica con validez jurídica — Ley 527 de 1999, Decreto 1074 de 2015.</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+}
+
 // ════════════════════════════════════════════════════════════════════
 // AUTHENTICATED ROUTER  —  mounted at /api/exec/:projectId/minutes/:minuteId/firma
 // ════════════════════════════════════════════════════════════════════
@@ -303,6 +420,15 @@ router.post('/', authenticate, async (req, res) => {
         html: emailInvite({ signer: first, minute, project, allSigners: signerRecords, position: 1 }),
       });
       await pool.execute("UPDATE signature_signers SET status='notified' WHERE token=?", [first.token]);
+
+      // ── Notificar al creador: flujo iniciado ──
+      if (req.user?.email) {
+        await trySendMail(emailCfg, {
+          to: req.user.email,
+          subject: `🔔 Flujo de firmas iniciado: ${minute.title} — ${project.name}`,
+          html: emailCreatorStarted({ creator: req.user, minute, project, signers: signerRecords }),
+        });
+      }
     }
 
     res.json({
@@ -512,6 +638,19 @@ publicRouter.post('/:token/firmar', async (req, res) => {
           attachments: pdfAttachment,
         });
       }
+      // ── Notificar al creador: completado + PDF ──
+      const [[creatorC]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
+      if (creatorC?.email) {
+        const signerEmails = new Set(allSigners.map(s => s.signer_email.toLowerCase()));
+        if (!signerEmails.has(creatorC.email.toLowerCase())) {
+          await trySendMail(emailCfg, {
+            to: creatorC.email,
+            subject: `✅ Documento firmado completo: ${minute.title} — ${project.name}`,
+            html: completedHtml,
+            attachments: pdfAttachment,
+          });
+        }
+      }
       return res.json({ success: true, message: 'Firma registrada. Todos los firmantes han completado el proceso.', allSigned: true });
     }
 
@@ -527,6 +666,19 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       html: emailInvite({ signer: next, minute, project, allSigners, position }),
     });
     await pool.execute("UPDATE signature_signers SET status='notified' WHERE id=?", [next.id]);
+
+    // ── Notificar al creador: progreso ──
+    const [[creatorP]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
+    if (creatorP?.email) {
+      const updatedSigners = await pool.execute(
+        'SELECT * FROM signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
+      ).then(([r]) => r);
+      await trySendMail(emailCfg, {
+        to: creatorP.email,
+        subject: `🔔 ${signer.signer_name} firmó (${updatedSigners.filter(s=>s.status==='signed').length}/${updatedSigners.length}): ${minute.title}`,
+        html: emailCreatorProgress({ creator: creatorP, signer, allSigners: updatedSigners, minute, project }),
+      });
+    }
 
     res.json({
       success: true,

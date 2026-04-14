@@ -1238,6 +1238,15 @@ publicRouter.post('/:token/firmar', async (req, res) => {
         console.error('[corrSignatures] PDF generation for email failed:', pdfErr.message);
       }
 
+      // ── Notificar al creador: progreso del último firmante (antes de completado) ──
+      const [[creatorC]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
+      if (creatorC?.email) {
+        await trySendMail(emailCfg, {
+          to: creatorC.email,
+          subject: `🔔 ${signer.signer_name} firmó (${allSigners.length}/${allSigners.length}): ${corr.subject}`,
+          html: emailCreatorProgressCorr({ creator: creatorC, signer, allSigners, corr, project }),
+        });
+      }
       const completedHtml = emailCompletedCorr({ corr, project, allSigners, documentHash: completedReq.document_hash });
       for (const s of allSigners) {
         await trySendMail(emailCfg, {
@@ -1248,7 +1257,6 @@ publicRouter.post('/:token/firmar', async (req, res) => {
         });
       }
       // ── Notificar al creador: completado + PDF ──
-      const [[creatorC]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
       if (creatorC?.email) {
         const signerEmails = new Set(allSigners.map(s => s.signer_email.toLowerCase()));
         if (!signerEmails.has(creatorC.email.toLowerCase())) {
@@ -1337,6 +1345,41 @@ publicRouter.post('/:token/rechazar', async (req, res) => {
         to: s.signer_email,
         subject: `🚫 Proceso cancelado: ${corr.subject} — ${project.name}`,
         html: cancelledHtml,
+      });
+    }
+    // ── Notificar al creador del rechazo ──
+    const [[creatorR]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [reqs[0].created_by]);
+    if (creatorR?.email) {
+      const rejectedHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:#DC2626;padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;">❌ Firma rechazada</h1>
+      <p style="color:#FCA5A5;margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:15px;">Hola <strong>${creatorR.full_name}</strong>,</p>
+      <p style="color:#374151;font-size:14px;line-height:1.6;">
+        <strong>${signer.signer_name}</strong> (${signer.signer_role || 'Firmante'}) rechazó la firma del documento
+        <strong>${corr.subject}</strong> (${corr.consecutive_code}) del proyecto <strong>${project.name}</strong>.
+        El proceso de firma ha sido cancelado.
+      </p>
+      ${reason ? `<div style="background:#FEF2F2;border-left:4px solid #DC2626;border-radius:8px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#991B1B;font-weight:bold;text-transform:uppercase;">Motivo del rechazo:</p>
+        <p style="margin:0;font-size:14px;color:#374151;">${reason}</p>
+      </div>` : ''}
+      <p style="font-size:13px;color:#64748b;">Corrija el documento e inicie un nuevo proceso de firma si lo requiere.</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+      <p style="font-size:11px;color:#94a3b8;margin:0;">SGIP-IA · Firma electrónica — Ley 527 de 1999, Decreto 1074 de 2015.</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+      await trySendMail(emailCfg, {
+        to: creatorR.email,
+        subject: `❌ Firma rechazada: ${corr.subject} — ${project.name}`,
+        html: rejectedHtml,
       });
     }
 

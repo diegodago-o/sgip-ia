@@ -539,6 +539,19 @@ async function notifyNextSigner(requestId) {
     }
     // Send completion emails
     const emailCfg = await loadEmailConfig();
+    // ── Notificar al creador: progreso del último firmante (antes de completado) ──
+    try {
+      const lastSigned = signers.filter(s => s.status === 'signed')
+        .sort((a, b) => new Date(b.signed_at||0) - new Date(a.signed_at||0))[0];
+      const [[creatorP]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [request.created_by]);
+      if (creatorP?.email && lastSigned) {
+        await trySendMail(emailCfg, {
+          to: creatorP.email,
+          subject: `🔔 ${lastSigned.signer_name} firmó (${signers.length}/${signers.length}): ${request.title}`,
+          html: emailCreatorProgressFree({ creator: creatorP, signer: lastSigned, allSigners: signers, request, project }),
+        });
+      }
+    } catch (_) { /* no bloquear */ }
     const html = emailCompletedFree({ request, project, allSigners: signers, documentHash: request.file_hash });
     for (const s of signers) {
       const mailOpts = {
@@ -996,7 +1009,91 @@ publicRouter.post('/:token/rechazar', express.json(), async (req, res) => {
       "UPDATE free_signature_requests SET status='rejected', completed_at=NOW() WHERE id=?",
       [signer.request_id]
     );
+
     res.json({ message: 'Documento rechazado' });
+
+    // ── Notificaciones por rechazo (fire-and-forget) ──
+    try {
+      const [reqRows] = await pool.execute(
+        `SELECT r.*, p.name as proj_name, p.code as proj_code
+         FROM free_signature_requests r JOIN projects p ON p.id = r.project_id
+         WHERE r.id = ?`, [signer.request_id]
+      );
+      if (!reqRows.length) return;
+      const request = reqRows[0];
+      const project = { name: request.proj_name, code: request.proj_code };
+      const [allSigners] = await pool.execute(
+        'SELECT * FROM free_signature_signers WHERE request_id=? ORDER BY sign_order', [signer.request_id]
+      );
+      const emailCfg = await loadEmailConfig();
+      if (!emailCfg) return;
+
+      // Notificar al creador
+      const [[creatorR]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [request.created_by]);
+      if (creatorR?.email) {
+        const rejHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:#DC2626;padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;">❌ Firma rechazada</h1>
+      <p style="color:#FCA5A5;margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:15px;">Hola <strong>${creatorR.full_name}</strong>,</p>
+      <p style="color:#374151;font-size:14px;line-height:1.6;">
+        <strong>${signer.signer_name}</strong> (${signer.signer_role || 'Firmante'}) rechazó la firma del documento
+        <strong>${request.title}</strong> del proyecto <strong>${project.name}</strong>. El proceso ha sido cancelado.
+      </p>
+      ${reason ? `<div style="background:#FEF2F2;border-left:4px solid #DC2626;border-radius:8px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#991B1B;font-weight:bold;text-transform:uppercase;">Motivo del rechazo:</p>
+        <p style="margin:0;font-size:14px;color:#374151;">${reason}</p>
+      </div>` : ''}
+      <p style="font-size:13px;color:#64748b;">Corrija el documento e inicie un nuevo proceso de firma si lo requiere.</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+      <p style="font-size:11px;color:#94a3b8;margin:0;">SGIP-IA · Ley 527 de 1999, Decreto 1074 de 2015.</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+        await trySendMail(emailCfg, {
+          to: creatorR.email,
+          subject: `❌ Firma rechazada: ${request.title} — ${project.name}`,
+          html: rejHtml,
+        });
+      }
+      // Notificar a los demás firmantes (cancelación)
+      const cancelHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;padding:0 16px;">
+  <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+    <div style="background:#64748b;padding:24px 32px;">
+      <h1 style="color:white;margin:0;font-size:20px;">🚫 Proceso de firmas cancelado</h1>
+      <p style="color:#CBD5E1;margin:4px 0 0;font-size:13px;">SGIP-IA · Sistema de Gestión Integral de Proyectos</p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#374151;font-size:14px;line-height:1.6;">
+        <strong>${signer.signer_name}</strong> rechazó la firma del documento <strong>${request.title}</strong>
+        del proyecto <strong>${project.name}</strong>, por lo que el proceso de firmas ha sido cancelado.
+      </p>
+      ${reason ? `<div style="background:#f8fafc;border-left:4px solid #64748b;border-radius:8px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#475569;font-weight:bold;text-transform:uppercase;">Motivo:</p>
+        <p style="margin:0;font-size:14px;color:#374151;">${reason}</p>
+      </div>` : ''}
+      <p style="font-size:13px;color:#64748b;">No se requiere ninguna acción de su parte.</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+      for (const s of allSigners) {
+        if (s.id === signer.id) continue;
+        await trySendMail(emailCfg, {
+          to: s.signer_email,
+          subject: `🚫 Proceso cancelado: ${request.title}`,
+          html: cancelHtml,
+        });
+      }
+    } catch (_) { /* no bloquear respuesta */ }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error al rechazar' });

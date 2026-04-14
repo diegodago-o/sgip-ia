@@ -628,6 +628,15 @@ publicRouter.post('/:token/firmar', async (req, res) => {
       } catch (pdfErr) {
         console.error('[signatures] PDF generation for email failed:', pdfErr.message);
       }
+      // ── Notificar al creador: progreso del último firmante (antes de completado) ──
+      const [[creatorC]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
+      if (creatorC?.email) {
+        await trySendMail(emailCfg, {
+          to: creatorC.email,
+          subject: `🔔 ${signer.signer_name} firmó (${allSigners.length}/${allSigners.length}): ${minute.title}`,
+          html: emailCreatorProgress({ creator: creatorC, signer, allSigners, minute, project }),
+        });
+      }
       // Notify everyone with completion email + PDF attached
       const completedHtml = emailCompleted({ minute, project, allSigners, documentHash: completedReq.document_hash });
       for (const s of allSigners) {
@@ -639,7 +648,6 @@ publicRouter.post('/:token/firmar', async (req, res) => {
         });
       }
       // ── Notificar al creador: completado + PDF ──
-      const [[creatorC]] = await pool.execute('SELECT id, email, full_name FROM users WHERE id=?', [req_.created_by]);
       if (creatorC?.email) {
         const signerEmails = new Set(allSigners.map(s => s.signer_email.toLowerCase()));
         if (!signerEmails.has(creatorC.email.toLowerCase())) {

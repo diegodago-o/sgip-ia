@@ -503,6 +503,7 @@ router.get('/:projectId/budget/export-excel', async (req, res) => {
     try { const [r] = await pool.execute('SELECT * FROM budget_deductions WHERE project_id=? ORDER BY sort_order', [pid]); deductions = r; } catch {}
 
     // Totals from schedule (source of truth)
+    const totalIncome       = incomeScheduleRows.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0);
     const totalIncomeSinIva = incomeScheduleRows.reduce((s,r)=>s+parseFloat(r.valor_sin_iva||0),0);
     const totalIvaIncome    = incomeScheduleRows.reduce((s,r)=>s+parseFloat(r.valor_iva||0),0);
     const totalEgr = totalPayroll + totalContractors + totalExpenses;

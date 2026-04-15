@@ -266,7 +266,7 @@ function IncomeTab({ projectId, onUpdate }) {
                   </tr>
                 ) : (
                   <tr key={s.id} className={`group border-b border-surface-50 hover:bg-surface-50 cursor-pointer ${idx%2===1?'bg-surface-50/30':''}`}
-                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion,valor_sin_iva:Math.round(s.valor_sin_iva),estado:s.estado,aplica_iva:parseFloat(s.valor_iva||0)>0 || parseFloat(s.valor_sin_iva||0)===0});}}>
+                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion||'',valor_sin_iva:parseFloat(s.valor_sin_iva)||0,estado:s.estado||'pendiente',aplica_iva:parseFloat(s.valor_iva||0)>0});}}>
                     <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${s.tipo_pago==='mensual'?'bg-blue-100 text-blue-700':s.tipo_pago==='hito'?'bg-amber-100 text-amber-700':'bg-purple-100 text-purple-700'}`}>{s.tipo_pago==='mensual'?'Mensual':s.tipo_pago==='hito'?'Hito':'Único'}</span></td>
                     <td className="px-3 py-2 text-center font-mono text-xs text-surface-600">{s.mes||'—'}</td>
                     <td className="px-3 py-2 text-surface-700 text-xs">{s.descripcion||`Pago mes ${s.mes}`}</td>
@@ -895,7 +895,7 @@ export default function BudgetPanel({ projectId, perms = {} }) {
       <div className="flex justify-end gap-2">
         <button onClick={async()=>{try{await budgetAPI.syncValue(projectId);setToast({msg:'Valor del contrato sincronizado con presupuesto',type:'success'});setTimeout(()=>setToast(null),3000);load();}catch(e){setToast({msg:e.response?.data?.error||'Error sincronizando',type:'error'});setTimeout(()=>setToast(null),4000);}}}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium hover:bg-blue-100 border border-blue-200 transition-colors"
-          title="Re-sincroniza los ingresos del presupuesto con el valor actual del contrato">
+          title="Actualiza las filas base de Ingresos (contrato sin IVA, IVA, total) con el valor actual del contrato. No modifica el flujo de pagos ni los montos ingresados manualmente.">
           <RefreshCw className="w-3.5 h-3.5"/> Sincronizar Valor
         </button>
         <button onClick={async()=>{try{const r=await exportsAPI.budgetToExcel(projectId);const url=URL.createObjectURL(new Blob([r.data]));const a=document.createElement('a');a.href=url;a.download=`Presupuesto_${projectId}.xlsx`;a.click();URL.revokeObjectURL(url);}catch(e){alert('Error: '+e.message)}}}

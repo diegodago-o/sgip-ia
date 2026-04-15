@@ -197,30 +197,16 @@ router.post('/:projectId/sync-value', roleMiddleware('admin', 'director'), [para
       try { const [r] = await pool.execute(sql, params); updated += r.affectedRows; } catch {}
     }
 
-    // Re-distribute income_schedule proportionally if exists
-    let schedUpdated = 0;
-    try {
-      const [sched] = await pool.execute('SELECT SUM(valor_sin_iva) as t FROM budget_income_schedule WHERE project_id=?', [pid]);
-      const oldSchedTotal = parseFloat(sched[0]?.t || 0);
-      if (oldSchedTotal > 0 && Math.abs(oldSchedTotal - cv) > 1) {
-        const ratio = cv / oldSchedTotal;
-        const [r] = await pool.execute(
-          `UPDATE budget_income_schedule SET
-            valor_sin_iva = ROUND(valor_sin_iva * ?, 2),
-            valor_iva = ROUND(valor_iva * ?, 2),
-            valor_con_iva = ROUND(valor_con_iva * ?, 2)
-           WHERE project_id=?`,
-          [ratio, ratio, ratio, pid]
-        );
-        schedUpdated = r.affectedRows;
-      }
-    } catch {}
+    // NOTE: budget_income_schedule is NOT redistributed here.
+    // Each schedule row represents a manually defined payment milestone.
+    // Redistributing would silently overwrite values the user set intentionally.
+    // To realign the schedule after a contract change, the user should use
+    // "Generar flujo" in the Ingresos tab.
 
     res.json({
       message: `Valor sincronizado: ${cv.toLocaleString('es-CO')}`,
       contract_value: cv, iva, total,
       income_rows_updated: updated,
-      schedule_rows_updated: schedUpdated,
     });
   } catch (err) { console.error('Sync value:', err); res.status(500).json({ error: err.message }); }
 });
@@ -508,12 +494,16 @@ router.put('/:projectId/income-schedule/:id', async (req, res) => {
     if (b.tipo_pago) { f.push('tipo_pago=?'); v.push(b.tipo_pago); }
     if (b.mes !== undefined) { f.push('mes=?'); v.push(b.mes); }
     if (b.descripcion !== undefined) { f.push('descripcion=?'); v.push(b.descripcion); }
-    if (b.valor_sin_iva !== undefined || b.aplica_iva !== undefined) {
-      const sinIva = parseFloat(b.valor_sin_iva !== undefined ? b.valor_sin_iva : 0) || 0;
+    // Only recalculate money fields when valor_sin_iva is explicitly provided
+    if (b.valor_sin_iva !== undefined) {
+      const sinIva = parseFloat(b.valor_sin_iva) || 0;
       const aplicaIva = b.aplica_iva !== false && b.aplica_iva !== 'false' && b.aplica_iva !== 0;
       const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
       f.push('valor_sin_iva=?','valor_iva=?','valor_con_iva=?');
       v.push(sinIva, iva, sinIva + iva);
+    } else if (b.aplica_iva !== undefined) {
+      // IVA toggle changed without changing the base value — recalculate using DB valor_sin_iva
+      // This is handled by a separate fetch; skip to avoid zeroing valor_sin_iva
     }
     if (b.estado) { f.push('estado=?'); v.push(b.estado); }
     if (b.fecha_estimada !== undefined) { f.push('fecha_estimada=?'); v.push(b.fecha_estimada || null); }

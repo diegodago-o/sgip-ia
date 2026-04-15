@@ -417,227 +417,581 @@ router.get('/:projectId/budget/export-excel', async (req, res) => {
     wb.creator = 'SGIP-IA';
     wb.created = new Date();
 
-    const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A5C' } };
-    const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Arial' };
-    const bodyFont = { size: 10, name: 'Arial' };
-    const currencyFmt = '"$"#,##0';
-    const pctFmt = '0.0%';
+    // ── Base totals ──────────────────────────────────────────────
+    const totalPayroll     = payroll.reduce((s,i)=>s+parseFloat(i.costo_total||0),0);
+    const totalContractors = contractors.reduce((s,i)=>s+parseFloat(i.costo_total||0),0);
+    const totalExpenses    = expenses.reduce((s,i)=>s+parseFloat(i.valor_total||0),0);
 
-    // Income total — source of truth: budget_income_schedule (pagos reales)
-    let scheduleRows = [];
-    try { const [sr] = await pool.execute('SELECT valor_con_iva FROM budget_income_schedule WHERE project_id=? ORDER BY sort_order', [pid]); scheduleRows = sr; } catch {}
-    const totalIncome = scheduleRows.length > 0
-      ? scheduleRows.reduce((s,r)=>s+parseFloat(r.valor_con_iva||0),0)
-      : income.reduce((s, i) => s + parseFloat(i.value || 0), 0); // fallback if no schedule
-    const totalPayroll = payroll.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
-    const totalContractors = contractors.reduce((s, i) => s + parseFloat(i.costo_total || 0), 0);
-    const totalExpenses = expenses.reduce((s, i) => s + parseFloat(i.valor_total || 0), 0);
-    const totalEgresos = totalPayroll + totalContractors + totalExpenses;
-    const margen = totalIncome - totalEgresos;
+    // ── helpers ──────────────────────────────────────────────────
+    const hdr  = argb => ({ type:'pattern', pattern:'solid', fgColor:{ argb } });
+    const cur  = '"$"#,##0';
+    const pct0 = '0.0%';
+    const cen  = { horizontal:'center', vertical:'middle' };
+    const lft  = { horizontal:'left',   vertical:'middle' };
+    const rgt  = { horizontal:'right',  vertical:'middle' };
+    const wlft = { horizontal:'left',   vertical:'middle', wrapText:true };
+    const wcen = { horizontal:'center', vertical:'middle', wrapText:true };
+    const thin = (argb='FFD1D5DB') => { const s={style:'thin',color:{argb}}; return {top:s,bottom:s,left:s,right:s}; };
+    const btm  = (argb,style='medium') => ({ bottom:{style,color:{argb}} });
 
-    // ── Sheet 1: Resumen ──
-    const ws1 = wb.addWorksheet('Resumen', { properties: { tabColor: { argb: '1B3A5C' } } });
-    ws1.columns = [{ width: 30 }, { width: 25 }];
-    ws1.addRow(['RESUMEN PRESUPUESTAL']).font = { bold: true, size: 14, name: 'Arial', color: { argb: 'FF1B3A5C' } };
-    ws1.addRow([]);
-    ws1.addRow(['Proyecto', p.name]);
-    ws1.addRow(['Código', p.code]);
-    ws1.addRow(['Contrato', p.contract_number || 'N/A']);
-    ws1.addRow(['Valor del contrato', parseFloat(p.contract_value || 0)]); ws1.getCell('B6').numFmt = currencyFmt;
-    ws1.addRow([]);
-    ws1.addRow(['Total Ingresos', totalIncome]); ws1.getCell('B8').numFmt = currencyFmt;
-    ws1.addRow(['Nómina', totalPayroll]); ws1.getCell('B9').numFmt = currencyFmt;
-    ws1.addRow(['Contratistas', totalContractors]); ws1.getCell('B10').numFmt = currencyFmt;
-    ws1.addRow(['Gastos operativos', totalExpenses]); ws1.getCell('B11').numFmt = currencyFmt;
-    ws1.addRow(['Total Egresos', totalEgresos]); ws1.getCell('B12').numFmt = currencyFmt;
-    ws1.getRow(12).font = { bold: true, size: 11, name: 'Arial' };
-    ws1.addRow(['Margen', margen]); ws1.getCell('B13').numFmt = currencyFmt;
-    ws1.getRow(13).font = { bold: true, size: 11, name: 'Arial', color: { argb: margen >= 0 ? 'FF27AE60' : 'FFE74C3C' } };
-    ws1.addRow([]);
-    ws1.addRow(['Fecha de exportación', new Date().toLocaleDateString('es-CO')]);
+    const C = {
+      navy:'FF1B3A5C', navyL:'FFE8EFF8', navyM:'FF2D5080',
+      green:'FF166534', greenL:'FFD1FAE5', greenM:'FF15803D',
+      blue:'FF1E40AF',  blueL:'FFDBEAFE',
+      orange:'FFB45309',orangeL:'FFFEF3C7',
+      red:'FF991B1B',   redL:'FFFECACA',
+      teal:'FF0F766E',  tealL:'FFCCFBF1',
+      purple:'FF6D28D9',purpleL:'FFEDE9FE',
+      gray1:'FF111827', gray2:'FF374151', gray3:'FF6B7280',
+      gray4:'FFE5E7EB', gray5:'FFF9FAFB', white:'FFFFFFFF',
+    };
 
-    // ── Sheet 2: Ingresos ──
-    const ws2 = wb.addWorksheet('Ingresos', { properties: { tabColor: { argb: '27AE60' } } });
-    ws2.columns = [{ width: 35 }, { width: 20 }, { width: 30 }];
-    ws2.addRow(['Concepto', 'Valor', 'Notas']);
-    ws2.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
-    income.forEach((item, i) => {
-      const row = ws2.addRow([item.label, parseFloat(item.value || 0), item.notes || '']);
-      row.eachCell(c => { c.font = bodyFont; });
-      row.getCell(2).numFmt = currencyFmt;
-      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
-    });
-    const incTotalRow = ws2.addRow(['TOTAL', totalIncome, '']);
-    incTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
-    incTotalRow.getCell(2).numFmt = currencyFmt;
+    const colFont = (argb,bold=false,sz=9) => ({ bold, color:{argb}, size:sz, name:'Calibri' });
+    const HF = argb => ({ bold:true, color:{argb:C.white}, size:9, name:'Calibri' });
 
-    // ── Sheet 3: Nómina ──
-    const ws3 = wb.addWorksheet('Nómina', { properties: { tabColor: { argb: '3498DB' } } });
-    ws3.columns = [{ width: 25 }, { width: 8 }, { width: 15 }, { width: 12 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 15 }];
-    ws3.addRow(['Cargo', 'Cant.', 'Salario Base', 'Aux. Transp.', 'Mes Ini', 'Mes Fin', 'Meses', 'Costo Total']);
-    ws3.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
-    payroll.forEach((item, i) => {
-      const row = ws3.addRow([
-        item.cargo, item.cantidad, parseFloat(item.salario_base || 0), parseFloat(item.aux_transporte || 0),
-        item.mes_inicio, item.mes_fin, item.meses || '', parseFloat(item.costo_total || 0)
-      ]);
-      row.eachCell(c => { c.font = bodyFont; });
-      row.getCell(3).numFmt = currencyFmt;
-      row.getCell(4).numFmt = currencyFmt;
-      row.getCell(8).numFmt = currencyFmt;
-      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
-    });
-    const payTotalRow = ws3.addRow(['TOTAL', '', '', '', '', '', '', totalPayroll]);
-    payTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
-    payTotalRow.getCell(8).numFmt = currencyFmt;
-
-    // ── Sheet 4: Contratistas ──
-    const ws4 = wb.addWorksheet('Contratistas', { properties: { tabColor: { argb: 'E67E22' } } });
-    ws4.columns = [{ width: 25 }, { width: 20 }, { width: 8 }, { width: 15 }, { width: 8 }, { width: 8 }, { width: 15 }];
-    ws4.addRow(['Cargo/Rol', 'Tipo Contrato', 'Cant.', 'Valor Unit.', 'Mes Ini', 'Mes Fin', 'Costo Total']);
-    ws4.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
-    contractors.forEach((item, i) => {
-      const row = ws4.addRow([
-        item.cargo, item.tipo_contrato || '', item.cantidad, parseFloat(item.valor_unitario || 0),
-        item.mes_inicio, item.mes_fin, parseFloat(item.costo_total || 0)
-      ]);
-      row.eachCell(c => { c.font = bodyFont; });
-      row.getCell(4).numFmt = currencyFmt;
-      row.getCell(7).numFmt = currencyFmt;
-      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
-    });
-    const conTotalRow = ws4.addRow(['TOTAL', '', '', '', '', '', totalContractors]);
-    conTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
-    conTotalRow.getCell(7).numFmt = currencyFmt;
-
-    // ── Sheet 5: Gastos Operativos ──
-    const ws5 = wb.addWorksheet('Gastos Operativos', { properties: { tabColor: { argb: 'E74C3C' } } });
-    ws5.columns = [{ width: 22 }, { width: 30 }, { width: 15 }, { width: 8 }, { width: 15 }];
-    ws5.addRow(['Categoría', 'Concepto', 'Valor Unitario', 'Meses', 'Valor Total']);
-    ws5.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
-    expenses.forEach((item, i) => {
-      const row = ws5.addRow([
-        item.category || '', item.label, parseFloat(item.valor_unitario || 0),
-        item.meses || '', parseFloat(item.valor_total || 0)
-      ]);
-      row.eachCell(c => { c.font = bodyFont; });
-      row.getCell(3).numFmt = currencyFmt;
-      row.getCell(5).numFmt = currencyFmt;
-      if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
-    });
-    const expTotalRow = ws5.addRow(['', 'TOTAL', '', '', totalExpenses]);
-    expTotalRow.eachCell(c => { c.font = { ...bodyFont, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } }; });
-    expTotalRow.getCell(5).numFmt = currencyFmt;
-
-    // ── Sheet 6: Pagos (if any) ──
-    if (payments.length > 0) {
-      const ws6 = wb.addWorksheet('Pagos', { properties: { tabColor: { argb: '8E44AD' } } });
-      ws6.columns = [{ width: 10 }, { width: 15 }, { width: 35 }, { width: 18 }, { width: 20 }, { width: 15 }];
-      ws6.addRow(['# Pago', 'Fecha', 'Concepto', 'Monto', 'Factura', 'Estado']);
-      ws6.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
-      payments.forEach((pay, i) => {
-        const row = ws6.addRow([
-          pay.payment_number || i + 1,
-          pay.payment_date ? new Date(pay.payment_date).toLocaleDateString('es-CO') : '',
-          pay.concept || '', parseFloat(pay.amount || 0),
-          pay.invoice_number || '', pay.status || ''
-        ]);
-        row.eachCell(c => { c.font = bodyFont; });
-        row.getCell(4).numFmt = currencyFmt;
-        if (i % 2 === 1) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } }; });
+    // Shared row builder
+    function styleHeaderRow(ws, rowNum, bgArgb) {
+      ws.getRow(rowNum).eachCell({ includeEmpty:true }, c => {
+        c.fill = hdr(bgArgb); c.font = HF(bgArgb);
+        c.alignment = wcen; c.border = thin();
       });
+      ws.getRow(rowNum).height = 22;
+    }
+    function styleDataRow(ws, row, alt, borders=true) {
+      const bg = alt ? C.gray5 : C.white;
+      row.eachCell({ includeEmpty:true }, c => {
+        c.fill = hdr(bg);
+        c.font = colFont(C.gray2);
+        c.alignment = lft;
+        if (borders) c.border = thin(C.gray4);
+      });
+      row.height = 18;
+    }
+    function styleTotalRow(ws, row, bgArgb) {
+      row.eachCell({ includeEmpty:true }, c => {
+        c.fill = hdr(bgArgb); c.font = { bold:true, size:9, name:'Calibri', color:{argb:C.white} };
+        c.alignment = cen; c.border = thin(C.white);
+      });
+      row.height = 20;
     }
 
-    // ── Sheet: Estado de Resultados (PUC) ──
+    // Banner at top of each sheet
+    function addBanner(ws, title, colCount, accentArgb) {
+      ws.mergeCells(1,1,1,colCount);
+      const t = ws.getCell('A1');
+      t.value = title;
+      t.fill = hdr(C.navy); t.font = { bold:true, color:{argb:C.white}, size:13, name:'Calibri' };
+      t.alignment = cen; ws.getRow(1).height = 28;
+
+      ws.mergeCells(2,1,2,colCount);
+      const s = ws.getCell('A2');
+      s.value = `${p.name || ''}   •   Código: ${p.code || 'N/A'}   •   Contrato: ${p.contract_number || 'N/A'}   •   Exportado: ${new Date().toLocaleDateString('es-CO')}`;
+      s.fill = hdr(C.navyL); s.font = { size:8, name:'Calibri', color:{argb:C.navy}, italic:true };
+      s.alignment = cen; ws.getRow(2).height = 14;
+
+      ws.mergeCells(3,1,3,colCount);
+      ws.getCell('A3').fill = hdr(accentArgb);
+      ws.getRow(3).height = 4;
+    }
+
+    // ── Load extra data ──────────────────────────────────────────
+    let incomeScheduleRows = [];
+    try { const [sr] = await pool.execute('SELECT * FROM budget_income_schedule WHERE project_id=? ORDER BY sort_order,mes', [pid]); incomeScheduleRows = sr; } catch {}
+
     let pucAccounts = [], deductions = [];
     try { const [r] = await pool.execute('SELECT * FROM budget_puc_accounts WHERE project_id=? ORDER BY sort_order,cuenta', [pid]); pucAccounts = r; } catch {}
     try { const [r] = await pool.execute('SELECT * FROM budget_deductions WHERE project_id=? ORDER BY sort_order', [pid]); deductions = r; } catch {}
 
-    const wsER = wb.addWorksheet('Estado de Resultados', { properties: { tabColor: { argb: '1B3A5C' } } });
-    wsER.columns = [{ width: 8 }, { width: 35 }, { width: 22 }];
-    
-    const titleFont = { bold: true, size: 12, name: 'Arial', color: { argb: 'FF1B3A5C' } };
-    const subtotalFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8ECF0' } };
-    const resultFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
-    const greenFont = { bold: true, size: 11, name: 'Arial', color: { argb: 'FF27AE60' } };
-    const redFont = { bold: true, size: 11, name: 'Arial', color: { argb: 'FFE74C3C' } };
+    // Totals from schedule (source of truth)
+    const totalIncomeSinIva = incomeScheduleRows.reduce((s,r)=>s+parseFloat(r.valor_sin_iva||0),0);
+    const totalIvaIncome    = incomeScheduleRows.reduce((s,r)=>s+parseFloat(r.valor_iva||0),0);
+    const totalEgr = totalPayroll + totalContractors + totalExpenses;
+    const margenAmt = totalIncome - totalEgr;
+    const margenPct = totalIncome > 0 ? margenAmt / totalIncome : 0;
 
-    wsER.addRow(['', 'ESTADO DE RESULTADOS DEL PROYECTO', '']).font = titleFont;
-    wsER.addRow(['', p.name || '', '']);
-    wsER.addRow(['', `Código: ${p.code || ''}`, '']);
-    wsER.addRow([]);
+    const TC_LABEL = { mensual:'Mensual', por_horas:'Por Horas', por_productos:'Por Productos' };
+    const EXP_CAT_LABEL = {
+      arriendo_equipos:'Arriendo y Equipos', gastos_legales:'Gastos Legales y Seguros',
+      servicios_publicos:'Servicios Públicos', gastos_viaje:'Gastos de Viaje',
+      activos_fijos:'Activos Fijos', otros:'Otros Gastos',
+    };
 
-    wsER.addRow(['Nº Cuenta', 'Nombre', 'Total']).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal: 'center' }; });
+    // Project duration
+    const projectMonths = (() => {
+      if (p.execution_term_unit === 'meses') return p.execution_term || 12;
+      if (p.execution_term_unit === 'anos')  return (p.execution_term || 1) * 12;
+      return Math.ceil((p.execution_term || 360) / 30);
+    })();
 
-    // Ingresos
-    const ingresosSinIva = income.filter(r => !r.es_iva && !r.es_total_con_iva && r.tipo === 'ingreso').reduce((s, r) => s + parseFloat(r.value||0), 0);
-    const ivaTotal = income.filter(r => r.es_iva).reduce((s, r) => s + parseFloat(r.value||0), 0);
-    const totalConIva = ingresosSinIva + ivaTotal;
-
-    const r4 = wsER.addRow(['4', 'INGRESOS', totalConIva]);
-    r4.font = { bold: true, size: 11, name: 'Arial' }; r4.getCell(3).numFmt = currencyFmt; r4.eachCell(c => { c.fill = subtotalFill; });
-    const r41 = wsER.addRow(['41', 'Operacionales', totalConIva]);
-    r41.font = { bold: true, size: 10, name: 'Arial' }; r41.getCell(3).numFmt = currencyFmt;
-
-    // Gastos
-    const totalPayrollAll = parseFloat(payroll.reduce((s,i)=>s+parseFloat(i.costo_total||0),0));
-    const totalContractorsAll = parseFloat(contractors.reduce((s,i)=>s+parseFloat(i.costo_total||0),0));
-    const totalExpensesAll = parseFloat(expenses.reduce((s,i)=>s+parseFloat(i.valor_total||0),0));
-    const totalPucOnly = pucAccounts.filter(a=>a.cuenta.startsWith('5')&&!a.es_subtotal).reduce((s,a)=>s+parseFloat(a.valor||0),0);
-    const totalGastos = totalPucOnly + totalPayrollAll + totalContractorsAll + totalExpensesAll;
-
-    wsER.addRow([]);
-    const r5 = wsER.addRow(['5', 'GASTOS', totalGastos]);
-    r5.font = { bold: true, size: 11, name: 'Arial' }; r5.getCell(3).numFmt = currencyFmt; r5.eachCell(c => { c.fill = subtotalFill; });
-
-    // PUC sub-accounts
-    for (const a of pucAccounts) {
-      if (a.cuenta === '4' || a.cuenta === '41' || a.cuenta === '5') continue;
-      const val = parseFloat(a.valor || 0);
-      const row = wsER.addRow([a.cuenta, a.nombre, val]);
-      row.getCell(3).numFmt = currencyFmt;
-      row.eachCell(c => { c.font = bodyFont; });
-      if (a.es_subtotal) { row.font = { bold: true, size: 10, name: 'Arial' }; row.eachCell(c => { c.fill = subtotalFill; }); }
+    // Monthly breakdown calc
+    const monthly = [];
+    for (let m = 1; m <= projectMonths; m++) {
+      const mp = payroll.filter(i=>parseInt(i.mes_inicio)<=m&&(!i.mes_fin||parseInt(i.mes_fin)>=m))
+        .reduce((s,i)=>s+parseFloat(i.costo_mensual||0)*(parseInt(i.cantidad)||1),0);
+      const mc = contractors.filter(i=>parseInt(i.mes_inicio)<=m&&(!i.mes_fin||parseInt(i.mes_fin)>=m))
+        .reduce((s,i)=>s+parseFloat(i.costo_mensual||0)*(parseInt(i.cantidad)||1),0);
+      const me = expenses.filter(i=>parseInt(i.mes_inicio)<=m&&(!i.mes_fin||parseInt(i.mes_fin)>=m))
+        .reduce((s,i)=>s+parseFloat(i.valor_mensual||0),0);
+      const mi = incomeScheduleRows.filter(i=>parseInt(i.mes||0)===m)
+        .reduce((s,i)=>s+parseFloat(i.valor_con_iva||0),0);
+      monthly.push({ month:m, payroll:mp, contractors:mc, expenses:me, total:mp+mc+me, income:mi });
     }
 
-    // Extra from budget tables
-    if (totalPayrollAll > 0) { const r = wsER.addRow(['', 'Nómina (detalle en hoja)', totalPayrollAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
-    if (totalContractorsAll > 0) { const r = wsER.addRow(['', 'Contratistas (detalle en hoja)', totalContractorsAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
-    if (totalExpensesAll > 0) { const r = wsER.addRow(['', 'Gastos operativos (detalle en hoja)', totalExpensesAll]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    // Deduction totals
+    const retTotal = deductions.filter(d=>d.tipo==='retencion').reduce((s,d)=>s+parseFloat(d.valor||0),0);
+    const afTotal  = deductions.filter(d=>d.tipo==='activo_fijo').reduce((s,d)=>s+parseFloat(d.valor||0),0);
+    const gncTotal = deductions.filter(d=>d.tipo==='gnc').reduce((s,d)=>s+parseFloat(d.valor||0),0);
+    const gananciaContable     = totalIncome - totalEgr;
+    const gananciaDistribuible = gananciaContable - retTotal - afTotal;
+    const gananciaReal         = gananciaDistribuible - gncTotal;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 1 — RESUMEN
+    // ════════════════════════════════════════════════════════════
+    const ws1 = wb.addWorksheet('Resumen', { properties:{ tabColor:{ argb:C.navy.slice(2) } } });
+    ws1.columns = [{width:28},{width:24},{width:18},{width:18}];
+    addBanner(ws1, 'RESUMEN PRESUPUESTAL', 4, C.navyM);
+
+    // KPI section title
+    ws1.getRow(4).height = 8;
+    ws1.mergeCells(5,1,5,4);
+    ws1.getCell('A5').value = 'INDICADORES CLAVE';
+    ws1.getCell('A5').fill = hdr(C.navyM); ws1.getCell('A5').font = HF(C.navyM);
+    ws1.getCell('A5').alignment = cen; ws1.getRow(5).height = 18;
+
+    // KPI cards (2×3 grid)
+    const kpis = [
+      ['Valor del Contrato', parseFloat(p.contract_value||0), C.navy, null],
+      ['Plazo de Ejecución', `${projectMonths} meses`, C.blue, null],
+      ['Total Ingresos (c/IVA)', totalIncome, C.green, null],
+      ['Total Egresos', totalEgr, C.orange, null],
+      ['Margen', margenAmt, margenAmt>=0?C.greenM:C.red, null],
+      ['Margen %', margenPct, margenAmt>=0?C.greenM:C.red, pct0],
+    ];
+    let kRow = 6;
+    for (let i=0; i<kpis.length; i+=2) {
+      const [la,va,ca] = kpis[i];   const [lb,vb,cb,fb] = kpis[i+1]||[];
+      ws1.mergeCells(kRow,1,kRow,2); ws1.mergeCells(kRow,3,kRow,4);
+      const ca1 = ws1.getCell(kRow,1); ca1.value=la; ca1.fill=hdr(C.gray5); ca1.font=colFont(C.gray3,true); ca1.alignment=cen; ca1.border=thin(C.gray4);
+      const ca2 = ws1.getCell(kRow,3); ca2.value=lb; ca2.fill=hdr(C.gray5); ca2.font=colFont(C.gray3,true); ca2.alignment=cen; ca2.border=thin(C.gray4);
+      ws1.getRow(kRow).height=16; kRow++;
+
+      ws1.mergeCells(kRow,1,kRow,2); ws1.mergeCells(kRow,3,kRow,4);
+      const cv1 = ws1.getCell(kRow,1);
+      cv1.value = typeof va==='number'?va:va; cv1.fill=hdr(ca); cv1.font={bold:true,color:{argb:C.white},size:13,name:'Calibri'};
+      cv1.alignment=cen; cv1.border=thin(C.white);
+      if (typeof va==='number' && !kpis[i][3]) cv1.numFmt=cur; else if(kpis[i][3]) cv1.numFmt=kpis[i][3];
+
+      const cv2 = ws1.getCell(kRow,3);
+      if (lb!==undefined) {
+        cv2.value = typeof vb==='number'?vb:vb; cv2.fill=hdr(cb); cv2.font={bold:true,color:{argb:C.white},size:13,name:'Calibri'};
+        cv2.alignment=cen; cv2.border=thin(C.white);
+        if (typeof vb==='number' && !fb) cv2.numFmt=cur; else if(fb) cv2.numFmt=fb;
+      }
+      ws1.getRow(kRow).height=30; kRow++;
+      ws1.getRow(kRow).height=6; kRow++;
+    }
+
+    // Breakdown table
+    ws1.getRow(kRow).height=8; kRow++;
+    ws1.mergeCells(kRow,1,kRow,4);
+    ws1.getCell(kRow,1).value='DETALLE DE EGRESOS'; ws1.getCell(kRow,1).fill=hdr(C.navyM); ws1.getCell(kRow,1).font=HF(C.navyM); ws1.getCell(kRow,1).alignment=cen; ws1.getRow(kRow).height=18; kRow++;
+
+    const egr = [['Nómina',totalPayroll,C.blueL,C.blue],['Honorarios',totalContractors,C.orangeL,C.orange],['Gastos Operativos',totalExpenses,C.redL,C.red]];
+    for (const [lbl,val,bg,tc] of egr) {
+      ws1.mergeCells(kRow,1,kRow,3);
+      ws1.getCell(kRow,1).value=lbl; ws1.getCell(kRow,1).fill=hdr(bg); ws1.getCell(kRow,1).font=colFont(tc,true); ws1.getCell(kRow,1).alignment=lft; ws1.getCell(kRow,1).border=thin(C.gray4);
+      ws1.getCell(kRow,4).value=val; ws1.getCell(kRow,4).numFmt=cur; ws1.getCell(kRow,4).fill=hdr(bg); ws1.getCell(kRow,4).font=colFont(tc,true); ws1.getCell(kRow,4).alignment=rgt; ws1.getCell(kRow,4).border=thin(C.gray4);
+      ws1.getRow(kRow).height=20; kRow++;
+    }
+    ws1.mergeCells(kRow,1,kRow,3);
+    ws1.getCell(kRow,1).value='TOTAL EGRESOS'; ws1.getCell(kRow,1).fill=hdr(C.navy); ws1.getCell(kRow,1).font=HF(C.navy); ws1.getCell(kRow,1).alignment=lft; ws1.getCell(kRow,1).border=thin();
+    ws1.getCell(kRow,4).value=totalEgr; ws1.getCell(kRow,4).numFmt=cur; ws1.getCell(kRow,4).fill=hdr(C.navy); ws1.getCell(kRow,4).font=HF(C.navy); ws1.getCell(kRow,4).alignment=rgt; ws1.getCell(kRow,4).border=thin();
+    ws1.getRow(kRow).height=22; kRow++;
+
+    const margenFill = margenAmt>=0?C.green:C.red;
+    ws1.mergeCells(kRow,1,kRow,3);
+    ws1.getCell(kRow,1).value='MARGEN'; ws1.getCell(kRow,1).fill=hdr(margenFill); ws1.getCell(kRow,1).font=HF(margenFill); ws1.getCell(kRow,1).alignment=lft; ws1.getCell(kRow,1).border=thin();
+    ws1.getCell(kRow,4).value=margenAmt; ws1.getCell(kRow,4).numFmt=cur; ws1.getCell(kRow,4).fill=hdr(margenFill); ws1.getCell(kRow,4).font=HF(margenFill); ws1.getCell(kRow,4).alignment=rgt; ws1.getCell(kRow,4).border=thin();
+    ws1.getRow(kRow).height=22;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 2 — INGRESOS (from budget_income_schedule)
+    // ════════════════════════════════════════════════════════════
+    const ws2 = wb.addWorksheet('Ingresos', { properties:{ tabColor:{ argb:C.green.slice(2) } } });
+    ws2.columns = [{width:5},{width:14},{width:7},{width:28},{width:18},{width:15},{width:18},{width:14},{width:14},{width:28}];
+    addBanner(ws2, 'FLUJO DE INGRESOS — PROGRAMA DE PAGOS', 10, C.greenM);
+
+    const incHdrs = ['N°','Tipo de Pago','Mes','Descripción','Valor sin IVA','IVA (19%)','Valor con IVA','Estado','Fecha Estimada','Notas'];
+    const incHdrRow = ws2.addRow(incHdrs);
+    styleHeaderRow(ws2, incHdrRow.number, C.greenM);
+    ws2.views = [{ state:'frozen', ySplit:4 }];
+
+    incomeScheduleRows.forEach((item,i) => {
+      const estado = item.estado || 'pendiente';
+      const estadoLabel = { pendiente:'Pendiente', facturado:'Facturado', recibido:'Recibido', rechazado:'Rechazado' }[estado] || estado;
+      const row = ws2.addRow([
+        i+1, item.tipo_pago||'', item.mes||'', item.descripcion||'',
+        parseFloat(item.valor_sin_iva||0), parseFloat(item.valor_iva||0), parseFloat(item.valor_con_iva||0),
+        estadoLabel, item.fecha_estimada ? new Date(item.fecha_estimada).toLocaleDateString('es-CO') : '', item.notas||''
+      ]);
+      styleDataRow(ws2, row, i%2===1);
+      row.getCell(1).alignment = cen;
+      row.getCell(2).alignment = cen;
+      row.getCell(3).alignment = cen;
+      row.getCell(5).numFmt = cur; row.getCell(5).alignment = rgt;
+      row.getCell(6).numFmt = cur; row.getCell(6).alignment = rgt;
+      row.getCell(7).numFmt = cur; row.getCell(7).alignment = rgt;
+      // Estado color
+      const estColors = { Pendiente:[C.orange,C.orangeL], Facturado:[C.blue,C.blueL], Recibido:[C.green,C.greenL], Rechazado:[C.red,C.redL] };
+      const [tc,bg] = estColors[estadoLabel]||[C.gray2,C.gray5];
+      row.getCell(8).fill=hdr(bg); row.getCell(8).font=colFont(tc,true); row.getCell(8).alignment=cen;
+    });
+    if (incomeScheduleRows.length === 0) {
+      const er = ws2.addRow(['—','','','Sin pagos registrados','','','','','','']);
+      er.getCell(1).alignment=cen; er.eachCell(c=>{ c.fill=hdr(C.gray5); c.font=colFont(C.gray3); });
+    }
+    const incTot = ws2.addRow(['','','','TOTAL',totalIncomeSinIva,totalIvaIncome,totalIncome,'','','']);
+    incTot.eachCell({includeEmpty:true},c=>{ c.fill=hdr(C.green); c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'}; c.border=thin(C.white); });
+    incTot.getCell(4).alignment=lft;
+    incTot.getCell(5).numFmt=cur; incTot.getCell(5).alignment=rgt;
+    incTot.getCell(6).numFmt=cur; incTot.getCell(6).alignment=rgt;
+    incTot.getCell(7).numFmt=cur; incTot.getCell(7).alignment=rgt;
+    incTot.height=20;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 3 — NÓMINA
+    // ════════════════════════════════════════════════════════════
+    const ws3 = wb.addWorksheet('Nómina', { properties:{ tabColor:{ argb:C.blue.slice(2) } } });
+    ws3.columns = [{width:28},{width:7},{width:16},{width:14},{width:8},{width:8},{width:10},{width:17},{width:17},{width:8},{width:18},{width:25}];
+    addBanner(ws3, 'NÓMINA DE PERSONAL', 12, C.blue);
+
+    const nomHdrs = ['Cargo','Cant.','Salario Base','Aux. Transp.','Mes Ini','Mes Fin','% Prest.','Costo Mensual s/Prest.','Costo Mensual c/Prest.','Meses','Costo Total','Notas'];
+    const nomHdrRow = ws3.addRow(nomHdrs);
+    styleHeaderRow(ws3, nomHdrRow.number, C.blue);
+    ws3.views = [{ state:'frozen', ySplit:4 }];
+
+    payroll.forEach((item,i) => {
+      const pcts = ['pct_prima','pct_vacaciones','pct_cesantias','pct_int_cesantias','pct_arl','pct_pension','pct_ccf','pct_icbf','pct_sena','pct_salud']
+        .reduce((s,k)=>s+(parseFloat(item[k])||0),0);
+      const salBase = parseFloat(item.salario_base||0);
+      const aux     = parseFloat(item.aux_transporte||0);
+      const costoMensSin = salBase + aux;
+      const costoMensCon = parseFloat(item.costo_mensual||0);
+
+      const row = ws3.addRow([
+        item.cargo, parseInt(item.cantidad)||1,
+        salBase, aux,
+        item.mes_inicio||1, item.mes_fin||projectMonths,
+        pcts/100,
+        costoMensSin, costoMensCon,
+        item.meses_vinculacion || item.meses || projectMonths,
+        parseFloat(item.costo_total||0),
+        item.notes||''
+      ]);
+      styleDataRow(ws3, row, i%2===1);
+      row.getCell(2).alignment=cen; row.getCell(5).alignment=cen; row.getCell(6).alignment=cen; row.getCell(10).alignment=cen;
+      row.getCell(3).numFmt=cur; row.getCell(3).alignment=rgt;
+      row.getCell(4).numFmt=cur; row.getCell(4).alignment=rgt;
+      row.getCell(7).numFmt='0.0%'; row.getCell(7).alignment=cen;
+      row.getCell(8).numFmt=cur; row.getCell(8).alignment=rgt;
+      row.getCell(9).numFmt=cur; row.getCell(9).alignment=rgt; row.getCell(9).font=colFont(C.blue,true);
+      row.getCell(11).numFmt=cur; row.getCell(11).alignment=rgt; row.getCell(11).font=colFont(C.navy,true);
+    });
+    if (payroll.length===0) {
+      const er=ws3.addRow(['Sin personal registrado','','','','','','','','','','','']); er.eachCell(c=>{c.fill=hdr(C.gray5);c.font=colFont(C.gray3);});
+    }
+    const payTot = ws3.addRow(['TOTALES ('+payroll.length+')',payroll.reduce((s,i)=>s+(parseInt(i.cantidad)||1),0),'','','','','','',
+      payroll.reduce((s,i)=>s+(parseFloat(i.costo_mensual||0))*(parseInt(i.cantidad)||1),0),'',totalPayroll,'']);
+    payTot.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.blue);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+    payTot.getCell(2).alignment=cen;
+    payTot.getCell(9).numFmt=cur; payTot.getCell(9).alignment=rgt;
+    payTot.getCell(11).numFmt=cur; payTot.getCell(11).alignment=rgt;
+    payTot.height=20;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 4 — HONORARIOS
+    // ════════════════════════════════════════════════════════════
+    const ws4 = wb.addWorksheet('Honorarios', { properties:{ tabColor:{ argb:C.orange.slice(2) } } });
+    ws4.columns = [{width:28},{width:7},{width:15},{width:20},{width:12},{width:8},{width:8},{width:10},{width:17},{width:8},{width:18},{width:25}];
+    addBanner(ws4, 'PERSONAL CONTRATISTAS / HONORARIOS', 12, C.orange);
+
+    const honHdrs = ['Cargo','Cant.','Tipo Contrato','Valor Contrato','ARL (Nivel/%)','Mes Ini','Mes Fin','Meses','Costo Mensual','Cant.','Costo Total','Notas'];
+    const honHdrRow = ws4.addRow(honHdrs);
+    styleHeaderRow(ws4, honHdrRow.number, C.orange);
+    ws4.views = [{ state:'frozen', ySplit:4 }];
+
+    contractors.forEach((item,i) => {
+      let valorContrato = 0, valorLabel = '';
+      if (item.tipo_contrato==='mensual') { valorContrato=parseFloat(item.valor_mensual||0); valorLabel=`${(valorContrato).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}/mes`; }
+      else if (item.tipo_contrato==='por_horas') { valorContrato=(parseFloat(item.valor_hora||0))*(parseFloat(item.horas_mes||0)); valorLabel=`${(parseFloat(item.valor_hora||0)).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}/h × ${item.horas_mes||0}h`; }
+      else if (item.tipo_contrato==='por_productos') { valorContrato=parseFloat(item.valor_producto||0); valorLabel=`${(valorContrato).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}/prod × ${item.cantidad_productos||0}`; }
+
+      const row = ws4.addRow([
+        item.cargo, parseInt(item.cantidad)||1,
+        TC_LABEL[item.tipo_contrato]||item.tipo_contrato,
+        valorLabel,
+        `${item.arl_nivel||'I'} — ${parseFloat(item.arl_pct||0.522).toFixed(3)}%`,
+        item.mes_inicio||1, item.mes_fin||projectMonths,
+        item.meses_vinculacion||projectMonths,
+        parseFloat(item.costo_mensual||0),
+        parseInt(item.cantidad)||1,
+        parseFloat(item.costo_total||0),
+        item.notes||''
+      ]);
+      styleDataRow(ws4, row, i%2===1);
+      row.getCell(2).alignment=cen; row.getCell(5).alignment=cen; row.getCell(6).alignment=cen; row.getCell(7).alignment=cen; row.getCell(8).alignment=cen; row.getCell(10).alignment=cen;
+      row.getCell(9).numFmt=cur; row.getCell(9).alignment=rgt; row.getCell(9).font=colFont(C.orange,true);
+      row.getCell(11).numFmt=cur; row.getCell(11).alignment=rgt; row.getCell(11).font=colFont(C.navy,true);
+    });
+    if (contractors.length===0) {
+      const er=ws4.addRow(['Sin contratistas registrados','','','','','','','','','','','']); er.eachCell(c=>{c.fill=hdr(C.gray5);c.font=colFont(C.gray3);});
+    }
+    const conTot = ws4.addRow(['TOTALES ('+contractors.length+')',contractors.reduce((s,i)=>s+(parseInt(i.cantidad)||1),0),'','','','','','',
+      contractors.reduce((s,i)=>s+(parseFloat(i.costo_mensual||0))*(parseInt(i.cantidad)||1),0),'',totalContractors,'']);
+    conTot.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.orange);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+    conTot.getCell(2).alignment=cen;
+    conTot.getCell(9).numFmt=cur; conTot.getCell(9).alignment=rgt;
+    conTot.getCell(11).numFmt=cur; conTot.getCell(11).alignment=rgt;
+    conTot.height=20;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 5 — GASTOS OPERATIVOS
+    // ════════════════════════════════════════════════════════════
+    const ws5 = wb.addWorksheet('Gastos Operativos', { properties:{ tabColor:{ argb:C.red.slice(2) } } });
+    ws5.columns = [{width:24},{width:32},{width:8},{width:16},{width:16},{width:7},{width:7},{width:8},{width:18},{width:25}];
+    addBanner(ws5, 'GASTOS OPERATIVOS', 10, C.red);
+
+    const expHdrs = ['Categoría','Concepto','Cant.','Valor Unitario','Valor Mensual','Mes Ini','Mes Fin','Meses','Valor Total','Notas'];
+    const expHdrRow = ws5.addRow(expHdrs);
+    styleHeaderRow(ws5, expHdrRow.number, C.red);
+    ws5.views = [{ state:'frozen', ySplit:4 }];
+
+    // Group by category
+    const expByCat = {};
+    expenses.forEach(e=>{ const k=e.category||'otros'; if(!expByCat[k])expByCat[k]=[]; expByCat[k].push(e); });
+    let expRowAlt = false;
+    for (const [cat, items] of Object.entries(expByCat)) {
+      // Category sub-header
+      const catRow = ws5.addRow([EXP_CAT_LABEL[cat]||cat,'','','','','','','','','']);
+      ws5.mergeCells(catRow.number,1,catRow.number,10);
+      catRow.getCell(1).fill=hdr(C.redL); catRow.getCell(1).font=colFont(C.red,true,9); catRow.getCell(1).alignment=lft; catRow.getCell(1).border=thin(C.red);
+      catRow.height=16;
+
+      items.forEach(item=>{
+        const row = ws5.addRow([
+          '', item.label,
+          parseFloat(item.cantidad||1), parseFloat(item.valor_unitario||0),
+          parseFloat(item.valor_mensual||0),
+          item.mes_inicio||1, item.mes_fin||projectMonths,
+          item.meses||projectMonths,
+          parseFloat(item.valor_total||0), item.notes||''
+        ]);
+        styleDataRow(ws5, row, expRowAlt);
+        expRowAlt=!expRowAlt;
+        row.getCell(3).alignment=cen; row.getCell(6).alignment=cen; row.getCell(7).alignment=cen; row.getCell(8).alignment=cen;
+        row.getCell(4).numFmt=cur; row.getCell(4).alignment=rgt;
+        row.getCell(5).numFmt=cur; row.getCell(5).alignment=rgt;
+        row.getCell(9).numFmt=cur; row.getCell(9).alignment=rgt; row.getCell(9).font=colFont(C.navy,true);
+      });
+      // Category subtotal
+      const catSub = expenses.filter(e=>(e.category||'otros')===cat).reduce((s,e)=>s+parseFloat(e.valor_total||0),0);
+      const subRow = ws5.addRow(['',`Subtotal ${EXP_CAT_LABEL[cat]||cat}`,'','','','','','',catSub,'']);
+      subRow.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.redL);c.font=colFont(C.red,true);c.border=thin(C.red);});
+      subRow.getCell(9).numFmt=cur; subRow.getCell(9).alignment=rgt;
+      subRow.height=16;
+    }
+    if (expenses.length===0) {
+      const er=ws5.addRow(['Sin gastos registrados','','','','','','','','','']); er.eachCell(c=>{c.fill=hdr(C.gray5);c.font=colFont(C.gray3);});
+    }
+    const expTot = ws5.addRow(['','TOTAL GASTOS OPERATIVOS','','','','','','',totalExpenses,'']);
+    expTot.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.red);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+    expTot.getCell(9).numFmt=cur; expTot.getCell(9).alignment=rgt;
+    expTot.height=20;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 6 — MENSUAL (month-by-month breakdown)
+    // ════════════════════════════════════════════════════════════
+    const ws6 = wb.addWorksheet('Mensual', { properties:{ tabColor:{ argb:C.teal.slice(2) } } });
+    ws6.columns = [{width:8},{width:20},{width:20},{width:20},{width:20},{width:20},{width:20}];
+    addBanner(ws6, 'FLUJO MENSUAL DE COSTOS', 7, C.teal);
+
+    const monHdrs = ['Mes','Ingresos (c/IVA)','Nómina','Honorarios','Gastos Oper.','Total Egresos','Resultado Mes'];
+    const monHdrRow = ws6.addRow(monHdrs);
+    styleHeaderRow(ws6, monHdrRow.number, C.teal);
+    ws6.views = [{ state:'frozen', ySplit:4 }];
+
+    let cumIncome=0, cumPayroll=0, cumContractors=0, cumExpenses=0;
+    monthly.forEach((m,i)=>{
+      const resultado = m.income - m.total;
+      cumIncome+=m.income; cumPayroll+=m.payroll; cumContractors+=m.contractors; cumExpenses+=m.expenses;
+      const row = ws6.addRow([ m.month, m.income, m.payroll, m.contractors, m.expenses, m.total, resultado ]);
+      styleDataRow(ws6, row, i%2===1);
+      row.getCell(1).alignment=cen; row.getCell(1).font=colFont(C.gray2,true);
+      for (let col=2; col<=7; col++) { row.getCell(col).numFmt=cur; row.getCell(col).alignment=rgt; }
+      // Color resultado cell
+      row.getCell(7).fill=hdr(resultado>=0?C.greenL:C.redL);
+      row.getCell(7).font=colFont(resultado>=0?C.green:C.red, true);
+    });
+
+    const monTot = ws6.addRow(['TOTAL', cumIncome, cumPayroll, cumContractors, cumExpenses, cumPayroll+cumContractors+cumExpenses, cumIncome-(cumPayroll+cumContractors+cumExpenses)]);
+    monTot.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.teal);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+    monTot.getCell(1).alignment=cen;
+    for (let col=2; col<=7; col++) { monTot.getCell(col).numFmt=cur; monTot.getCell(col).alignment=rgt; }
+    monTot.height=20;
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 7 — CUENTAS PUC (if configured)
+    // ════════════════════════════════════════════════════════════
+    if (pucAccounts.length > 0) {
+      const ws7 = wb.addWorksheet('Cuentas PUC', { properties:{ tabColor:{ argb:C.purple.slice(2) } } });
+      ws7.columns = [{width:12},{width:40},{width:16},{width:12}];
+      addBanner(ws7, 'PLAN ÚNICO DE CUENTAS (PUC)', 4, C.purple);
+
+      const pucHdrs = ['Cuenta','Nombre','Valor','¿Subtotal?'];
+      const pucHdrRow = ws7.addRow(pucHdrs);
+      styleHeaderRow(ws7, pucHdrRow.number, C.purple);
+      ws7.views = [{ state:'frozen', ySplit:4 }];
+
+      pucAccounts.forEach((a,i) => {
+        const isHeader = a.es_subtotal || a.cuenta==='4' || a.cuenta==='5';
+        const indent = '  '.repeat(a.nivel||0);
+        const row = ws7.addRow([a.cuenta, indent+a.nombre, parseFloat(a.valor||0), isHeader?'Sí':'No']);
+        if (isHeader) {
+          row.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.purpleL);c.font=colFont(C.purple,true);c.border=thin(C.purple);});
+        } else {
+          styleDataRow(ws7, row, i%2===1);
+        }
+        row.getCell(1).alignment=cen; row.getCell(4).alignment=cen;
+        row.getCell(3).numFmt=cur; row.getCell(3).alignment=rgt;
+      });
+
+      const pucGastos = pucAccounts.filter(a=>a.cuenta.startsWith('5')&&!a.es_subtotal).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+      const pucTot = ws7.addRow(['','TOTAL GASTOS PUC',pucGastos,'']);
+      pucTot.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.purple);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+      pucTot.getCell(3).numFmt=cur; pucTot.getCell(3).alignment=rgt;
+      pucTot.height=20;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // SHEET 8 — ESTADO DE RESULTADOS
+    // ════════════════════════════════════════════════════════════
+    const wsER = wb.addWorksheet('Estado de Resultados', { properties:{ tabColor:{ argb:C.navy.slice(2) } } });
+    wsER.columns = [{width:8},{width:40},{width:22},{width:12}];
+    addBanner(wsER, 'ESTADO DE RESULTADOS DEL PROYECTO', 4, C.navyM);
+
+    const erHdrs = ['Código','Concepto','Valor','% s/Ingresos'];
+    const erHdrRow = wsER.addRow(erHdrs);
+    styleHeaderRow(wsER, erHdrRow.number, C.navy);
+    wsER.views = [{ state:'frozen', ySplit:4 }];
+
+    function erRow(code, label, value, bold, bg, tc, isResult=false) {
+      const row = wsER.addRow([code, label, value, totalIncome>0?value/totalIncome:0]);
+      row.getCell(1).alignment=cen; row.getCell(4).numFmt=pct0; row.getCell(4).alignment=cen;
+      row.getCell(3).numFmt=cur; row.getCell(3).alignment=rgt;
+      if (bg) row.eachCell({includeEmpty:true},c=>{c.fill=hdr(bg);});
+      row.getCell(1).font=colFont(tc||C.gray2,bold,9);
+      row.getCell(2).font=colFont(tc||C.gray2,bold,9);
+      row.getCell(3).font=colFont(tc||C.gray2,bold,9);
+      row.getCell(4).font=colFont(tc||C.gray2,bold,9);
+      row.eachCell({includeEmpty:true},c=>c.border=thin(C.gray4));
+      row.height=18;
+      return row;
+    }
+
+    // Ingresos section
+    erRow('4','INGRESOS',totalIncome,true,C.navyL,C.navy);
+    erRow('4.1',`  Sin IVA (Valor del contrato)`,totalIncomeSinIva,false,C.gray5,C.gray2);
+    erRow('4.2',`  IVA (19%)`,totalIvaIncome,false,C.gray5,C.gray2);
+    wsER.addRow([]).height=6;
+
+    // Gastos section
+    erRow('5','GASTOS',totalEgr,true,C.navyL,C.navy);
+    erRow('5.1','  Nómina',totalPayroll,false,C.blueL,C.blue);
+    erRow('5.2','  Honorarios / Contratistas',totalContractors,false,C.orangeL,C.orange);
+    erRow('5.3','  Gastos Operativos',totalExpenses,false,C.redL,C.red);
+    // PUC sub-accounts (5xxx only, not subtotals)
+    const pucGastos5 = pucAccounts.filter(a=>a.cuenta.startsWith('5')&&!a.es_subtotal);
+    if (pucGastos5.length>0) {
+      for (const a of pucGastos5) {
+        if (parseFloat(a.valor||0)>0) erRow(a.cuenta,'  '+a.nombre,parseFloat(a.valor||0),false,C.purpleL,C.purple);
+      }
+    }
+    wsER.addRow([]).height=6;
 
     // Ganancia Contable
-    wsER.addRow([]);
-    const gc = totalConIva - totalGastos;
-    const rGC = wsER.addRow(['UC', 'GANANCIA CONTABLE (4-5)', gc]);
-    rGC.font = gc >= 0 ? greenFont : redFont; rGC.getCell(3).numFmt = currencyFmt; rGC.eachCell(c => { c.fill = resultFill; });
+    const gcRow = erRow('GC','GANANCIA CONTABLE  (Ingresos − Gastos)',gananciaContable,true,gananciaContable>=0?C.greenL:C.redL,gananciaContable>=0?C.green:C.red,true);
+    wsER.addRow([]).height=6;
 
     // Deductions
-    const retDed = deductions.filter(d => d.tipo === 'retencion');
-    const afDed = deductions.filter(d => d.tipo === 'activo_fijo');
-    const gncDed = deductions.filter(d => d.tipo === 'gnc');
-    const retTotal = retDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
-    const afTotal = afDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
-    const gncTotal = gncDed.reduce((s,d) => s + parseFloat(d.valor||0), 0);
+    erRow('','DEDUCCIONES',0,true,C.navyL,C.navy);
+    for (const d of deductions.filter(d=>d.tipo==='retencion')) {
+      erRow('R',`  ${d.nombre}`,parseFloat(d.valor||0),false,C.gray5,C.gray2);
+    }
+    for (const d of deductions.filter(d=>d.tipo==='activo_fijo')) {
+      erRow('AF',`  ${d.nombre}`,parseFloat(d.valor||0),false,C.gray5,C.gray2);
+    }
+    wsER.addRow([]).height=6;
 
-    for (const d of retDed) { const r = wsER.addRow(['R', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
-    for (const d of afDed) { const r = wsER.addRow(['AF', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    erRow('GD','GANANCIA DISTRIBUIBLE  (GC − Retenciones − Activos Fijos)',gananciaDistribuible,true,gananciaDistribuible>=0?C.greenL:C.redL,gananciaDistribuible>=0?C.green:C.red,true);
+    wsER.addRow([]).height=6;
 
-    const gd = gc - retTotal - afTotal;
-    wsER.addRow([]);
-    const rGD = wsER.addRow(['UD', 'GANANCIA DISTRIBUIBLE (4-5-R-AF)', gd]);
-    rGD.font = gd >= 0 ? greenFont : redFont; rGD.getCell(3).numFmt = currencyFmt; rGD.eachCell(c => { c.fill = resultFill; });
+    for (const d of deductions.filter(d=>d.tipo==='gnc')) {
+      erRow('GNC',`  ${d.nombre}`,parseFloat(d.valor||0),false,C.gray5,C.gray2);
+    }
+    wsER.addRow([]).height=6;
 
-    for (const d of gncDed) { const r = wsER.addRow(['GNC', d.nombre, parseFloat(d.valor||0)]); r.getCell(3).numFmt = currencyFmt; r.font = bodyFont; }
+    const grRow = erRow('GR','GANANCIA REAL  (GD − GNC)',gananciaReal,true,gananciaReal>=0?C.green:C.red,C.white,true);
+    grRow.height=22;
 
-    const gr = gd - gncTotal;
-    const rGR = wsER.addRow(['UR', 'GANANCIA REAL (4-5-GNC)', gr]);
-    rGR.font = gr >= 0 ? greenFont : redFont; rGR.getCell(3).numFmt = currencyFmt; rGR.eachCell(c => { c.fill = { type:'pattern',pattern:'solid',fgColor:{argb:'FF00FF00'} }; });
+    // Summary margins at bottom
+    wsER.addRow([]).height=10;
+    const mrgRow = wsER.addRow(['','MÁRGENES','Valor','% s/Ingresos']);
+    mrgRow.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.navyM);c.font=HF(C.navyM);c.alignment=cen;c.border=thin(C.white);});
+    mrgRow.height=18;
+    [['Margen Bruto',gananciaContable,totalIncome>0?gananciaContable/totalIncome:0],
+     ['Margen Distribuible',gananciaDistribuible,totalIncome>0?gananciaDistribuible/totalIncome:0],
+     ['Margen Real',gananciaReal,totalIncome>0?gananciaReal/totalIncome:0]]
+    .forEach(([lbl,val,pv],i) => {
+      const mRow = wsER.addRow(['',lbl,val,pv]);
+      const bg=val>=0?C.greenL:C.redL; const tc=val>=0?C.green:C.red;
+      mRow.eachCell({includeEmpty:true},c=>{c.fill=hdr(bg);c.font=colFont(tc,true);c.border=thin(C.gray4);});
+      mRow.getCell(3).numFmt=cur; mRow.getCell(3).alignment=rgt;
+      mRow.getCell(4).numFmt=pct0; mRow.getCell(4).alignment=cen;
+      mRow.height=20;
+    });
 
-    // Percentages
-    wsER.addRow([]);
-    wsER.addRow(['', 'GANANCIA CONTABLE (4-5)', totalConIva > 0 ? `${(gc/totalConIva*100).toFixed(2)}%` : '0%']);
-    wsER.addRow(['', 'GANANCIA DISTRIBUIBLE (4-5-R-AF)', totalConIva > 0 ? `${(gd/totalConIva*100).toFixed(2)}%` : '0%']);
-    wsER.addRow(['', 'GANANCIA REAL (4-5-GNC)', totalConIva > 0 ? `${(gr/totalConIva*100).toFixed(2)}%` : '0%']);
+    // ════════════════════════════════════════════════════════════
+    // SHEET 9 — PAGOS (optional)
+    // ════════════════════════════════════════════════════════════
+    if (payments.length > 0) {
+      const ws9 = wb.addWorksheet('Pagos', { properties:{ tabColor:{ argb:C.purple.slice(2) } } });
+      ws9.columns = [{width:9},{width:15},{width:38},{width:20},{width:22},{width:16}];
+      addBanner(ws9, 'HISTORIAL DE PAGOS', 6, C.purple);
+
+      const payHdrs = ['# Pago','Fecha','Concepto','Monto','Factura','Estado'];
+      const payHdrRow = ws9.addRow(payHdrs);
+      styleHeaderRow(ws9, payHdrRow.number, C.purple);
+      ws9.views = [{ state:'frozen', ySplit:4 }];
+
+      let totalPaid = 0;
+      payments.forEach((pay,i) => {
+        const amt = parseFloat(pay.amount||0);
+        totalPaid += amt;
+        const row = ws9.addRow([
+          pay.payment_number||i+1,
+          pay.payment_date ? new Date(pay.payment_date).toLocaleDateString('es-CO') : '',
+          pay.concept||'', amt, pay.invoice_number||'', pay.status||''
+        ]);
+        styleDataRow(ws9, row, i%2===1);
+        row.getCell(1).alignment=cen; row.getCell(2).alignment=cen; row.getCell(6).alignment=cen;
+        row.getCell(4).numFmt=cur; row.getCell(4).alignment=rgt;
+      });
+      const payTot2 = ws9.addRow(['','','TOTAL RECIBIDO',totalPaid,'','']);
+      payTot2.eachCell({includeEmpty:true},c=>{c.fill=hdr(C.purple);c.font={bold:true,color:{argb:C.white},size:9,name:'Calibri'};c.border=thin(C.white);});
+      payTot2.getCell(4).numFmt=cur; payTot2.getCell(4).alignment=rgt;
+      payTot2.height=20;
+    }
 
     const buffer = await wb.xlsx.writeBuffer();
     const filename = `Presupuesto_${p.code || 'proyecto'}.xlsx`;

@@ -760,6 +760,55 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
     const gananciaDistribuible = gananciaContable - retenciones - activosFijos;
     const gananciaReal = gananciaDistribuible - gnc;
 
+    // ── EJECUCIÓN REAL ──────────────────────────────────────────────────────────
+    // Ingresos reales: pagos cobrados (payments tabla)
+    let pagosCobrados = 0, pagosFacturados = 0, pagosPendientes = 0;
+    try {
+      const [pays] = await pool.execute(
+        `SELECT status, COALESCE(SUM(gross_value),0) as gross FROM payments WHERE project_id=? GROUP BY status`, [pid]);
+      pays.forEach(p => {
+        if (p.status === 'pagado') pagosCobrados += parseFloat(p.gross);
+        pagosFacturados += parseFloat(p.gross);
+      });
+      pagosPendientes = pagosFacturados - pagosCobrados;
+    } catch {}
+
+    // Egresos reales: budget_tracking (solo entradas válidas)
+    let egresosEjecutados = 0;
+    try {
+      const [bt] = await pool.execute(`
+        SELECT COALESCE(SUM(bt.valor_ejecutado),0) as total
+        FROM budget_tracking bt
+        WHERE bt.project_id = ? AND (
+          (bt.fuente = 'payroll'      AND EXISTS (SELECT 1 FROM budget_payroll bp      WHERE bp.id = bt.item_id AND bp.project_id = bt.project_id))
+          OR (bt.fuente = 'contractors' AND EXISTS (SELECT 1 FROM budget_contractors bc WHERE bc.id = bt.item_id AND bc.project_id = bt.project_id))
+          OR (bt.fuente = 'expenses'    AND EXISTS (SELECT 1 FROM budget_expenses be   WHERE be.id = bt.item_id AND be.project_id = bt.project_id))
+          OR bt.fuente = 'extra'
+        )`, [pid]);
+      egresosEjecutados = parseFloat(bt[0].total || 0);
+    } catch {}
+
+    // Breakdown egresos por fuente
+    let ejecByFuente = { payroll: 0, contractors: 0, expenses: 0, extra: 0 };
+    try {
+      const [bf] = await pool.execute(`
+        SELECT bt.fuente, COALESCE(SUM(bt.valor_ejecutado),0) as total
+        FROM budget_tracking bt
+        WHERE bt.project_id = ? AND (
+          (bt.fuente = 'payroll'      AND EXISTS (SELECT 1 FROM budget_payroll bp      WHERE bp.id = bt.item_id AND bp.project_id = bt.project_id))
+          OR (bt.fuente = 'contractors' AND EXISTS (SELECT 1 FROM budget_contractors bc WHERE bc.id = bt.item_id AND bc.project_id = bt.project_id))
+          OR (bt.fuente = 'expenses'    AND EXISTS (SELECT 1 FROM budget_expenses be   WHERE be.id = bt.item_id AND be.project_id = bt.project_id))
+          OR bt.fuente = 'extra'
+        )
+        GROUP BY bt.fuente`, [pid]);
+      bf.forEach(r => { ejecByFuente[r.fuente] = parseFloat(r.total || 0); });
+    } catch {}
+
+    // Si no hay pagos registrados, usar ingresos del schedule como referencia
+    const ingresosRealesRef = pagosFacturados > 0 ? pagosFacturados : totalConIva;
+    const gananciaEjecucion = ingresosRealesRef - egresosEjecutados;
+    const margenEjecucion   = ingresosRealesRef > 0 ? (gananciaEjecucion / ingresosRealesRef * 100) : 0;
+
     res.json({ data: {
       ingresos_sin_iva: ingresosSinIva, iva: ivaTotal, total_con_iva: totalConIva, income_rows: incomeRows,
       income_schedule: incomeSchedule, sched_sin_iva: schedSinIva, sched_iva: schedIva, sched_con_iva: schedConIva,
@@ -770,6 +819,21 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
       ganancia_contable: gananciaContable, ganancia_contable_pct: totalConIva > 0 ? gananciaContable/totalConIva*100 : 0,
       ganancia_distribuible: gananciaDistribuible, ganancia_distribuible_pct: totalConIva > 0 ? gananciaDistribuible/totalConIva*100 : 0,
       ganancia_real: gananciaReal, ganancia_real_pct: totalConIva > 0 ? gananciaReal/totalConIva*100 : 0,
+      // Ejecución real
+      ejecucion: {
+        ingresos_cobrados:   pagosCobrados,
+        ingresos_facturados: pagosFacturados,
+        ingresos_pendientes: pagosPendientes,
+        tiene_pagos:         pagosFacturados > 0,
+        egresos_ejecutados:  egresosEjecutados,
+        egresos_by_fuente:   ejecByFuente,
+        ganancia_ejecucion:  gananciaEjecucion,
+        margen_ejecucion:    margenEjecucion,
+        // Comparación vs presupuesto
+        desviacion_ingresos: ingresosRealesRef - totalConIva,
+        desviacion_egresos:  egresosEjecutados - totalGastos,
+        desviacion_ganancia: gananciaEjecucion - gananciaContable,
+      },
     }});
   } catch (err) { console.error('Financial summary:', err); res.status(500).json({ error: err.message }); }
 });

@@ -936,115 +936,280 @@ export default function BudgetPanel({ projectId, perms = {} }) {
 // ═══════════════════════════════════════════
 // FINANCIAL SUMMARY TAB (Estado de Resultados)
 // ═══════════════════════════════════════════
+function DesvBadge({ val }) {
+  if (val === 0) return <span className="text-xs text-surface-400">—</span>;
+  const pos = val > 0;
+  return (
+    <span className={`text-xs font-semibold ${pos ? 'text-emerald-600' : 'text-red-600'}`}>
+      {pos ? '▲' : '▼'} {fm(Math.abs(val))}
+    </span>
+  );
+}
+
 function FinancialSummaryTab({ projectId, perms }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('presupuesto'); // 'presupuesto' | 'real' | 'comparacion'
   useEffect(() => { (async () => { try { const r = await budgetAPI.financialSummary(projectId); setData(r.data.data); } catch (e) { console.error(e); } finally { setLoading(false); } })(); }, [projectId]);
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-brand-500"/></div>;
   if (!data) return <p className="text-sm text-surface-400 text-center py-8">No hay datos. Inicialice el presupuesto primero.</p>;
   const d = data;
+  const ej = d.ejecucion || {};
+  const tieneEjecucion = (ej.egresos_ejecutados || 0) > 0;
+
   return (
     <div className="space-y-4">
+      {/* Header + toggle */}
       <div className="bg-brand-50 rounded-xl p-4 border border-brand-100">
-        <h3 className="font-display font-bold text-brand-900 text-sm mb-1">Estado de Resultados del Proyecto</h3>
-        <p className="text-xs text-brand-600">Cálculo automático basado en ingresos, cuentas PUC, nómina, contratistas, gastos y deducciones</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-display font-bold text-brand-900 text-sm mb-0.5">Estado de Resultados del Proyecto</h3>
+            <p className="text-xs text-brand-600">Cálculo automático basado en ingresos, cuentas PUC, nómina, contratistas, gastos y deducciones</p>
+          </div>
+          <div className="flex rounded-lg border border-brand-200 overflow-hidden text-xs font-semibold">
+            {[['presupuesto','Presupuestado'],['real','Real Ejecutado'],['comparacion','Comparación']].map(([id,label])=>(
+              <button key={id} onClick={()=>setView(id)}
+                className={`px-3 py-1.5 transition-colors ${view===id ? 'bg-brand-600 text-white' : 'text-brand-700 hover:bg-brand-100'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="bg-white rounded-xl border border-surface-100 overflow-hidden text-sm">
-        {/* INGRESOS */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 font-bold">
-          <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS</span></div>
-          <span className="text-emerald-800 font-display">{fm(d.total_con_iva)}</span>
-        </div>
-        <div className="flex items-center justify-between px-4 py-1.5 bg-emerald-50/50 border-b font-medium">
-          <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-12">41</span><span className="text-surface-700">Operacionales</span></div>
-          <span className="text-surface-700">{fm(d.total_con_iva)}</span>
-        </div>
-        {d.income_rows?.filter(r => r.tipo === 'ingreso' && !r.es_iva && !r.es_total_con_iva).map(r => (
-          <div key={r.id} className="flex items-center justify-between px-4 py-1 pl-12 text-xs border-b border-surface-50">
-            <span className="text-surface-500">{r.label}</span><span className="text-surface-600">{fm(r.value)}</span>
-          </div>
-        ))}
-        {d.income_rows?.filter(r => r.es_iva).map(r => (
-          <div key={r.id} className="flex items-center justify-between px-4 py-1 pl-12 text-xs border-b border-surface-50">
-            <span className="text-surface-500">{r.label}</span><span className="text-surface-600">{fm(r.value)}</span>
-          </div>
-        ))}
-        <div className="h-2 bg-surface-50"></div>
-        {/* GASTOS */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border-b border-red-200 font-bold">
-          <div className="flex items-center gap-3"><span className="text-xs font-mono text-red-600 w-12">5</span><span className="text-red-800">GASTOS</span></div>
-          <span className="text-red-800 font-display">{fm(d.total_gastos)}</span>
-        </div>
-        {/* 5105 Gastos de personal (subtotal header) */}
-        <div className="flex items-center justify-between px-4 py-1.5 bg-surface-50 font-medium border-b">
-          <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-14">5105</span><span className="text-surface-700">Gastos de personal</span></div>
-          <span className="text-surface-700">{fm((d.total_payroll||0)+(d.total_contractors||0))}</span>
-        </div>
-        {d.total_payroll > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Nómina</span><span className="text-surface-700 font-medium">{fm(d.total_payroll)}</span></div>}
-        {d.total_contractors > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Contratistas / Honorarios</span><span className="text-surface-700 font-medium">{fm(d.total_contractors)}</span></div>}
-        {/* PUC accounts with values */}
-        {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) > 0).map(a => (
-          <div key={a.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 pl-8">
-            <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-14">{a.cuenta}</span><span className="text-surface-600 text-xs">{a.nombre}</span></div>
-            <span className="text-surface-700 text-xs">{fm(a.valor)}</span>
-          </div>
-        ))}
-        {d.total_expenses > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-8 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos operativos</span><span className="text-surface-700 font-medium">{fm(d.total_expenses)}</span></div>}
-        {/* PUC with 0 - collapsed */}
-        {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).length > 0 && (
-          <details className="border-b border-surface-50">
-            <summary className="px-4 py-1 pl-8 text-[10px] text-surface-300 cursor-pointer hover:text-surface-500">
-              Cuentas PUC sin valor ({d.puc_accounts.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).length})
-            </summary>
-            {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).map(a => (
-              <div key={a.id} className="flex items-center justify-between px-4 py-1 pl-12 text-xs text-surface-300">
-                <span>{a.cuenta} — {a.nombre}</span><span>-</span>
+      {/* ── VISTA: PRESUPUESTADO ─────────────────────────────── */}
+      {view === 'presupuesto' && (
+        <>
+          <div className="bg-white rounded-xl border border-surface-100 overflow-hidden text-sm">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 font-bold">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS</span></div>
+              <span className="text-emerald-800 font-display">{fm(d.total_con_iva)}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-1.5 bg-emerald-50/50 border-b font-medium">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-12">41</span><span className="text-surface-700">Operacionales</span></div>
+              <span className="text-surface-700">{fm(d.total_con_iva)}</span>
+            </div>
+            {d.income_rows?.filter(r => r.tipo === 'ingreso' && !r.es_iva && !r.es_total_con_iva).map(r => (
+              <div key={r.id} className="flex items-center justify-between px-4 py-1 pl-12 text-xs border-b border-surface-50">
+                <span className="text-surface-500">{r.label}</span><span className="text-surface-600">{fm(r.value)}</span>
               </div>
             ))}
-          </details>
-        )}
-        <div className="h-2 bg-surface-50"></div>
-        {/* GANANCIA CONTABLE */}
-        <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_contable >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
-          <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UC</span><span>GANANCIA CONTABLE (4-5)</span></div>
-          <span className={`font-display text-lg ${d.ganancia_contable >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_contable)}</span>
+            <div className="h-2 bg-surface-50"/>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border-b border-red-200 font-bold">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-red-600 w-12">5</span><span className="text-red-800">GASTOS</span></div>
+              <span className="text-red-800 font-display">{fm(d.total_gastos)}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-1.5 bg-surface-50 font-medium border-b">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-14">5105</span><span className="text-surface-700">Gastos de personal</span></div>
+              <span className="text-surface-700">{fm((d.total_payroll||0)+(d.total_contractors||0))}</span>
+            </div>
+            {d.total_payroll > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Nómina</span><span className="text-surface-700 font-medium">{fm(d.total_payroll)}</span></div>}
+            {d.total_contractors > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Contratistas / Honorarios</span><span className="text-surface-700 font-medium">{fm(d.total_contractors)}</span></div>}
+            {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) > 0).map(a => (
+              <div key={a.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 pl-8">
+                <div className="flex items-center gap-3"><span className="text-xs font-mono text-surface-400 w-14">{a.cuenta}</span><span className="text-surface-600 text-xs">{a.nombre}</span></div>
+                <span className="text-surface-700 text-xs">{fm(a.valor)}</span>
+              </div>
+            ))}
+            {d.total_expenses > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-8 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos operativos</span><span className="text-surface-700 font-medium">{fm(d.total_expenses)}</span></div>}
+            {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).length > 0 && (
+              <details className="border-b border-surface-50">
+                <summary className="px-4 py-1 pl-8 text-[10px] text-surface-300 cursor-pointer hover:text-surface-500">Cuentas PUC sin valor ({d.puc_accounts.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).length})</summary>
+                {d.puc_accounts?.filter(a => a.cuenta.startsWith('5') && a.cuenta !== '5' && a.cuenta !== '5105' && parseFloat(a.valor||0) === 0).map(a => (
+                  <div key={a.id} className="flex items-center justify-between px-4 py-1 pl-12 text-xs text-surface-300"><span>{a.cuenta} — {a.nombre}</span><span>-</span></div>
+                ))}
+              </details>
+            )}
+            <div className="h-2 bg-surface-50"/>
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_contable >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UC</span><span>GANANCIA CONTABLE (4-5)</span></div>
+              <span className={`font-display text-lg ${d.ganancia_contable >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_contable)}</span>
+            </div>
+            {d.deductions?.filter(x => x.tipo === 'retencion').map(x => (
+              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">R</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
+            ))}
+            {d.deductions?.filter(x => x.tipo === 'activo_fijo').map(x => (
+              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">AF</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
+            ))}
+            <div className="h-1 bg-surface-50"/>
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_distribuible >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UD</span><span>GANANCIA DISTRIBUIBLE (4-5-R-AF)</span></div>
+              <span className={`font-display text-lg ${d.ganancia_distribuible >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_distribuible)}</span>
+            </div>
+            {d.deductions?.filter(x => x.tipo === 'gnc').map(x => (
+              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">GNC</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
+            ))}
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_real >= 0 ? 'bg-green-100 border-y-2 border-green-400' : 'bg-red-100 border-y-2 border-red-400'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UR</span><span>GANANCIA REAL (4-5-GNC)</span></div>
+              <span className={`font-display text-lg ${d.ganancia_real >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_real)}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[['Ganancia Contable', d.ganancia_contable_pct],['Ganancia Distribuible', d.ganancia_distribuible_pct],['Ganancia Real', d.ganancia_real_pct]].map(([label, pct])=>(
+              <div key={label} className={`p-3 rounded-lg border text-center ${pct >= 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
+                <p className="text-[10px] font-semibold text-surface-500 uppercase">{label}</p>
+                <p className={`text-xl font-display font-bold ${pct >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{(pct||0).toFixed(2)}%</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── VISTA: REAL EJECUTADO ────────────────────────────── */}
+      {view === 'real' && (
+        <>
+          {!tieneEjecucion && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              ⚠️ Aún no hay datos de ejecución registrados en el seguimiento presupuestal. Los valores mostrados corresponden al presupuesto planeado.
+            </div>
+          )}
+          <div className="bg-white rounded-xl border border-surface-100 overflow-hidden text-sm">
+            {/* INGRESOS REALES */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 font-bold">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS REALES</span></div>
+              <span className="text-emerald-800 font-display">{fm(ej.tiene_pagos ? ej.ingresos_facturados : d.total_con_iva)}</span>
+            </div>
+            {ej.tiene_pagos ? (
+              <>
+                <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
+                  <span className="text-surface-600 font-medium">✅ Cobrado (pagado)</span>
+                  <span className="text-emerald-700 font-semibold">{fm(ej.ingresos_cobrados)}</span>
+                </div>
+                {ej.ingresos_pendientes > 0 && (
+                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
+                    <span className="text-surface-600">⏳ Facturado pendiente de cobro</span>
+                    <span className="text-amber-700 font-semibold">{fm(ej.ingresos_pendientes)}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="px-4 py-2 pl-12 text-xs text-surface-400 border-b">Sin pagos registrados — usando ingresos presupuestados como referencia</div>
+            )}
+            <div className="h-2 bg-surface-50"/>
+            {/* EGRESOS REALES */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border-b border-red-200 font-bold">
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-red-600 w-12">5</span><span className="text-red-800">EGRESOS EJECUTADOS</span></div>
+              <span className="text-red-800 font-display">{fm(ej.egresos_ejecutados)}</span>
+            </div>
+            {ej.egresos_by_fuente?.payroll > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Nómina ejecutada</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.payroll)}</span></div>
+            )}
+            {ej.egresos_by_fuente?.contractors > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Honorarios ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.contractors)}</span></div>
+            )}
+            {ej.egresos_by_fuente?.expenses > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos operativos ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.expenses)}</span></div>
+            )}
+            {ej.egresos_by_fuente?.extra > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos adicionales (extra)</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.extra)}</span></div>
+            )}
+            <div className="h-2 bg-surface-50"/>
+            {/* RESULTADO REAL */}
+            <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono w-12">RE</span>
+                <div>
+                  <div>RESULTADO REAL DE EJECUCIÓN</div>
+                  <div className="text-[10px] font-normal text-surface-500">Ingresos reales − Egresos ejecutados</div>
+                </div>
+              </div>
+              <span className={`font-display text-xl ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className={`p-4 rounded-xl border text-center ${ej.margen_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-500 uppercase mb-1">Margen Real de Ejecución</p>
+              <p className={`text-3xl font-display font-bold ${ej.margen_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{(ej.margen_ejecucion||0).toFixed(1)}%</p>
+            </div>
+            <div className={`p-4 rounded-xl border text-center ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-500 uppercase mb-1">Ganancia / Pérdida Real</p>
+              <p className={`text-xl font-display font-bold ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</p>
+              <p className="text-[10px] text-surface-400 mt-1">{ej.ganancia_ejecucion >= 0 ? 'Proyecto generó ganancia' : 'Proyecto generó pérdida'}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── VISTA: COMPARACIÓN ──────────────────────────────── */}
+      {view === 'comparacion' && (
+        <div className="space-y-3">
+          {!tieneEjecucion && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              ⚠️ Sin datos de ejecución registrados. Registre valores en el seguimiento presupuestal para ver la comparación real.
+            </div>
+          )}
+          <div className="bg-white rounded-xl border border-surface-100 overflow-hidden">
+            {/* Header tabla */}
+            <div className="grid grid-cols-4 gap-0 text-[10px] font-bold uppercase text-surface-500 border-b bg-surface-50">
+              <div className="px-4 py-2.5">Concepto</div>
+              <div className="px-4 py-2.5 text-right">Presupuestado</div>
+              <div className="px-4 py-2.5 text-right">Real Ejecutado</div>
+              <div className="px-4 py-2.5 text-right">Desviación</div>
+            </div>
+            {/* Ingresos */}
+            {[
+              { label:'INGRESOS', pres: d.total_con_iva, real: ej.tiene_pagos ? ej.ingresos_facturados : d.total_con_iva, bold:true, green:true },
+              { label:'  Cobrado', pres: d.total_con_iva, real: ej.ingresos_cobrados||0, indent:true },
+            ].map((row, i) => {
+              const desv = (row.real||0) - (row.pres||0);
+              return (
+                <div key={i} className={`grid grid-cols-4 gap-0 border-b text-sm ${row.bold ? 'font-bold bg-emerald-50' : 'text-surface-700'}`}>
+                  <div className={`px-4 py-2 ${row.indent ? 'pl-10 text-xs text-surface-500' : 'text-emerald-800'}`}>{row.label}</div>
+                  <div className="px-4 py-2 text-right">{fm(row.pres)}</div>
+                  <div className={`px-4 py-2 text-right ${row.bold ? 'text-emerald-700' : ''}`}>{fm(row.real)}</div>
+                  <div className="px-4 py-2 text-right"><DesvBadge val={desv}/></div>
+                </div>
+              );
+            })}
+            {/* Egresos */}
+            {[
+              { label:'EGRESOS TOTALES', pres: d.total_gastos, real: ej.egresos_ejecutados||0, bold:true, red:true },
+              { label:'  Nómina', pres: d.total_payroll||0, real: ej.egresos_by_fuente?.payroll||0, indent:true },
+              { label:'  Honorarios', pres: d.total_contractors||0, real: ej.egresos_by_fuente?.contractors||0, indent:true },
+              { label:'  Gastos Operativos', pres: d.total_expenses||0, real: ej.egresos_by_fuente?.expenses||0, indent:true },
+              ...(ej.egresos_by_fuente?.extra > 0 ? [{ label:'  Gastos adicionales', pres: 0, real: ej.egresos_by_fuente.extra||0, indent:true }] : []),
+            ].map((row, i) => {
+              // For egresos, positive deviation means over-spent (bad) → invert sign for color
+              const desv = (row.real||0) - (row.pres||0);
+              return (
+                <div key={i} className={`grid grid-cols-4 gap-0 border-b text-sm ${row.bold ? 'font-bold bg-red-50' : 'text-surface-700'}`}>
+                  <div className={`px-4 py-2 ${row.indent ? 'pl-10 text-xs text-surface-500' : 'text-red-800'}`}>{row.label}</div>
+                  <div className="px-4 py-2 text-right">{fm(row.pres)}</div>
+                  <div className={`px-4 py-2 text-right ${row.bold ? 'text-red-700' : ''}`}>{fm(row.real)}</div>
+                  <div className="px-4 py-2 text-right"><DesvBadge val={-desv}/></div>
+                </div>
+              );
+            })}
+            {/* Resultado */}
+            {[
+              { label:'GANANCIA PRESUPUESTADA', val: d.ganancia_contable },
+              { label:'RESULTADO REAL EJECUCIÓN', val: ej.ganancia_ejecucion||0, highlight:true },
+              { label:'DIFERENCIA (Real − Presup.)', val: (ej.ganancia_ejecucion||0) - d.ganancia_contable, diff:true },
+            ].map((row, i) => (
+              <div key={i} className={`grid grid-cols-4 gap-0 border-b text-sm font-bold ${row.highlight ? (row.val>=0?'bg-emerald-100':'bg-red-100') : row.diff ? 'bg-blue-50' : 'bg-surface-50'}`}>
+                <div className="px-4 py-3 col-span-3">{row.label}</div>
+                <div className={`px-4 py-3 text-right text-base font-display ${row.val>=0?'text-emerald-700':'text-red-700'}`}>{fm(row.val)}</div>
+              </div>
+            ))}
+          </div>
+          {/* Resumen visual */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className={`p-3 rounded-xl border text-center ${d.ganancia_contable>=0?'bg-surface-50 border-surface-200':'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Presupuestado</p>
+              <p className={`text-xl font-display font-bold ${d.ganancia_contable>=0?'text-surface-700':'text-red-700'}`}>{d.ganancia_contable_pct?.toFixed(1)}%</p>
+            </div>
+            <div className={`p-3 rounded-xl border text-center ${ej.margen_ejecucion>=0?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Real</p>
+              <p className={`text-xl font-display font-bold ${ej.margen_ejecucion>=0?'text-emerald-700':'text-red-700'}`}>{(ej.margen_ejecucion||0).toFixed(1)}%</p>
+            </div>
+            <div className="p-3 rounded-xl border text-center bg-blue-50 border-blue-200">
+              <p className="text-[10px] font-semibold text-surface-400 uppercase">Diferencia Margen</p>
+              <p className={`text-xl font-display font-bold ${(ej.margen_ejecucion||0)-d.ganancia_contable_pct>=0?'text-emerald-700':'text-red-700'}`}>
+                {((ej.margen_ejecucion||0) - (d.ganancia_contable_pct||0)).toFixed(1)}pp
+              </p>
+            </div>
+          </div>
         </div>
-        {d.deductions?.filter(x => x.tipo === 'retencion').map(x => (
-          <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">R</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
-        ))}
-        {d.deductions?.filter(x => x.tipo === 'activo_fijo').map(x => (
-          <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">AF</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
-        ))}
-        <div className="h-1 bg-surface-50"></div>
-        {/* GANANCIA DISTRIBUIBLE */}
-        <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_distribuible >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
-          <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UD</span><span>GANANCIA DISTRIBUIBLE (4-5-R-AF)</span></div>
-          <span className={`font-display text-lg ${d.ganancia_distribuible >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_distribuible)}</span>
-        </div>
-        {d.deductions?.filter(x => x.tipo === 'gnc').map(x => (
-          <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">GNC</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
-        ))}
-        {/* GANANCIA REAL */}
-        <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_real >= 0 ? 'bg-green-100 border-y-2 border-green-400' : 'bg-red-100 border-y-2 border-red-400'}`}>
-          <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UR</span><span>GANANCIA REAL (4-5-GNC)</span></div>
-          <span className={`font-display text-lg ${d.ganancia_real >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_real)}</span>
-        </div>
-      </div>
-      {/* Percentage cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className={`p-3 rounded-lg border text-center ${d.ganancia_contable_pct >= 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
-          <p className="text-[10px] font-semibold text-surface-500 uppercase">Ganancia Contable</p>
-          <p className={`text-xl font-display font-bold ${d.ganancia_contable_pct >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{d.ganancia_contable_pct.toFixed(2)}%</p>
-        </div>
-        <div className={`p-3 rounded-lg border text-center ${d.ganancia_distribuible_pct >= 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
-          <p className="text-[10px] font-semibold text-surface-500 uppercase">Ganancia Distribuible</p>
-          <p className={`text-xl font-display font-bold ${d.ganancia_distribuible_pct >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{d.ganancia_distribuible_pct.toFixed(2)}%</p>
-        </div>
-        <div className={`p-3 rounded-lg border text-center ${d.ganancia_real_pct >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-          <p className="text-[10px] font-semibold text-surface-500 uppercase">Ganancia Real</p>
-          <p className={`text-xl font-display font-bold ${d.ganancia_real_pct >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{d.ganancia_real_pct.toFixed(2)}%</p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

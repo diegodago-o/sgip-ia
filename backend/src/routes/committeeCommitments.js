@@ -166,7 +166,7 @@ router.put('/:id', async (req, res) => {
     // Si marca como cumplido, registrar fecha
     const finalCompletedDate = status === 'cumplido'
       ? (completed_date || new Date().toISOString().split('T')[0])
-      : (status === 'pendiente' || status === 'en_progreso' ? null : completed_date);
+      : (status === 'pendiente' || status === 'en_progreso' ? null : (completed_date ?? null));
 
     await pool.execute(`
       UPDATE committee_commitments SET
@@ -181,8 +181,9 @@ router.put('/:id', async (req, res) => {
         committee_type = COALESCE(?, committee_type),
         updated_at     = NOW()
       WHERE id = ? AND project_id = ?
-    `, [description, responsible, due_date, status, priority, notes, evidence,
-        finalCompletedDate, committee_type, id, projectId]);
+    `, [description ?? null, responsible ?? null, due_date ?? null, status ?? null,
+        priority ?? null, notes ?? null, evidence ?? null,
+        finalCompletedDate, committee_type ?? null, id, projectId]);
 
     const [updated] = await pool.execute(
       'SELECT * FROM committee_commitments WHERE id = ?', [id]

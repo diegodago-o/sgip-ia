@@ -143,17 +143,22 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   const { projectId, id } = req.params;
-  const {
-    description,
-    responsible,
-    due_date,
-    status,
-    priority,
-    notes,
-    evidence,
-    completed_date,
-    committee_type,
-  } = req.body;
+
+  // Convert undefined/empty-string to null so mysql2 never receives undefined
+  const n = v => (v === undefined || v === '' || v === null) ? null : v;
+
+  const description    = n(req.body.description);
+  const responsible    = n(req.body.responsible);
+  const due_date       = n(req.body.due_date);
+  const status         = n(req.body.status);
+  const priority       = n(req.body.priority);
+  const notes          = n(req.body.notes);
+  const evidence       = n(req.body.evidence);
+  const completed_date = n(req.body.completed_date);
+  const committee_type = n(req.body.committee_type);
+
+  // Value to use when marking as cumplido
+  const completedDateValue = completed_date || new Date().toISOString().split('T')[0];
 
   try {
     // Verificar que el compromiso pertenece al proyecto
@@ -162,11 +167,6 @@ router.put('/:id', async (req, res) => {
       [id, projectId]
     );
     if (!existing.length) return res.status(404).json({ error: 'Compromiso no encontrado' });
-
-    // Si marca como cumplido, registrar fecha
-    const finalCompletedDate = status === 'cumplido'
-      ? (completed_date || new Date().toISOString().split('T')[0])
-      : (status === 'pendiente' || status === 'en_progreso' ? null : (completed_date ?? null));
 
     await pool.execute(`
       UPDATE committee_commitments SET
@@ -177,13 +177,18 @@ router.put('/:id', async (req, res) => {
         priority       = COALESCE(?, priority),
         notes          = COALESCE(?, notes),
         evidence       = COALESCE(?, evidence),
-        completed_date = ?,
+        completed_date = CASE
+          WHEN ? = 'cumplido'                          THEN ?
+          WHEN ? IN ('pendiente', 'en_progreso', 'cancelado') THEN NULL
+          ELSE completed_date
+        END,
         committee_type = COALESCE(?, committee_type),
         updated_at     = NOW()
       WHERE id = ? AND project_id = ?
-    `, [description ?? null, responsible ?? null, due_date ?? null, status ?? null,
-        priority ?? null, notes ?? null, evidence ?? null,
-        finalCompletedDate, committee_type ?? null, id, projectId]);
+    `, [description, responsible, due_date, status,
+        priority, notes, evidence,
+        status, completedDateValue, status,
+        committee_type, id, projectId]);
 
     const [updated] = await pool.execute(
       'SELECT * FROM committee_commitments WHERE id = ?', [id]

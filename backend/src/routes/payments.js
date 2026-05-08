@@ -188,9 +188,17 @@ router.put('/:projectId/payments/:id', roleMiddleware('admin','gerente_proyecto'
       await pool.execute(`UPDATE payments SET ${sets.join(',')} WHERE id=?`, vals);
       const [rows] = await pool.execute('SELECT * FROM payments WHERE id=?', [req.params.id]);
 
-      // Propagate status to linked schedule item (fire-and-forget)
+      // Propagate status to linked schedule item (fire-and-forget, full bidirectional map)
       if (b.status && b.status !== ex[0].status && rows[0].schedule_id) {
-        const schedEstado = b.status === 'pagado' ? 'pagado' : b.status === 'aprobado' ? 'facturado' : null;
+        const STATUS_MAP = {
+          'borrador':    'pendiente',
+          'presentado':  'pendiente',
+          'en_revision': 'facturado',
+          'aprobado':    'facturado',
+          'pagado':      'pagado',
+          'rechazado':   'pendiente',
+        };
+        const schedEstado = STATUS_MAP[b.status];
         if (schedEstado) {
           pool.execute(
             `UPDATE budget_income_schedule SET estado=? WHERE id=? AND project_id=?`,

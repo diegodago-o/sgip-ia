@@ -811,7 +811,27 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
     const activosFijos = calcDed.filter(d => d.tipo === 'activo_fijo').reduce((s, d) => s + d.valor_final, 0);
     const gnc = calcDed.filter(d => d.tipo === 'gnc').reduce((s, d) => s + d.valor_final, 0);
 
-    const gananciaDistribuible = gananciaContable - retenciones - activosFijos;
+    // ── RETENCIONES PRESUPUESTADAS por tipo (desde schedule) ─────────────────
+    // rfPres se necesita aquí para calcular gananciaDistribuible correctamente
+    let rfPres = 0, ricaPres = 0, rivaPres = 0, gmfPres = 0;
+    try {
+      const [schedTax] = await pool.execute(`
+        SELECT
+          COALESCE(SUM(valor_sin_iva * retefuente_pct / 100), 0) AS retefuente,
+          COALESCE(SUM(valor_sin_iva * reteica_pct    / 100), 0) AS reteica,
+          COALESCE(SUM(valor_iva     * reteiva_pct    / 100), 0) AS reteiva,
+          COALESCE(SUM(valor_con_iva * gmf_pct        / 100), 0) AS gmf
+        FROM budget_income_schedule WHERE project_id = ?`, [pid]);
+      rfPres   = Math.round(parseFloat(schedTax[0].retefuente || 0));
+      ricaPres = Math.round(parseFloat(schedTax[0].reteica    || 0));
+      rivaPres = Math.round(parseFloat(schedTax[0].reteiva    || 0));
+      gmfPres  = Math.round(parseFloat(schedTax[0].gmf        || 0));
+    } catch {}
+
+    // UC: ganancia contable (4−5, sin retenciones)
+    // UD: ganancia distribuible (4−5−RF−AF): solo RETEFUENTE como R, activos fijos como AF
+    // UR: ganancia real (UD − GNC)
+    const gananciaDistribuible = gananciaContable - rfPres - activosFijos;
     const gananciaReal = gananciaDistribuible - gnc;
 
     // ── EJECUCIÓN REAL ──────────────────────────────────────────────────────────
@@ -858,22 +878,6 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
       bf.forEach(r => { ejecByFuente[r.fuente] = parseFloat(r.total || 0); });
     } catch {}
 
-    // ── RETENCIONES PRESUPUESTADAS por tipo (desde schedule) ──────────────────
-    let rfPres = 0, ricaPres = 0, rivaPres = 0, gmfPres = 0;
-    try {
-      const [schedTax] = await pool.execute(`
-        SELECT
-          COALESCE(SUM(valor_sin_iva * retefuente_pct / 100), 0) AS retefuente,
-          COALESCE(SUM(valor_sin_iva * reteica_pct    / 100), 0) AS reteica,
-          COALESCE(SUM(valor_iva     * reteiva_pct    / 100), 0) AS reteiva,
-          COALESCE(SUM(valor_con_iva * gmf_pct        / 100), 0) AS gmf
-        FROM budget_income_schedule WHERE project_id = ?`, [pid]);
-      rfPres   = Math.round(parseFloat(schedTax[0].retefuente || 0));
-      ricaPres = Math.round(parseFloat(schedTax[0].reteica    || 0));
-      rivaPres = Math.round(parseFloat(schedTax[0].reteiva    || 0));
-      gmfPres  = Math.round(parseFloat(schedTax[0].gmf        || 0));
-    } catch {}
-
     // ── RETENCIONES REALES por tipo (desde payments pagados/aprobados) ─────────
     let rfReal = 0, ricaReal = 0, rivaReal = 0, gmfReal = 0, baseRealCobrado = 0;
     try {
@@ -892,9 +896,17 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
       baseRealCobrado = Math.round(parseFloat(payTax[0].base_cobrado || 0));
     } catch {}
 
-    // Resultado real desglosado:
-    // Resultado Operativo = Ingresos Base − Egresos − RETEICA − GMF
-    // Ganancia Distribuible Real = Resultado Operativo − RETEFUENTE
+    // ── CASCADA REAL UC / UD / UR (misma lógica que presupuesto) ─────────────
+    // UC real = 4 real (gross cobrado) − 5 real (egresos ejecutados)
+    const ucReal   = pagosCobrados - egresosEjecutados;
+    // UD real = UC real − RETEFUENTE real − Activos Fijos (del presupuesto)
+    const udReal   = ucReal - rfReal - activosFijos;
+    // UR real = UD real − GNC (del presupuesto)
+    const urReal   = udReal - gnc;
+    const margenUcReal = pagosCobrados > 0 ? (ucReal / pagosCobrados * 100) : 0;
+    const margenUdReal = pagosCobrados > 0 ? (udReal / pagosCobrados * 100) : 0;
+
+    // Legado (compatibilidad con vista anterior)
     const ingresosBaseReal  = baseRealCobrado;
     const resultadoOpReal   = ingresosBaseReal - egresosEjecutados - ricaReal - gmfReal;
     const gananciaDistReal  = resultadoOpReal  - rfReal;
@@ -944,10 +956,17 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
         // P&L real desglosado
         resultado_operativo_real:    resultadoOpReal,
         ganancia_distribuible_real:  gananciaDistReal,
+        // Cascada UC/UD/UR real
+        uc_real:        ucReal,
+        ud_real:        udReal,
+        ur_real:        urReal,
+        margen_uc_real: margenUcReal,
+        margen_ud_real: margenUdReal,
         // Comparación vs presupuesto
         desviacion_ingresos: ingresosRealesRef - totalConIva,
         desviacion_egresos:  egresosEjecutados - totalGastos,
         desviacion_ganancia: gananciaEjecucion - gananciaContable,
+        desviacion_ud:       udReal - gananciaDistribuible,
       },
     }});
   } catch (err) { console.error('Financial summary:', err); res.status(500).json({ error: err.message }); }

@@ -1010,12 +1010,33 @@ function FinancialSummaryTab({ projectId, perms }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('presupuesto'); // 'presupuesto' | 'real' | 'comparacion'
-  useEffect(() => { (async () => { try { const r = await budgetAPI.financialSummary(projectId); setData(r.data.data); } catch (e) { console.error(e); } finally { setLoading(false); } })(); }, [projectId]);
+  const [gncEdit, setGncEdit] = useState(null); // {id, valor}
+  const [addingGnc, setAddingGnc] = useState(false);
+  const [newGnc, setNewGnc] = useState({ nombre: '', valor: '' });
+
+  const load = async () => {
+    try { const r = await budgetAPI.financialSummary(projectId); setData(r.data.data); } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, [projectId]);
+
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-brand-500"/></div>;
   if (!data) return <p className="text-sm text-surface-400 text-center py-8">No hay datos. Inicialice el presupuesto primero.</p>;
   const d = data;
   const ej = d.ejecucion || {};
   const tieneEjecucion = (ej.egresos_ejecutados || 0) > 0;
+  const rp = d.retenciones_pres || {};
+  const rr = ej.retenciones_real || {};
+
+  const saveGnc = async (id, valor) => {
+    try { await budgetAPI.deductionsUpdate(projectId, id, { valor: parseFloat(valor)||0 }); setGncEdit(null); load(); } catch {}
+  };
+  const addGnc = async () => {
+    if (!newGnc.nombre) return;
+    try {
+      await budgetAPI.deductionsAdd(projectId, { codigo:'GNC', nombre: newGnc.nombre, tipo:'gnc', valor: parseFloat(newGnc.valor)||0 });
+      setNewGnc({ nombre:'', valor:'' }); setAddingGnc(false); load();
+    } catch {}
+  };
 
   return (
     <div className="space-y-4">
@@ -1080,34 +1101,84 @@ function FinancialSummaryTab({ projectId, perms }) {
               </details>
             )}
             <div className="h-2 bg-surface-50"/>
+            {/* UC */}
             <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_contable >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
               <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UC</span><span>GANANCIA CONTABLE (4-5)</span></div>
               <span className={`font-display text-lg ${d.ganancia_contable >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_contable)}</span>
             </div>
-            {d.deductions?.filter(x => x.tipo === 'retencion').map(x => (
-              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">R</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
-            ))}
+            {/* R = solo RETEFUENTE del flujo de ingresos */}
+            {rp.retefuente > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">R</span><span className="text-surface-600">Retención en la Fuente</span></div>
+                <span className="text-red-600 font-medium">{fm(rp.retefuente)}</span>
+              </div>
+            )}
+            {/* AF = Activos Fijos de deducciones */}
             {d.deductions?.filter(x => x.tipo === 'activo_fijo').map(x => (
-              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">AF</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
+              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">AF</span><span className="text-surface-600">{x.nombre}</span></div>
+                <span className="text-red-600 font-medium">{fm(x.valor_final)}</span>
+              </div>
             ))}
             <div className="h-1 bg-surface-50"/>
+            {/* UD */}
             <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_distribuible >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
               <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UD</span><span>GANANCIA DISTRIBUIBLE (4-5-R-AF)</span></div>
               <span className={`font-display text-lg ${d.ganancia_distribuible >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_distribuible)}</span>
             </div>
+            {/* GNC — editable inline */}
             {d.deductions?.filter(x => x.tipo === 'gnc').map(x => (
-              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs"><div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">GNC</span><span className="text-surface-600">{x.nombre}</span></div><span className="text-surface-700">{fm(x.valor_final)}</span></div>
+              <div key={x.id} className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">GNC</span><span className="text-surface-600">{x.nombre}</span></div>
+                {gncEdit?.id === x.id
+                  ? <div className="flex items-center gap-1">
+                      <input type="number" value={gncEdit.valor} onChange={e=>setGncEdit({...gncEdit,valor:e.target.value})} className="w-28 px-2 py-0.5 border border-brand-300 rounded text-xs"/>
+                      <button onClick={()=>saveGnc(x.id,gncEdit.valor)} className="text-brand-600 hover:text-brand-800 font-semibold px-1">✓</button>
+                      <button onClick={()=>setGncEdit(null)} className="text-surface-400 hover:text-surface-600 px-1">✕</button>
+                    </div>
+                  : <div className="flex items-center gap-2">
+                      <span className="text-red-600 font-medium">{fm(x.valor_final)}</span>
+                      <button onClick={()=>setGncEdit({id:x.id,valor:x.valor_final})} className="text-surface-300 hover:text-brand-500"><Edit2 className="w-3 h-3"/></button>
+                    </div>
+                }
+              </div>
             ))}
+            {addingGnc
+              ? <div className="flex items-center gap-2 px-4 py-2 border-b border-surface-50 text-xs">
+                  <span className="font-mono text-surface-400 w-12">GNC</span>
+                  <input placeholder="Concepto" value={newGnc.nombre} onChange={e=>setNewGnc({...newGnc,nombre:e.target.value})} className="flex-1 px-2 py-0.5 border border-brand-300 rounded text-xs"/>
+                  <input type="number" placeholder="Valor" value={newGnc.valor} onChange={e=>setNewGnc({...newGnc,valor:e.target.value})} className="w-28 px-2 py-0.5 border border-brand-300 rounded text-xs"/>
+                  <button onClick={addGnc} className="text-brand-600 hover:text-brand-800 font-semibold px-1">✓</button>
+                  <button onClick={()=>{setAddingGnc(false);setNewGnc({nombre:'',valor:''}); }} className="text-surface-400 hover:text-surface-600 px-1">✕</button>
+                </div>
+              : <button onClick={()=>setAddingGnc(true)} className="w-full text-left px-4 py-1.5 text-xs text-surface-400 hover:text-brand-500 hover:bg-brand-50 border-b border-surface-50 flex items-center gap-2">
+                  <Plus className="w-3 h-3"/> Agregar gasto no contabilizado (GNC)
+                </button>
+            }
+            {/* Retenciones informativas (RETEICA, GMF, RETEIVA no afectan UD) */}
+            {(rp.reteica > 0 || rp.gmf > 0 || rp.reteiva > 0) && (
+              <details className="border-b border-surface-50">
+                <summary className="px-4 py-1 pl-8 text-[10px] text-surface-300 cursor-pointer hover:text-surface-500">
+                  Otras retenciones informativas (no reducen UD): RETEICA {fm(rp.reteica)} · GMF {fm(rp.gmf)}{rp.reteiva > 0 ? ` · RETEIVA ${fm(rp.reteiva)}` : ''}
+                </summary>
+              </details>
+            )}
+            <div className="h-1 bg-surface-50"/>
+            {/* UR */}
             <div className={`flex items-center justify-between px-4 py-3 font-bold ${d.ganancia_real >= 0 ? 'bg-green-100 border-y-2 border-green-400' : 'bg-red-100 border-y-2 border-red-400'}`}>
-              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UR</span><span>GANANCIA REAL (4-5-GNC)</span></div>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UR</span><span>GANANCIA REAL (4-5-R-AF-GNC)</span></div>
               <span className={`font-display text-lg ${d.ganancia_real >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(d.ganancia_real)}</span>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {[['Ganancia Contable', d.ganancia_contable_pct],['Ganancia Distribuible', d.ganancia_distribuible_pct],['Ganancia Real', d.ganancia_real_pct]].map(([label, pct])=>(
-              <div key={label} className={`p-3 rounded-lg border text-center ${pct >= 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
+            {[
+              ['G. Contable (UC)', d.ganancia_contable_pct],
+              ['G. Distribuible (UD)', d.ganancia_distribuible_pct],
+              ['G. Real (UR)', d.ganancia_real_pct],
+            ].map(([label, pct])=>(
+              <div key={label} className={`p-3 rounded-lg border text-center ${(pct||0) >= 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
                 <p className="text-[10px] font-semibold text-surface-500 uppercase">{label}</p>
-                <p className={`text-xl font-display font-bold ${pct >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{(pct||0).toFixed(2)}%</p>
+                <p className={`text-xl font-display font-bold ${(pct||0) >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{(pct||0).toFixed(2)}%</p>
               </div>
             ))}
           </div>
@@ -1123,112 +1194,99 @@ function FinancialSummaryTab({ projectId, perms }) {
             </div>
           )}
           <div className="bg-white rounded-xl border border-surface-100 overflow-hidden text-sm">
-            {/* INGRESOS REALES */}
+            {/* 4 — INGRESOS REALES (gross cobrado) */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 font-bold">
-              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS REALES</span></div>
-              <span className="text-emerald-800 font-display">{fm(ej.tiene_pagos ? ej.ingresos_facturados : d.total_con_iva)}</span>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS REALES (cobrado)</span></div>
+              <span className="text-emerald-800 font-display">{fm(ej.ingresos_cobrados || 0)}</span>
             </div>
             {ej.tiene_pagos ? (
               <>
                 <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                  <span className="text-surface-600 font-medium">✅ Cobrado (pagado)</span>
+                  <span className="text-surface-600 font-medium">✅ Gross cobrado (pagado)</span>
                   <span className="text-emerald-700 font-semibold">{fm(ej.ingresos_cobrados)}</span>
                 </div>
                 {ej.ingresos_pendientes > 0 && (
                   <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                    <span className="text-surface-600">⏳ Facturado pendiente de cobro</span>
-                    <span className="text-amber-700 font-semibold">{fm(ej.ingresos_pendientes)}</span>
+                    <span className="text-surface-500">⏳ Facturado pendiente cobro</span>
+                    <span className="text-amber-600 font-medium">{fm(ej.ingresos_pendientes)}</span>
                   </div>
                 )}
               </>
             ) : (
-              <div className="px-4 py-2 pl-12 text-xs text-surface-400 border-b">Sin pagos registrados — usando ingresos presupuestados como referencia</div>
+              <div className="px-4 py-2 pl-12 text-xs text-surface-400 border-b">Sin pagos marcados como pagados — registre pagos para ver datos reales</div>
             )}
             <div className="h-2 bg-surface-50"/>
-            {/* EGRESOS REALES */}
+            {/* 5 — EGRESOS EJECUTADOS */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border-b border-red-200 font-bold">
               <div className="flex items-center gap-3"><span className="text-xs font-mono text-red-600 w-12">5</span><span className="text-red-800">EGRESOS EJECUTADOS</span></div>
               <span className="text-red-800 font-display">{fm(ej.egresos_ejecutados)}</span>
             </div>
-            {ej.egresos_by_fuente?.payroll > 0 && (
-              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Nómina ejecutada</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.payroll)}</span></div>
-            )}
-            {ej.egresos_by_fuente?.contractors > 0 && (
-              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Honorarios ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.contractors)}</span></div>
-            )}
-            {ej.egresos_by_fuente?.expenses > 0 && (
-              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos operativos ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.expenses)}</span></div>
-            )}
-            {ej.egresos_by_fuente?.extra > 0 && (
-              <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos adicionales (extra)</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.extra)}</span></div>
-            )}
+            {ej.egresos_by_fuente?.payroll > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Nómina ejecutada</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.payroll)}</span></div>}
+            {ej.egresos_by_fuente?.contractors > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Honorarios ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.contractors)}</span></div>}
+            {ej.egresos_by_fuente?.expenses > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos operativos ejecutados</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.expenses)}</span></div>}
+            {ej.egresos_by_fuente?.extra > 0 && <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos adicionales (extra)</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.extra)}</span></div>}
             <div className="h-2 bg-surface-50"/>
-            {/* RETENCIONES REALES */}
-            {(ej.retenciones_real?.reteica > 0 || ej.retenciones_real?.gmf > 0) && (
-              <>
-                {ej.retenciones_real?.reteica > 0 && (
-                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                    <span className="text-surface-600">RETEICA (gasto fiscal)</span>
-                    <span className="text-red-600 font-medium">{fm(ej.retenciones_real.reteica)}</span>
-                  </div>
-                )}
-                {ej.retenciones_real?.gmf > 0 && (
-                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                    <span className="text-surface-600">GMF (gasto financiero)</span>
-                    <span className="text-red-600 font-medium">{fm(ej.retenciones_real.gmf)}</span>
-                  </div>
-                )}
-              </>
-            )}
-            <div className="h-2 bg-surface-50"/>
-            {/* RESULTADO OPERATIVO REAL */}
-            {ej.resultado_operativo_real !== undefined && (
-              <div className={`flex items-center justify-between px-4 py-2.5 font-bold border-b ${ej.resultado_operativo_real >= 0 ? 'bg-yellow-50' : 'bg-red-50'}`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-12">RO</span>
-                  <div><div>RESULTADO OPERATIVO REAL</div><div className="text-[10px] font-normal text-surface-500">Base − Egresos − RETEICA − GMF</div></div>
-                </div>
-                <span className={`font-display ${ej.resultado_operativo_real >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{fm(ej.resultado_operativo_real)}</span>
+            {/* UC real */}
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${(ej.uc_real||0) >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UC</span><span>GANANCIA CONTABLE (4-5)</span></div>
+              <span className={`font-display text-lg ${(ej.uc_real||0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.uc_real||0)}</span>
+            </div>
+            {/* R real = RETEFUENTE */}
+            {rr.retefuente > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">R</span><span className="text-surface-600">Retención en la Fuente</span></div>
+                <span className="text-red-600 font-medium">{fm(rr.retefuente)}</span>
               </div>
             )}
-            {/* RETEFUENTE como deducción */}
-            {ej.retenciones_real?.retefuente > 0 && (
-              <div className="flex items-center justify-between px-4 py-1.5 text-xs border-b border-surface-50">
-                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">RF</span><span className="text-surface-600">Retención en la Fuente (deducción)</span></div>
-                <span className="text-surface-700 font-medium">{fm(ej.retenciones_real.retefuente)}</span>
+            {/* AF — mismo valor del presupuesto */}
+            {d.activos_fijos > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">AF</span><span className="text-surface-600">Activos Fijos (presupuestado)</span></div>
+                <span className="text-red-600 font-medium">{fm(d.activos_fijos)}</span>
               </div>
             )}
-            {/* GANANCIA DISTRIBUIBLE REAL */}
-            {ej.ganancia_distribuible_real !== undefined && (
-              <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_distribuible_real >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-12">GD</span>
-                  <div><div>GANANCIA DISTRIBUIBLE REAL</div><div className="text-[10px] font-normal text-surface-500">Resultado Operativo − RETEFUENTE</div></div>
-                </div>
-                <span className={`font-display text-xl ${ej.ganancia_distribuible_real >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_distribuible_real)}</span>
+            <div className="h-1 bg-surface-50"/>
+            {/* UD real */}
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${(ej.ud_real||0) >= 0 ? 'bg-yellow-50 border-y-2 border-yellow-300' : 'bg-red-50 border-y-2 border-red-300'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UD</span><span>GANANCIA DISTRIBUIBLE (4-5-R-AF)</span></div>
+              <span className={`font-display text-lg ${(ej.ud_real||0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ud_real||0)}</span>
+            </div>
+            {/* GNC — mismo del presupuesto */}
+            {d.gnc > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 border-b border-surface-50 text-xs">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">GNC</span><span className="text-surface-600">Gastos No Contabilizados (presupuestado)</span></div>
+                <span className="text-red-600 font-medium">{fm(d.gnc)}</span>
               </div>
             )}
-            {/* Resultado general si no hay datos desglosados */}
-            {ej.ganancia_distribuible_real === undefined && (
-              <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-12">RE</span>
-                  <div><div>RESULTADO REAL DE EJECUCIÓN</div><div className="text-[10px] font-normal text-surface-500">Ingresos reales − Egresos ejecutados</div></div>
-                </div>
-                <span className={`font-display text-xl ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</span>
-              </div>
+            {/* Retenciones informativas */}
+            {(rr.reteica > 0 || rr.gmf > 0 || rr.reteiva > 0) && (
+              <details className="border-b border-surface-50">
+                <summary className="px-4 py-1 pl-8 text-[10px] text-surface-300 cursor-pointer hover:text-surface-500">
+                  Otras retenciones informativas: RETEICA {fm(rr.reteica)} · GMF {fm(rr.gmf)}{rr.reteiva > 0 ? ` · RETEIVA ${fm(rr.reteiva)}` : ''}
+                </summary>
+              </details>
             )}
+            <div className="h-1 bg-surface-50"/>
+            {/* UR real */}
+            <div className={`flex items-center justify-between px-4 py-3 font-bold ${(ej.ur_real||0) >= 0 ? 'bg-green-100 border-y-2 border-green-400' : 'bg-red-100 border-y-2 border-red-400'}`}>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono w-12">UR</span><span>GANANCIA REAL (4-5-R-AF-GNC)</span></div>
+              <span className={`font-display text-xl ${(ej.ur_real||0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ur_real||0)}</span>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className={`p-4 rounded-xl border text-center ${ej.margen_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-              <p className="text-[10px] font-semibold text-surface-500 uppercase mb-1">Margen Real de Ejecución</p>
-              <p className={`text-3xl font-display font-bold ${ej.margen_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{(ej.margen_ejecucion||0).toFixed(1)}%</p>
-            </div>
-            <div className={`p-4 rounded-xl border text-center ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-              <p className="text-[10px] font-semibold text-surface-500 uppercase mb-1">Ganancia / Pérdida Real</p>
-              <p className={`text-xl font-display font-bold ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</p>
-              <p className="text-[10px] text-surface-400 mt-1">{ej.ganancia_ejecucion >= 0 ? 'Proyecto generó ganancia' : 'Proyecto generó pérdida'}</p>
-            </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              ['G. Contable Real (UC)', ej.margen_uc_real||0],
+              ['G. Distribuible Real (UD)', ej.margen_ud_real||0],
+              ['Base de cálculo', ej.ingresos_cobrados > 0 ? 100 : 0],
+            ].map(([label, pct], i)=>(
+              <div key={label} className={`p-3 rounded-xl border text-center ${pct >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                <p className="text-[10px] font-semibold text-surface-500 uppercase mb-1">{label}</p>
+                {i < 2
+                  ? <p className={`text-xl font-display font-bold ${pct >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{pct.toFixed(1)}%</p>
+                  : <p className="text-xs text-surface-400 mt-1">{fm(ej.ingresos_cobrados||0)}<br/>ingresos cobrados</p>
+                }
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -1283,33 +1341,40 @@ function FinancialSummaryTab({ projectId, perms }) {
                 </div>
               );
             })}
-            {/* Resultado */}
+            {/* Resultado — basado en UD (Ganancia Distribuible) */}
             {[
-              { label:'GANANCIA PRESUPUESTADA', val: d.ganancia_contable },
-              { label:'RESULTADO REAL EJECUCIÓN', val: ej.ganancia_ejecucion||0, highlight:true },
-              { label:'DIFERENCIA (Real − Presup.)', val: (ej.ganancia_ejecucion||0) - d.ganancia_contable, diff:true },
+              { label:'GANANCIA CONTABLE PRESUP. (UC)', val: d.ganancia_contable, sub:'4 − 5' },
+              { label:'GANANCIA DISTRIBUIBLE PRESUP. (UD)', val: d.ganancia_distribuible, sub:'UC − RETEFUENTE − AF', bold2:true },
+              { label:'RESULTADO REAL EJECUCIÓN (UD)', val: ej.ud_real||0, highlight:true, sub:'4real − 5real − RF − AF' },
+              { label:'DIFERENCIA (Real − Presup.)', val: (ej.ud_real||0) - (d.ganancia_distribuible||0), diff:true },
             ].map((row, i) => (
-              <div key={i} className={`grid grid-cols-4 gap-0 border-b text-sm font-bold ${row.highlight ? (row.val>=0?'bg-emerald-100':'bg-red-100') : row.diff ? 'bg-blue-50' : 'bg-surface-50'}`}>
-                <div className="px-4 py-3 col-span-3">{row.label}</div>
-                <div className={`px-4 py-3 text-right text-base font-display ${row.val>=0?'text-emerald-700':'text-red-700'}`}>{fm(row.val)}</div>
+              <div key={i} className={`grid grid-cols-4 gap-0 border-b text-sm font-bold ${row.highlight ? ((row.val||0)>=0?'bg-emerald-100':'bg-red-100') : row.diff ? 'bg-blue-50' : row.bold2 ? 'bg-amber-50' : 'bg-surface-50'}`}>
+                <div className="px-4 py-2.5 col-span-3">
+                  <div>{row.label}</div>
+                  {row.sub && <div className="text-[10px] font-normal text-surface-400">{row.sub}</div>}
+                </div>
+                <div className={`px-4 py-2.5 text-right text-base font-display ${(row.val||0)>=0?'text-emerald-700':'text-red-700'}`}>{fm(row.val||0)}</div>
               </div>
             ))}
           </div>
-          {/* Resumen visual */}
+          {/* Resumen visual márgenes */}
           <div className="grid grid-cols-3 gap-3">
-            <div className={`p-3 rounded-xl border text-center ${d.ganancia_contable>=0?'bg-surface-50 border-surface-200':'bg-red-50 border-red-200'}`}>
-              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Presupuestado</p>
-              <p className={`text-xl font-display font-bold ${d.ganancia_contable>=0?'text-surface-700':'text-red-700'}`}>{d.ganancia_contable_pct?.toFixed(1)}%</p>
+            <div className={`p-3 rounded-xl border text-center ${(d.ganancia_distribuible||0)>=0?'bg-amber-50 border-amber-200':'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Presupuestado (UD)</p>
+              <p className={`text-xl font-display font-bold ${(d.ganancia_distribuible||0)>=0?'text-amber-700':'text-red-700'}`}>{(d.ganancia_distribuible_pct||0).toFixed(1)}%</p>
+              <p className="text-[10px] text-surface-400 mt-0.5">UD / Ingresos pres.</p>
             </div>
-            <div className={`p-3 rounded-xl border text-center ${ej.margen_ejecucion>=0?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'}`}>
-              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Real</p>
-              <p className={`text-xl font-display font-bold ${ej.margen_ejecucion>=0?'text-emerald-700':'text-red-700'}`}>{(ej.margen_ejecucion||0).toFixed(1)}%</p>
+            <div className={`p-3 rounded-xl border text-center ${(ej.margen_ud_real||0)>=0?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'}`}>
+              <p className="text-[10px] font-semibold text-surface-400 uppercase">Margen Real (UD)</p>
+              <p className={`text-xl font-display font-bold ${(ej.margen_ud_real||0)>=0?'text-emerald-700':'text-red-700'}`}>{(ej.margen_ud_real||0).toFixed(1)}%</p>
+              <p className="text-[10px] text-surface-400 mt-0.5">UD real / Cobrado</p>
             </div>
             <div className="p-3 rounded-xl border text-center bg-blue-50 border-blue-200">
               <p className="text-[10px] font-semibold text-surface-400 uppercase">Diferencia Margen</p>
-              <p className={`text-xl font-display font-bold ${(ej.margen_ejecucion||0)-d.ganancia_contable_pct>=0?'text-emerald-700':'text-red-700'}`}>
-                {((ej.margen_ejecucion||0) - (d.ganancia_contable_pct||0)).toFixed(1)}pp
+              <p className={`text-xl font-display font-bold ${(ej.margen_ud_real||0)-(d.ganancia_distribuible_pct||0)>=0?'text-emerald-700':'text-red-700'}`}>
+                {((ej.margen_ud_real||0) - (d.ganancia_distribuible_pct||0)).toFixed(1)}pp
               </p>
+              <p className="text-[10px] text-surface-400 mt-0.5">Real − Presup.</p>
             </div>
           </div>
         </div>

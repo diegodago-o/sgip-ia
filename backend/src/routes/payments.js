@@ -26,16 +26,18 @@ function calcPayment(b) {
   const base = parseFloat(b.base_value) || 0;
   const ivaPct = parseFloat(b.iva_pct) ?? 19;
   const amort = parseFloat(b.amortization) || 0;
-  const reteivaPct = parseFloat(b.reteiva_pct) || 0;
+  const reteivaPct    = parseFloat(b.reteiva_pct)    || 0;
   const retefuentePct = parseFloat(b.retefuente_pct) || 0;
-  const reteicaPct = parseFloat(b.reteica_pct) || 0;
+  const reteicaPct    = parseFloat(b.reteica_pct)    || 0;
+  const gmfPct        = parseFloat(b.gmf_pct)        || 0;
 
-  const ivaValue = Math.round(base * ivaPct / 100);
-  const gross = base + ivaValue;
-  const reteivaValue = Math.round(ivaValue * reteivaPct / 100);
-  const retefuenteValue = Math.round(base * retefuentePct / 100);
-  const reteicaValue = Math.round(base * reteicaPct / 100);
-  const totalRetentions = reteivaValue + retefuenteValue + reteicaValue;
+  const ivaValue        = Math.round(base  * ivaPct        / 100);
+  const gross           = base + ivaValue;
+  const reteivaValue    = Math.round(ivaValue * reteivaPct / 100);
+  const retefuenteValue = Math.round(base  * retefuentePct / 100);
+  const reteicaValue    = Math.round(base  * reteicaPct    / 100);
+  const gmfValue        = Math.round(gross * gmfPct        / 100);
+  const totalRetentions = reteivaValue + retefuenteValue + reteicaValue + gmfValue;
   const net = gross - totalRetentions - amort;
 
   return {
@@ -50,6 +52,8 @@ function calcPayment(b) {
     retefuente_value: retefuenteValue,
     reteica_pct: reteicaPct,
     reteica_value: reteicaValue,
+    gmf_pct: gmfPct,
+    gmf_value: gmfValue,
     retention_pct: 0,
     retention_value: totalRetentions,
     taxes: ivaValue,
@@ -71,7 +75,11 @@ router.get('/:projectId/payments/summary', [param('projectId').isInt()], async (
         COALESCE(SUM(CASE WHEN status='pagado' THEN base_value END),0) as total_paid_base,
         COALESCE(SUM(CASE WHEN status IN ('aprobado','pagado') THEN gross_value END),0) as total_approved_gross,
         COALESCE(SUM(amortization),0) as total_amortized,
-        COALESCE(SUM(retention_value),0) as total_retained
+        COALESCE(SUM(retention_value),0) as total_retained,
+        COALESCE(SUM(retefuente_value),0) as total_retefuente,
+        COALESCE(SUM(reteica_value),0) as total_reteica,
+        COALESCE(SUM(reteiva_value),0) as total_reteiva,
+        COALESCE(SUM(IFNULL(gmf_value,0)),0) as total_gmf
       FROM payments WHERE project_id=?`, [pid]);
     const [proj] = await pool.execute('SELECT contract_value FROM projects WHERE id=?', [pid]);
     const cv = parseFloat(proj[0]?.contract_value || 0);
@@ -109,20 +117,33 @@ router.post('/:projectId/payments', roleMiddleware('admin','gerente_proyecto'),
       const b = req.body; const pid = req.params.projectId;
       const calc = calcPayment(b);
       const [mx] = await pool.execute('SELECT COALESCE(MAX(payment_number),0)+1 as n FROM payments WHERE project_id=?', [pid]);
+      const scheduleId = b.schedule_id ? parseInt(b.schedule_id) : null;
       const [r] = await pool.execute(
         `INSERT INTO payments (project_id,payment_number,payment_type,concept,period_from,period_to,
           base_value,iva_pct,iva_value,gross_value,amortization,
           retention_pct,retention_value,reteiva_pct,reteiva_value,
           retefuente_pct,retefuente_value,reteica_pct,reteica_value,
-          taxes,net_value,invoice_number,invoice_date,paid_date,status,document_id,notes)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          gmf_pct,gmf_value,taxes,net_value,
+          invoice_number,invoice_date,paid_date,status,document_id,notes,schedule_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [pid, mx[0].n, b.payment_type||'corte_mensual', b.concept, b.period_from||null, b.period_to||null,
           calc.base_value, calc.iva_pct, calc.iva_value, calc.gross_value, calc.amortization,
           calc.retention_pct, calc.retention_value, calc.reteiva_pct, calc.reteiva_value,
           calc.retefuente_pct, calc.retefuente_value, calc.reteica_pct, calc.reteica_value,
-          calc.taxes, calc.net_value,
+          calc.gmf_pct, calc.gmf_value, calc.taxes, calc.net_value,
           b.invoice_number||null, b.invoice_date||null, b.paid_date||null,
-          'borrador', b.document_id||null, b.notes||null]);
+          'borrador', b.document_id||null, b.notes||null, scheduleId]);
+
+      // Mark schedule item as 'facturado' if linked
+      if (scheduleId) {
+        try {
+          await pool.execute(
+            `UPDATE budget_income_schedule SET estado='facturado' WHERE id=? AND project_id=?`,
+            [scheduleId, pid]
+          );
+        } catch {}
+      }
+
       const [rows] = await pool.execute('SELECT * FROM payments WHERE id=?', [r.insertId]);
       res.status(201).json({ data: rows[0], message: `Pago #${mx[0].n} creado` });
     } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Error' }); }
@@ -139,12 +160,13 @@ router.put('/:projectId/payments/:id', roleMiddleware('admin','gerente_proyecto'
 
       const b = req.body;
       const merged = {
-        base_value: b.base_value !== undefined ? b.base_value : ex[0].base_value,
-        iva_pct: b.iva_pct !== undefined ? b.iva_pct : ex[0].iva_pct,
-        amortization: b.amortization !== undefined ? b.amortization : ex[0].amortization,
-        reteiva_pct: b.reteiva_pct !== undefined ? b.reteiva_pct : ex[0].reteiva_pct,
+        base_value:     b.base_value     !== undefined ? b.base_value     : ex[0].base_value,
+        iva_pct:        b.iva_pct        !== undefined ? b.iva_pct        : ex[0].iva_pct,
+        amortization:   b.amortization   !== undefined ? b.amortization   : ex[0].amortization,
+        reteiva_pct:    b.reteiva_pct    !== undefined ? b.reteiva_pct    : ex[0].reteiva_pct,
         retefuente_pct: b.retefuente_pct !== undefined ? b.retefuente_pct : ex[0].retefuente_pct,
-        reteica_pct: b.reteica_pct !== undefined ? b.reteica_pct : ex[0].reteica_pct,
+        reteica_pct:    b.reteica_pct    !== undefined ? b.reteica_pct    : ex[0].reteica_pct,
+        gmf_pct:        b.gmf_pct        !== undefined ? b.gmf_pct        : (ex[0].gmf_pct || 0),
       };
       const calc = calcPayment(merged);
 
@@ -156,8 +178,8 @@ router.put('/:projectId/payments/:id', roleMiddleware('admin','gerente_proyecto'
       vals.push(calc.base_value, calc.iva_pct, calc.iva_value, calc.gross_value, calc.amortization);
       sets.push('retention_pct=?','retention_value=?','taxes=?','net_value=?');
       vals.push(calc.retention_pct, calc.retention_value, calc.taxes, calc.net_value);
-      sets.push('reteiva_pct=?','reteiva_value=?','retefuente_pct=?','retefuente_value=?','reteica_pct=?','reteica_value=?');
-      vals.push(calc.reteiva_pct, calc.reteiva_value, calc.retefuente_pct, calc.retefuente_value, calc.reteica_pct, calc.reteica_value);
+      sets.push('reteiva_pct=?','reteiva_value=?','retefuente_pct=?','retefuente_value=?','reteica_pct=?','reteica_value=?','gmf_pct=?','gmf_value=?');
+      vals.push(calc.reteiva_pct, calc.reteiva_value, calc.retefuente_pct, calc.retefuente_value, calc.reteica_pct, calc.reteica_value, calc.gmf_pct, calc.gmf_value);
 
       if (b.status === 'aprobado') { sets.push('approved_by=?', 'approved_at=NOW()'); vals.push(req.user.id); }
       if (b.status === 'pagado' && !b.paid_date) { sets.push('paid_date=CURDATE()'); }

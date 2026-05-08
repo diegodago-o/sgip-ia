@@ -476,11 +476,20 @@ router.post('/:projectId/income-schedule', async (req, res) => {
     const aplicaIva = b.aplica_iva !== false && b.aplica_iva !== 'false' && b.aplica_iva !== 0;
     const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
     const conIva = sinIva + iva;
+    const rfPct   = parseFloat(b.retefuente_pct) || 0;
+    const ricaPct = parseFloat(b.reteica_pct)    || 0;
+    const rivaPct = parseFloat(b.reteiva_pct)    || 0;
+    const gmfPct  = parseFloat(b.gmf_pct)        || 0;
     const [ms] = await pool.execute('SELECT COALESCE(MAX(sort_order),0)+1 as s FROM budget_income_schedule WHERE project_id=?', [pid]);
     const [r] = await pool.execute(
-      `INSERT INTO budget_income_schedule (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva, estado, fecha_estimada, notas, sort_order)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [pid, b.tipo_pago||'mensual', b.mes||null, b.descripcion||null, sinIva, iva, conIva, b.estado||'pendiente', b.fecha_estimada||null, b.notas||null, ms[0].s]
+      `INSERT INTO budget_income_schedule
+         (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva,
+          estado, fecha_estimada, notas, sort_order,
+          retefuente_pct, reteica_pct, reteiva_pct, gmf_pct)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [pid, b.tipo_pago||'mensual', b.mes||null, b.descripcion||null, sinIva, iva, conIva,
+       b.estado||'pendiente', b.fecha_estimada||null, b.notas||null, ms[0].s,
+       rfPct, ricaPct, rivaPct, gmfPct]
     );
     const [rows] = await pool.execute('SELECT * FROM budget_income_schedule WHERE id=?', [r.insertId]);
     res.status(201).json({ data: rows[0] });
@@ -508,6 +517,10 @@ router.put('/:projectId/income-schedule/:id', async (req, res) => {
     if (b.estado) { f.push('estado=?'); v.push(b.estado); }
     if (b.fecha_estimada !== undefined) { f.push('fecha_estimada=?'); v.push(b.fecha_estimada || null); }
     if (b.notas !== undefined) { f.push('notas=?'); v.push(b.notas); }
+    if (b.retefuente_pct !== undefined) { f.push('retefuente_pct=?'); v.push(parseFloat(b.retefuente_pct) || 0); }
+    if (b.reteica_pct    !== undefined) { f.push('reteica_pct=?');    v.push(parseFloat(b.reteica_pct)    || 0); }
+    if (b.reteiva_pct    !== undefined) { f.push('reteiva_pct=?');    v.push(parseFloat(b.reteiva_pct)    || 0); }
+    if (b.gmf_pct        !== undefined) { f.push('gmf_pct=?');        v.push(parseFloat(b.gmf_pct)        || 0); }
     if (f.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
     v.push(req.params.id, req.params.projectId);
     await pool.execute(`UPDATE budget_income_schedule SET ${f.join(',')} WHERE id=? AND project_id=?`, v);
@@ -522,32 +535,73 @@ router.delete('/:projectId/income-schedule/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── GET unlinked: rows without a payment assigned ───────────────────────
+router.get('/:projectId/income-schedule/unlinked', [param('projectId').isInt()], async (req, res) => {
+  if (!validate(req, res)) return;
+  try {
+    const pid = req.params.projectId;
+    // Returns schedule rows that have no payment linked to them yet
+    const [rows] = await pool.execute(`
+      SELECT bis.*
+      FROM budget_income_schedule bis
+      WHERE bis.project_id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p
+          WHERE p.project_id = ? AND p.schedule_id = bis.id
+        )
+      ORDER BY bis.sort_order, bis.mes
+    `, [pid, pid]);
+    res.json({ data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Generate monthly schedule automatically
 router.post('/:projectId/income-schedule/generate', async (req, res) => {
   try {
     const pid = req.params.projectId;
     const pm = await getProjectMonths(parseInt(pid));
-    const { valor_mensual_sin_iva, tipo_pago, aplica_iva } = req.body;
+    const { valor_mensual_sin_iva, tipo_pago, aplica_iva,
+            retefuente_pct, reteica_pct, reteiva_pct, gmf_pct } = req.body;
     const aplicaIva = aplica_iva !== false && aplica_iva !== 'false' && aplica_iva !== 0;
+    const rfPct   = parseFloat(retefuente_pct) || 0;
+    const ricaPct = parseFloat(reteica_pct)    || 0;
+    const rivaPct = parseFloat(reteiva_pct)    || 0;
+    const gPct    = parseFloat(gmf_pct)        || 0;
 
     if (tipo_pago === 'mensual') {
       const sinIva = parseFloat(valor_mensual_sin_iva) || 0;
       const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
-      // Clear existing schedule
-      await pool.execute('DELETE FROM budget_income_schedule WHERE project_id=?', [pid]);
+      // Clear existing schedule (only rows without a linked payment)
+      await pool.execute(`
+        DELETE FROM budget_income_schedule
+        WHERE project_id = ?
+          AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.schedule_id = budget_income_schedule.id)
+      `, [pid]);
       for (let m = 1; m <= pm; m++) {
         await pool.execute(
-          `INSERT INTO budget_income_schedule (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva, sort_order) VALUES (?,?,?,?,?,?,?,?)`,
-          [pid, 'mensual', m, `Pago mensual - Mes ${m}`, sinIva, iva, sinIva + iva, m]
+          `INSERT INTO budget_income_schedule
+             (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva,
+              sort_order, retefuente_pct, reteica_pct, reteiva_pct, gmf_pct)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [pid, 'mensual', m, `Pago mensual - Mes ${m}`, sinIva, iva, sinIva + iva, m,
+           rfPct, ricaPct, rivaPct, gPct]
         );
       }
     } else if (tipo_pago === 'unico') {
       const sinIva = parseFloat(valor_mensual_sin_iva) || 0;
       const iva = aplicaIva ? Math.round(sinIva * 0.19 * 100) / 100 : 0;
-      await pool.execute('DELETE FROM budget_income_schedule WHERE project_id=?', [pid]);
+      await pool.execute(`
+        DELETE FROM budget_income_schedule
+        WHERE project_id = ?
+          AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.schedule_id = budget_income_schedule.id)
+      `, [pid]);
       await pool.execute(
-        `INSERT INTO budget_income_schedule (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva, sort_order) VALUES (?,?,?,?,?,?,?,?)`,
-        [pid, 'unico', pm, 'Pago único al finalizar', sinIva, iva, sinIva + iva, 1]
+        `INSERT INTO budget_income_schedule
+           (project_id, tipo_pago, mes, descripcion, valor_sin_iva, valor_iva, valor_con_iva,
+            sort_order, retefuente_pct, reteica_pct, reteiva_pct, gmf_pct)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [pid, 'unico', pm, 'Pago único al finalizar', sinIva, iva, sinIva + iva, 1,
+         rfPct, ricaPct, rivaPct, gPct]
       );
     }
 
@@ -804,6 +858,47 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
       bf.forEach(r => { ejecByFuente[r.fuente] = parseFloat(r.total || 0); });
     } catch {}
 
+    // ── RETENCIONES PRESUPUESTADAS por tipo (desde schedule) ──────────────────
+    let rfPres = 0, ricaPres = 0, rivaPres = 0, gmfPres = 0;
+    try {
+      const [schedTax] = await pool.execute(`
+        SELECT
+          COALESCE(SUM(valor_sin_iva * retefuente_pct / 100), 0) AS retefuente,
+          COALESCE(SUM(valor_sin_iva * reteica_pct    / 100), 0) AS reteica,
+          COALESCE(SUM(valor_iva     * reteiva_pct    / 100), 0) AS reteiva,
+          COALESCE(SUM(valor_con_iva * gmf_pct        / 100), 0) AS gmf
+        FROM budget_income_schedule WHERE project_id = ?`, [pid]);
+      rfPres   = Math.round(parseFloat(schedTax[0].retefuente || 0));
+      ricaPres = Math.round(parseFloat(schedTax[0].reteica    || 0));
+      rivaPres = Math.round(parseFloat(schedTax[0].reteiva    || 0));
+      gmfPres  = Math.round(parseFloat(schedTax[0].gmf        || 0));
+    } catch {}
+
+    // ── RETENCIONES REALES por tipo (desde payments pagados/aprobados) ─────────
+    let rfReal = 0, ricaReal = 0, rivaReal = 0, gmfReal = 0, baseRealCobrado = 0;
+    try {
+      const [payTax] = await pool.execute(`
+        SELECT
+          COALESCE(SUM(retefuente_value),  0) AS retefuente,
+          COALESCE(SUM(reteica_value),     0) AS reteica,
+          COALESCE(SUM(reteiva_value),     0) AS reteiva,
+          COALESCE(SUM(IFNULL(gmf_value,0)),0) AS gmf,
+          COALESCE(SUM(CASE WHEN status='pagado' THEN base_value ELSE 0 END), 0) AS base_cobrado
+        FROM payments WHERE project_id = ? AND status IN ('pagado','aprobado')`, [pid]);
+      rfReal          = Math.round(parseFloat(payTax[0].retefuente   || 0));
+      ricaReal        = Math.round(parseFloat(payTax[0].reteica      || 0));
+      rivaReal        = Math.round(parseFloat(payTax[0].reteiva      || 0));
+      gmfReal         = Math.round(parseFloat(payTax[0].gmf          || 0));
+      baseRealCobrado = Math.round(parseFloat(payTax[0].base_cobrado || 0));
+    } catch {}
+
+    // Resultado real desglosado:
+    // Resultado Operativo = Ingresos Base − Egresos − RETEICA − GMF
+    // Ganancia Distribuible Real = Resultado Operativo − RETEFUENTE
+    const ingresosBaseReal  = baseRealCobrado;
+    const resultadoOpReal   = ingresosBaseReal - egresosEjecutados - ricaReal - gmfReal;
+    const gananciaDistReal  = resultadoOpReal  - rfReal;
+
     // Si no hay pagos registrados, usar ingresos del schedule como referencia
     const ingresosRealesRef = pagosFacturados > 0 ? pagosFacturados : totalConIva;
     const gananciaEjecucion = ingresosRealesRef - egresosEjecutados;
@@ -819,16 +914,36 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
       ganancia_contable: gananciaContable, ganancia_contable_pct: totalConIva > 0 ? gananciaContable/totalConIva*100 : 0,
       ganancia_distribuible: gananciaDistribuible, ganancia_distribuible_pct: totalConIva > 0 ? gananciaDistribuible/totalConIva*100 : 0,
       ganancia_real: gananciaReal, ganancia_real_pct: totalConIva > 0 ? gananciaReal/totalConIva*100 : 0,
+      // Retenciones presupuestadas por tipo (del schedule)
+      retenciones_pres: {
+        retefuente: rfPres,
+        reteica:    ricaPres,
+        reteiva:    rivaPres,
+        gmf:        gmfPres,
+        total:      rfPres + ricaPres + gmfPres, // reteiva excluida del P&L
+      },
       // Ejecución real
       ejecucion: {
         ingresos_cobrados:   pagosCobrados,
         ingresos_facturados: pagosFacturados,
         ingresos_pendientes: pagosPendientes,
+        ingresos_base_real:  baseRealCobrado,
         tiene_pagos:         pagosFacturados > 0,
         egresos_ejecutados:  egresosEjecutados,
         egresos_by_fuente:   ejecByFuente,
         ganancia_ejecucion:  gananciaEjecucion,
         margen_ejecucion:    margenEjecucion,
+        // Retenciones reales por tipo
+        retenciones_real: {
+          retefuente: rfReal,
+          reteica:    ricaReal,
+          reteiva:    rivaReal,
+          gmf:        gmfReal,
+          total:      rfReal + ricaReal + gmfReal,
+        },
+        // P&L real desglosado
+        resultado_operativo_real:    resultadoOpReal,
+        ganancia_distribuible_real:  gananciaDistReal,
         // Comparación vs presupuesto
         desviacion_ingresos: ingresosRealesRef - totalConIva,
         desviacion_egresos:  egresosEjecutados - totalGastos,

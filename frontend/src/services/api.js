@@ -86,6 +86,7 @@ export const budgetAPI = {
   incomeScheduleUpdate: (projectId, id, data) => api.put(`/budget/${projectId}/income-schedule/${id}`, data),
   incomeScheduleDelete: (projectId, id) => api.delete(`/budget/${projectId}/income-schedule/${id}`),
   incomeScheduleGenerate: (projectId, data) => api.post(`/budget/${projectId}/income-schedule/generate`, data),
+  incomeScheduleUnlinked: (projectId) => api.get(`/budget/${projectId}/income-schedule/unlinked`),
   // Payroll
   payrollList: (projectId) => api.get(`/budget/${projectId}/payroll`),
   payrollAdd: (projectId, data) => api.post(`/budget/${projectId}/payroll`, data),

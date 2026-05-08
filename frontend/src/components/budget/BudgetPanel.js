@@ -44,8 +44,12 @@ function IncomeTab({ projectId, onUpdate }) {
   const [genType, setGenType] = useState('mensual');
   const [genVal, setGenVal] = useState('');
   const [genAplicaIva, setGenAplicaIva] = useState(true);
+  const [genRetefuente, setGenRetefuente] = useState('');
+  const [genReteica, setGenReteica] = useState('');
+  const [genReteiva, setGenReteiva] = useState('');
+  const [genGmf, setGenGmf] = useState('');
   const [addingSched, setAddingSched] = useState(false);
-  const [newSched, setNewSched] = useState({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'', aplica_iva: true });
+  const [newSched, setNewSched] = useState({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'', aplica_iva: true, retefuente_pct:'', reteica_pct:'', reteiva_pct:'', gmf_pct:'' });
   const [editSchedId, setEditSchedId] = useState(null);
   const [editSchedData, setEditSchedData] = useState({});
 
@@ -57,7 +61,7 @@ function IncomeTab({ projectId, onUpdate }) {
   }, [projectId]);
   useEffect(()=>{load();},[load]);
 
-  const handleGenerate = async () => { if (!genVal) return; try { await budgetAPI.incomeScheduleGenerate(projectId, { tipo_pago: genType, valor_mensual_sin_iva: parseFloat(genVal)||0, aplica_iva: genAplicaIva }); setShowGenerate(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
+  const handleGenerate = async () => { if (!genVal) return; try { await budgetAPI.incomeScheduleGenerate(projectId, { tipo_pago: genType, valor_mensual_sin_iva: parseFloat(genVal)||0, aplica_iva: genAplicaIva, retefuente_pct: parseFloat(genRetefuente)||0, reteica_pct: parseFloat(genReteica)||0, reteiva_pct: parseFloat(genReteiva)||0, gmf_pct: parseFloat(genGmf)||0 }); setShowGenerate(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
   const handleAddSched = async () => { if (!newSched.valor_sin_iva) return; try { await budgetAPI.incomeScheduleAdd(projectId, newSched); setNewSched({ tipo_pago:'hito', mes:'', descripcion:'', valor_sin_iva:'' }); setAddingSched(false); load(); } catch(e) { alert(e.response?.data?.error||'Error'); } };
   const handleSaveSched = async (id) => { try { await budgetAPI.incomeScheduleUpdate(projectId, id, { ...editSchedData, valor_sin_iva: parseFloat(editSchedData.valor_sin_iva)||0, aplica_iva: editSchedData.aplica_iva !== false }); setEditSchedId(null); load(); } catch {} };
   const handleDeleteSched = async (id) => { await budgetAPI.incomeScheduleDelete(projectId, id); load(); };
@@ -84,35 +88,64 @@ function IncomeTab({ projectId, onUpdate }) {
 
         {/* Generate form */}
         {showGenerate && (
-          <div className="bg-blue-50 rounded-lg p-3 mb-3 flex items-end gap-3 flex-wrap">
-            <div>
-              <label className="text-[10px] text-blue-700 font-semibold block mb-1">Tipo de pago</label>
-              <select value={genType} onChange={e=>setGenType(e.target.value)} className="input-field text-xs">
-                <option value="mensual">Mensual (mismo valor cada mes)</option>
-                <option value="unico">Pago único al final</option>
-              </select>
+          <div className="bg-blue-50 rounded-lg p-4 mb-3 space-y-3 border border-blue-200">
+            <p className="text-xs font-bold text-blue-800">Generar flujo de ingresos</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div>
+                <label className="text-[10px] text-blue-700 font-semibold block mb-1">Tipo de pago</label>
+                <select value={genType} onChange={e=>setGenType(e.target.value)} className="input-field text-xs">
+                  <option value="mensual">Mensual (mismo valor cada mes)</option>
+                  <option value="unico">Pago único al final</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-blue-700 font-semibold block mb-1">{genType==='mensual' ? 'Valor mensual sin IVA' : 'Valor total sin IVA'}</label>
+                <input type="number" value={genVal} onChange={e=>setGenVal(e.target.value)} className="input-field text-xs w-40 text-right" placeholder="0"/>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-blue-700 font-semibold">Aplica IVA (19%)</label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={genAplicaIva} onChange={e=>setGenAplicaIva(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded"/>
+                  <span className="text-xs text-blue-800">{genAplicaIva ? 'Sí' : 'No'}</span>
+                </label>
+              </div>
             </div>
-            <div>
-              <label className="text-[10px] text-blue-700 font-semibold block mb-1">{genType==='mensual' ? 'Valor mensual sin IVA' : 'Valor total sin IVA'}</label>
-              <input type="number" value={genVal} onChange={e=>setGenVal(e.target.value)} className="input-field text-xs w-40 text-right" placeholder="0"/>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-blue-700 font-semibold">Aplica IVA (19%)</label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={genAplicaIva} onChange={e=>setGenAplicaIva(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded"/>
-                <span className="text-xs text-blue-800">{genAplicaIva ? 'Sí' : 'No'}</span>
-              </label>
+            {/* Tax rates */}
+            <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+              <p className="text-[10px] font-bold text-amber-800 mb-2">Tasas de retención (se guardan en cada pago del flujo)</p>
+              <div className="grid grid-cols-4 gap-2">
+                <div>
+                  <label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEFUENTE %</label>
+                  <input type="number" min="0" max="100" step="0.01" value={genRetefuente} onChange={e=>setGenRetefuente(e.target.value)} className="input-field text-xs text-right" placeholder="3.5"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEICA %</label>
+                  <input type="number" min="0" max="100" step="0.001" value={genReteica} onChange={e=>setGenReteica(e.target.value)} className="input-field text-xs text-right" placeholder="0.8"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEIVA %</label>
+                  <input type="number" min="0" max="100" step="0.01" value={genReteiva} onChange={e=>setGenReteiva(e.target.value)} className="input-field text-xs text-right" placeholder="15"/>
+                  <p className="text-[9px] text-amber-500 mt-0.5">% del IVA</p>
+                </div>
+                <div>
+                  <label className="text-[10px] text-amber-700 font-semibold block mb-1">GMF ‰</label>
+                  <input type="number" min="0" max="1" step="0.001" value={genGmf} onChange={e=>setGenGmf(e.target.value)} className="input-field text-xs text-right" placeholder="0.4"/>
+                  <p className="text-[9px] text-amber-500 mt-0.5">% del bruto</p>
+                </div>
+              </div>
             </div>
             {parseFloat(genVal) > 0 && (
-              <div className="text-[10px] text-blue-700 font-mono bg-blue-100 rounded px-2 py-1 self-end mb-0.5">
+              <div className="text-[10px] text-blue-700 font-mono bg-blue-100 rounded px-2 py-1">
                 {genAplicaIva
                   ? <>Sin IVA: <b>{(parseFloat(genVal)||0).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b> → Con IVA: <b>{((parseFloat(genVal)||0)*1.19).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b></>
                   : <>Total: <b>{(parseFloat(genVal)||0).toLocaleString('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0})}</b> (sin IVA)</>
                 }
               </div>
             )}
-            <button onClick={handleGenerate} className="btn-primary text-xs">Generar</button>
-            <button onClick={()=>setShowGenerate(false)} className="text-xs text-surface-400 hover:text-surface-600">Cancelar</button>
+            <div className="flex gap-2">
+              <button onClick={handleGenerate} className="btn-primary text-xs">Generar</button>
+              <button onClick={()=>setShowGenerate(false)} className="text-xs text-surface-400 hover:text-surface-600">Cancelar</button>
+            </div>
           </div>
         )}
 
@@ -173,6 +206,16 @@ function IncomeTab({ projectId, onUpdate }) {
                   )}
                 </div>
               </div>
+              {/* Tax rates */}
+              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                <p className="text-[10px] font-bold text-amber-800 mb-2">Tasas de retención</p>
+                <div className="grid grid-cols-4 gap-2">
+                  <div><label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEFUENTE %</label><input type="number" min="0" max="100" step="0.01" value={newSched.retefuente_pct} onChange={e=>setNewSched(d=>({...d,retefuente_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="3.5"/></div>
+                  <div><label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEICA %</label><input type="number" min="0" max="100" step="0.001" value={newSched.reteica_pct} onChange={e=>setNewSched(d=>({...d,reteica_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0.8"/></div>
+                  <div><label className="text-[10px] text-amber-700 font-semibold block mb-1">RETEIVA %</label><input type="number" min="0" max="100" step="0.01" value={newSched.reteiva_pct} onChange={e=>setNewSched(d=>({...d,reteiva_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="15"/><p className="text-[9px] text-amber-500 mt-0.5">% del IVA</p></div>
+                  <div><label className="text-[10px] text-amber-700 font-semibold block mb-1">GMF ‰</label><input type="number" min="0" max="1" step="0.001" value={newSched.gmf_pct} onChange={e=>setNewSched(d=>({...d,gmf_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0.4"/><p className="text-[9px] text-amber-500 mt-0.5">% del bruto</p></div>
+                </div>
+              </div>
               {/* Footer */}
               <div className="flex justify-end gap-3 px-6 py-4 border-t border-surface-100 bg-surface-50">
                 <button onClick={()=>setAddingSched(false)} className="px-4 py-2 text-sm font-medium text-surface-600 hover:text-surface-800 bg-white hover:bg-surface-100 rounded-lg border border-surface-200 transition-colors">
@@ -193,6 +236,7 @@ function IncomeTab({ projectId, onUpdate }) {
               <thead><tr className="bg-surface-50 text-[10px] font-semibold text-surface-400 uppercase">
                 <th className="px-3 py-2 text-left">Tipo</th><th className="px-3 py-2 text-center w-16">Mes</th><th className="px-3 py-2 text-left">Descripción</th>
                 <th className="px-3 py-2 text-right">Sin IVA</th><th className="px-3 py-2 text-right">IVA</th><th className="px-3 py-2 text-right">Con IVA</th>
+                <th className="px-3 py-2 text-right text-amber-500">RF%</th><th className="px-3 py-2 text-right text-amber-500">ICA%</th>
                 <th className="px-3 py-2 text-center w-20">Estado</th><th className="w-12"></th>
               </tr></thead>
               <tbody>
@@ -252,7 +296,17 @@ function IncomeTab({ projectId, onUpdate }) {
                             </select>
                           </div>
                         </div>
-                        {/* Fila 3: Botones alineados a la derecha */}
+                        {/* Fila 3: Tasas de retención */}
+                        <div className="bg-amber-50 rounded-lg p-2 border border-amber-200">
+                          <p className="text-[9px] font-bold text-amber-700 uppercase tracking-wide mb-2">Tasas de retención</p>
+                          <div className="grid grid-cols-4 gap-2">
+                            <div><label className="block text-[9px] text-amber-600 mb-0.5">RETEFUENTE %</label><input type="number" min="0" max="100" step="0.01" value={editSchedData.retefuente_pct||''} onChange={e=>setEditSchedData(d=>({...d,retefuente_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0"/></div>
+                            <div><label className="block text-[9px] text-amber-600 mb-0.5">RETEICA %</label><input type="number" min="0" max="100" step="0.001" value={editSchedData.reteica_pct||''} onChange={e=>setEditSchedData(d=>({...d,reteica_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0"/></div>
+                            <div><label className="block text-[9px] text-amber-600 mb-0.5">RETEIVA % <span className="text-amber-400">(del IVA)</span></label><input type="number" min="0" max="100" step="0.01" value={editSchedData.reteiva_pct||''} onChange={e=>setEditSchedData(d=>({...d,reteiva_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0"/></div>
+                            <div><label className="block text-[9px] text-amber-600 mb-0.5">GMF ‰ <span className="text-amber-400">(del bruto)</span></label><input type="number" min="0" max="1" step="0.001" value={editSchedData.gmf_pct||''} onChange={e=>setEditSchedData(d=>({...d,gmf_pct:e.target.value}))} className="input-field text-xs text-right" placeholder="0"/></div>
+                          </div>
+                        </div>
+                        {/* Fila 4: Botones alineados a la derecha */}
                         <div className="flex justify-end gap-2 pt-1">
                           <button onClick={()=>setEditSchedId(null)} className="px-4 py-2 text-xs font-medium text-surface-600 hover:text-surface-800 bg-white hover:bg-surface-50 rounded-lg border border-surface-200 transition-colors">
                             Cancelar
@@ -266,14 +320,20 @@ function IncomeTab({ projectId, onUpdate }) {
                   </tr>
                 ) : (
                   <tr key={s.id} className={`group border-b border-surface-50 hover:bg-surface-50 cursor-pointer ${idx%2===1?'bg-surface-50/30':''}`}
-                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion||'',valor_sin_iva:parseFloat(s.valor_sin_iva)||0,estado:s.estado||'pendiente',aplica_iva:parseFloat(s.valor_iva||0)>0});}}>
+                    onClick={()=>{setEditSchedId(s.id);setEditSchedData({tipo_pago:s.tipo_pago,mes:s.mes,descripcion:s.descripcion||'',valor_sin_iva:parseFloat(s.valor_sin_iva)||0,estado:s.estado||'pendiente',aplica_iva:parseFloat(s.valor_iva||0)>0,retefuente_pct:s.retefuente_pct||0,reteica_pct:s.reteica_pct||0,reteiva_pct:s.reteiva_pct||0,gmf_pct:s.gmf_pct||0});}}>
                     <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${s.tipo_pago==='mensual'?'bg-blue-100 text-blue-700':s.tipo_pago==='hito'?'bg-amber-100 text-amber-700':'bg-purple-100 text-purple-700'}`}>{s.tipo_pago==='mensual'?'Mensual':s.tipo_pago==='hito'?'Hito':'Único'}</span></td>
                     <td className="px-3 py-2 text-center font-mono text-xs text-surface-600">{s.mes||'—'}</td>
                     <td className="px-3 py-2 text-surface-700 text-xs">{s.descripcion||`Pago mes ${s.mes}`}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs">{fm(s.valor_sin_iva)}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs text-surface-400">{fm(s.valor_iva)}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-brand-700">{fm(s.valor_con_iva)}</td>
-                    <td className="px-3 py-2 text-center"><span className={`text-[10px] px-1.5 py-0.5 rounded ${s.estado==='pagado'?'bg-emerald-100 text-emerald-700':s.estado==='facturado'?'bg-blue-100 text-blue-700':'bg-surface-100 text-surface-500'}`}>{s.estado==='pagado'?'Pagado':s.estado==='facturado'?'Facturado':'Pendiente'}</span></td>
+                    <td className="px-3 py-2 text-right font-mono text-[10px] text-amber-600">{parseFloat(s.retefuente_pct||0)>0?`${parseFloat(s.retefuente_pct)}%`:'—'}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[10px] text-amber-600">{parseFloat(s.reteica_pct||0)>0?`${parseFloat(s.reteica_pct)}%`:'—'}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.estado==='pagado'?'bg-emerald-100 text-emerald-700':s.estado==='facturado'?'bg-blue-100 text-blue-700':'bg-surface-100 text-surface-500'}`}>
+                        {s.estado==='pagado'?'✅ Pagado':s.estado==='facturado'?'🔗 Facturado':'Pendiente'}
+                      </span>
+                    </td>
                     <td className="px-1" onClick={e=>e.stopPropagation()}><button onClick={()=>handleDeleteSched(s.id)} className="w-5 h-5 rounded hover:bg-red-50 flex items-center justify-center opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3 text-red-400"/></button></td>
                   </tr>
                 ))}
@@ -283,7 +343,7 @@ function IncomeTab({ projectId, onUpdate }) {
                 <td className="px-3 py-2 text-right font-mono">{fm(schedTotal)}</td>
                 <td className="px-3 py-2 text-right font-mono text-surface-500">{fm(schedIva)}</td>
                 <td className="px-3 py-2 text-right font-mono text-brand-700">{fm(schedTotal + schedIva)}</td>
-                <td colSpan={2}></td>
+                <td colSpan={4}></td>
               </tr></tfoot>
             </table>
           </div>
@@ -1103,17 +1163,61 @@ function FinancialSummaryTab({ projectId, perms }) {
               <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50"><span className="text-surface-600">Gastos adicionales (extra)</span><span className="text-surface-700 font-medium">{fm(ej.egresos_by_fuente.extra)}</span></div>
             )}
             <div className="h-2 bg-surface-50"/>
-            {/* RESULTADO REAL */}
-            <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-mono w-12">RE</span>
-                <div>
-                  <div>RESULTADO REAL DE EJECUCIÓN</div>
-                  <div className="text-[10px] font-normal text-surface-500">Ingresos reales − Egresos ejecutados</div>
+            {/* RETENCIONES REALES */}
+            {(ej.retenciones_real?.reteica > 0 || ej.retenciones_real?.gmf > 0) && (
+              <>
+                {ej.retenciones_real?.reteica > 0 && (
+                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
+                    <span className="text-surface-600">RETEICA (gasto fiscal)</span>
+                    <span className="text-red-600 font-medium">{fm(ej.retenciones_real.reteica)}</span>
+                  </div>
+                )}
+                {ej.retenciones_real?.gmf > 0 && (
+                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
+                    <span className="text-surface-600">GMF (gasto financiero)</span>
+                    <span className="text-red-600 font-medium">{fm(ej.retenciones_real.gmf)}</span>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="h-2 bg-surface-50"/>
+            {/* RESULTADO OPERATIVO REAL */}
+            {ej.resultado_operativo_real !== undefined && (
+              <div className={`flex items-center justify-between px-4 py-2.5 font-bold border-b ${ej.resultado_operativo_real >= 0 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono w-12">RO</span>
+                  <div><div>RESULTADO OPERATIVO REAL</div><div className="text-[10px] font-normal text-surface-500">Base − Egresos − RETEICA − GMF</div></div>
                 </div>
+                <span className={`font-display ${ej.resultado_operativo_real >= 0 ? 'text-yellow-700' : 'text-red-700'}`}>{fm(ej.resultado_operativo_real)}</span>
               </div>
-              <span className={`font-display text-xl ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</span>
-            </div>
+            )}
+            {/* RETEFUENTE como deducción */}
+            {ej.retenciones_real?.retefuente > 0 && (
+              <div className="flex items-center justify-between px-4 py-1.5 text-xs border-b border-surface-50">
+                <div className="flex items-center gap-3"><span className="font-mono text-surface-400 w-12">RF</span><span className="text-surface-600">Retención en la Fuente (deducción)</span></div>
+                <span className="text-surface-700 font-medium">{fm(ej.retenciones_real.retefuente)}</span>
+              </div>
+            )}
+            {/* GANANCIA DISTRIBUIBLE REAL */}
+            {ej.ganancia_distribuible_real !== undefined && (
+              <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_distribuible_real >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono w-12">GD</span>
+                  <div><div>GANANCIA DISTRIBUIBLE REAL</div><div className="text-[10px] font-normal text-surface-500">Resultado Operativo − RETEFUENTE</div></div>
+                </div>
+                <span className={`font-display text-xl ${ej.ganancia_distribuible_real >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_distribuible_real)}</span>
+              </div>
+            )}
+            {/* Resultado general si no hay datos desglosados */}
+            {ej.ganancia_distribuible_real === undefined && (
+              <div className={`flex items-center justify-between px-4 py-3 font-bold border-y-2 ${ej.ganancia_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-400' : 'bg-red-50 border-red-400'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono w-12">RE</span>
+                  <div><div>RESULTADO REAL DE EJECUCIÓN</div><div className="text-[10px] font-normal text-surface-500">Ingresos reales − Egresos ejecutados</div></div>
+                </div>
+                <span className={`font-display text-xl ${ej.ganancia_ejecucion >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fm(ej.ganancia_ejecucion)}</span>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className={`p-4 rounded-xl border text-center ${ej.margen_ejecucion >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>

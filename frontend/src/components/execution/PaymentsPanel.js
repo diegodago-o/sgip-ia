@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { paymentsAPI } from '../../services/api';
-import { Plus, Edit2, Trash2, X, Save, Loader2, DollarSign, Calculator } from 'lucide-react';
+import { paymentsAPI, budgetAPI } from '../../services/api';
+import { Plus, Edit2, Trash2, X, Save, Loader2, DollarSign, Calculator, Link } from 'lucide-react';
 
 const ST = { borrador: { l: 'Borrador', bg: 'bg-slate-100', t: 'text-slate-600' }, presentado: { l: 'Presentado', bg: 'bg-blue-100', t: 'text-blue-700' }, en_revision: { l: 'En revisión', bg: 'bg-amber-100', t: 'text-amber-700' }, aprobado: { l: 'Aprobado', bg: 'bg-emerald-100', t: 'text-emerald-700' }, pagado: { l: 'Pagado', bg: 'bg-green-100', t: 'text-green-700' }, rechazado: { l: 'Rechazado', bg: 'bg-red-100', t: 'text-red-700' } };
 const TYPES = { anticipo: 'Anticipo', corte_mensual: 'Corte mensual', corte_parcial: 'Corte parcial', pago_final: 'Pago final', otro: 'Otro' };
@@ -19,29 +19,59 @@ function PayModal({ item, projectId, onClose, onSaved }) {
     reteiva_pct: item?.reteiva_pct || 0,
     retefuente_pct: item?.retefuente_pct || 0,
     reteica_pct: item?.reteica_pct || 0,
+    gmf_pct: item?.gmf_pct || 0,
     invoice_number: item?.invoice_number || '',
     invoice_date: item?.invoice_date?.split('T')[0] || '',
     paid_date: item?.paid_date?.split('T')[0] || '',
     notes: item?.notes || '',
     status: item?.status || 'borrador',
+    schedule_id: item?.schedule_id || null,
   });
   const [saving, setSaving] = useState(false);
+  const [scheduleItems, setScheduleItems] = useState([]);
   const set = f => e => setForm(d => ({ ...d, [f]: e.target.value }));
+
+  // Load available schedule items (only when creating, not editing)
+  useEffect(() => {
+    if (isEdit) return;
+    budgetAPI.incomeScheduleUnlinked(projectId)
+      .then(r => setScheduleItems(r.data.data || []))
+      .catch(() => {});
+  }, [isEdit, projectId]);
+
+  const handleScheduleSelect = (schedId) => {
+    if (!schedId) { setForm(d => ({ ...d, schedule_id: null })); return; }
+    const sched = scheduleItems.find(s => s.id === parseInt(schedId));
+    if (!sched) return;
+    setForm(d => ({
+      ...d,
+      schedule_id: sched.id,
+      base_value: parseFloat(sched.valor_sin_iva) || 0,
+      iva_pct: parseFloat(sched.valor_iva) > 0 ? 19 : 0,
+      retefuente_pct: parseFloat(sched.retefuente_pct) || 0,
+      reteica_pct: parseFloat(sched.reteica_pct) || 0,
+      reteiva_pct: parseFloat(sched.reteiva_pct) || 0,
+      gmf_pct: parseFloat(sched.gmf_pct) || 0,
+      concept: d.concept || sched.descripcion || `Pago ${sched.tipo_pago} ${sched.mes ? 'mes '+sched.mes : ''}`.trim(),
+    }));
+  };
 
   // Live calculation — mirrors backend calcPayment exactly
   const base = parseFloat(form.base_value) || 0;
   const ivaPct = parseFloat(form.iva_pct) || 0;
   const amort = parseFloat(form.amortization) || 0;
-  const reteivaPct = parseFloat(form.reteiva_pct) || 0;
+  const reteivaPct    = parseFloat(form.reteiva_pct)    || 0;
   const retefuentePct = parseFloat(form.retefuente_pct) || 0;
-  const reteicaPct = parseFloat(form.reteica_pct) || 0;
+  const reteicaPct    = parseFloat(form.reteica_pct)    || 0;
+  const gmfPct        = parseFloat(form.gmf_pct)        || 0;
 
-  const ivaValue = Math.round(base * ivaPct / 100);
-  const gross = base + ivaValue;
-  const reteivaValue = Math.round(ivaValue * reteivaPct / 100);
-  const retefuenteValue = Math.round(base * retefuentePct / 100);
-  const reteicaValue = Math.round(base * reteicaPct / 100);
-  const totalRetentions = reteivaValue + retefuenteValue + reteicaValue;
+  const ivaValue        = Math.round(base  * ivaPct        / 100);
+  const gross           = base + ivaValue;
+  const reteivaValue    = Math.round(ivaValue * reteivaPct / 100);
+  const retefuenteValue = Math.round(base  * retefuentePct / 100);
+  const reteicaValue    = Math.round(base  * reteicaPct    / 100);
+  const gmfValue        = Math.round(gross * gmfPct        / 100);
+  const totalRetentions = reteivaValue + retefuenteValue + reteicaValue + gmfValue;
   const net = gross - totalRetentions - amort;
 
   const handle = async e => {
@@ -62,6 +92,28 @@ function PayModal({ item, projectId, onClose, onSaved }) {
           <button onClick={onClose}><X className="w-4 h-4 text-surface-400" /></button>
         </div>
         <form onSubmit={handle} className="p-5 space-y-3">
+          {/* Vincular a flujo de ingresos — solo en nuevo pago */}
+          {!isEdit && (
+            <div className={`rounded-lg p-3 border ${form.schedule_id ? 'bg-blue-50 border-blue-200' : 'bg-surface-50 border-surface-200'}`}>
+              <label className="block text-xs font-semibold text-brand-800 mb-1 flex items-center gap-1">
+                <Link className="w-3 h-3"/> Vincular a flujo de ingresos presupuestado
+              </label>
+              <select
+                value={form.schedule_id || ''}
+                onChange={e => handleScheduleSelect(e.target.value)}
+                className="input-field text-sm w-full"
+              >
+                <option value="">— Sin vincular (pago manual) —</option>
+                {scheduleItems.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.tipo_pago === 'mensual' ? `Mes ${s.mes}` : s.tipo_pago === 'unico' ? 'Pago único' : 'Hito'} — {s.descripcion || `Pago mes ${s.mes}`} — {fmtM(s.valor_con_iva || s.valor_sin_iva)}
+                  </option>
+                ))}
+              </select>
+              {form.schedule_id && <p className="text-[10px] text-blue-600 mt-1">✓ Valores pre-llenados desde el presupuesto. Puede editarlos si difieren.</p>}
+              {!form.schedule_id && scheduleItems.length === 0 && <p className="text-[10px] text-surface-400 mt-1">No hay hitos disponibles en el flujo de ingresos o todos ya tienen un pago asociado.</p>}
+            </div>
+          )}
           {/* Concepto y Tipo */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2"><label className="block text-xs font-medium text-brand-800 mb-1">Concepto *</label><input value={form.concept} onChange={set('concept')} required className="input-field text-sm" /></div>
@@ -93,21 +145,26 @@ function PayModal({ item, projectId, onClose, onSaved }) {
           {/* Retenciones */}
           <div className="p-3 bg-amber-50 rounded-lg space-y-2">
             <p className="text-xs font-semibold text-amber-800">Retenciones (% variable por servicio)</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] text-amber-700 mb-0.5">RETEIVA %</label>
-                <input type="number" min="0" max="100" step="0.01" value={form.reteiva_pct} onChange={set('reteiva_pct')} className="input-field text-xs" />
-                <p className="text-[10px] text-amber-600 mt-0.5">= {fmtM(reteivaValue)}</p>
-              </div>
-              <div>
-                <label className="block text-[10px] text-amber-700 mb-0.5">RETEFUENTE %</label>
+                <label className="block text-[10px] text-amber-700 mb-0.5">RETEFUENTE % <span className="text-amber-400">(sobre base)</span></label>
                 <input type="number" min="0" max="100" step="0.01" value={form.retefuente_pct} onChange={set('retefuente_pct')} className="input-field text-xs" />
                 <p className="text-[10px] text-amber-600 mt-0.5">= {fmtM(retefuenteValue)}</p>
               </div>
               <div>
-                <label className="block text-[10px] text-amber-700 mb-0.5">RETEICA %</label>
+                <label className="block text-[10px] text-amber-700 mb-0.5">RETEICA % <span className="text-amber-400">(sobre base)</span></label>
                 <input type="number" min="0" max="100" step="0.001" value={form.reteica_pct} onChange={set('reteica_pct')} className="input-field text-xs" />
                 <p className="text-[10px] text-amber-600 mt-0.5">= {fmtM(reteicaValue)}</p>
+              </div>
+              <div>
+                <label className="block text-[10px] text-amber-700 mb-0.5">RETEIVA % <span className="text-amber-400">(sobre IVA)</span></label>
+                <input type="number" min="0" max="100" step="0.01" value={form.reteiva_pct} onChange={set('reteiva_pct')} className="input-field text-xs" />
+                <p className="text-[10px] text-amber-600 mt-0.5">= {fmtM(reteivaValue)}</p>
+              </div>
+              <div>
+                <label className="block text-[10px] text-amber-700 mb-0.5">GMF % <span className="text-amber-400">(sobre bruto)</span></label>
+                <input type="number" min="0" max="1" step="0.001" value={form.gmf_pct} onChange={set('gmf_pct')} className="input-field text-xs" />
+                <p className="text-[10px] text-amber-600 mt-0.5">= {fmtM(gmfValue)}</p>
               </div>
             </div>
             <div className="flex justify-between text-xs text-amber-800 pt-1 border-t border-amber-100">
@@ -160,12 +217,25 @@ export default function PaymentsPanel({ projectId, perms = {} }) {
   return (
     <div className="space-y-4">
       {toast && <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-slide-up bg-emerald-600 text-white">{toast}</div>}
-      {summary && <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Total consignado</p><p className="text-sm font-bold text-emerald-600">{fmtM(summary.total_paid)}</p><p className="text-[10px] text-surface-400">{summary.payment_pct}% del contrato</p></div>
-        <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Saldo pendiente</p><p className="text-sm font-bold text-brand-700">{fmtM(summary.remaining)}</p></div>
-        <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Retenciones acum.</p><p className="text-sm font-bold text-amber-600">{fmtM(summary.total_retained)}</p></div>
-        <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Pagos</p><p className="text-sm font-bold text-brand-700">{summary.pagados || 0} / {summary.total || 0}</p></div>
-      </div>}
+      {summary && <>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Total consignado</p><p className="text-sm font-bold text-emerald-600">{fmtM(summary.total_paid)}</p><p className="text-[10px] text-surface-400">{summary.payment_pct}% del contrato</p></div>
+          <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Saldo pendiente</p><p className="text-sm font-bold text-brand-700">{fmtM(summary.remaining)}</p></div>
+          <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Retenciones totales</p><p className="text-sm font-bold text-amber-600">{fmtM(summary.total_retained)}</p></div>
+          <div className="p-3 bg-surface-50 rounded-lg"><p className="text-xs text-surface-400">Pagos</p><p className="text-sm font-bold text-brand-700">{summary.pagados || 0} / {summary.total || 0}</p></div>
+        </div>
+        {(summary.total_retefuente > 0 || summary.total_reteica > 0 || summary.total_reteiva > 0 || summary.total_gmf > 0) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <p className="text-[10px] font-bold text-amber-800 uppercase mb-2">Desglose de retenciones acumuladas</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {summary.total_retefuente > 0 && <div><p className="text-amber-600">RETEFUENTE</p><p className="font-bold text-amber-800">{fmtM(summary.total_retefuente)}</p></div>}
+              {summary.total_reteica > 0    && <div><p className="text-amber-600">RETEICA</p><p className="font-bold text-amber-800">{fmtM(summary.total_reteica)}</p></div>}
+              {summary.total_reteiva > 0    && <div><p className="text-amber-600">RETEIVA <span className="text-amber-400 text-[9px]">(pass-through)</span></p><p className="font-bold text-amber-800">{fmtM(summary.total_reteiva)}</p></div>}
+              {summary.total_gmf > 0        && <div><p className="text-amber-600">GMF</p><p className="font-bold text-amber-800">{fmtM(summary.total_gmf)}</p></div>}
+            </div>
+          </div>
+        )}
+      </>}
 
       <div className="flex justify-between items-center">
         <span className="text-xs text-surface-400">{items.length} pago{items.length !== 1 ? 's' : ''}</span>

@@ -1194,26 +1194,28 @@ function FinancialSummaryTab({ projectId, perms }) {
             </div>
           )}
           <div className="bg-white rounded-xl border border-surface-100 overflow-hidden text-sm">
-            {/* 4 — INGRESOS REALES (gross cobrado) */}
+            {/* 4 — INGRESOS REALES (facturado activo) */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 font-bold">
-              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS REALES (cobrado)</span></div>
-              <span className="text-emerald-800 font-display">{fm(ej.ingresos_cobrados || 0)}</span>
+              <div className="flex items-center gap-3"><span className="text-xs font-mono text-emerald-600 w-12">4</span><span className="text-emerald-800">INGRESOS REALES (facturado)</span></div>
+              <span className="text-emerald-800 font-display">{fm(ej.ingresos_facturados || 0)}</span>
             </div>
-            {ej.tiene_pagos ? (
+            {(ej.ingresos_facturados || 0) > 0 ? (
               <>
-                <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                  <span className="text-surface-600 font-medium">✅ Gross cobrado (pagado)</span>
-                  <span className="text-emerald-700 font-semibold">{fm(ej.ingresos_cobrados)}</span>
-                </div>
+                {ej.ingresos_cobrados > 0 && (
+                  <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
+                    <span className="text-surface-600 font-medium">✅ Cobrado (pagado)</span>
+                    <span className="text-emerald-700 font-semibold">{fm(ej.ingresos_cobrados)}</span>
+                  </div>
+                )}
                 {ej.ingresos_pendientes > 0 && (
                   <div className="flex items-center justify-between px-4 py-1.5 pl-12 text-xs border-b border-surface-50">
-                    <span className="text-surface-500">⏳ Facturado pendiente cobro</span>
+                    <span className="text-surface-500">⏳ Pendiente de cobro</span>
                     <span className="text-amber-600 font-medium">{fm(ej.ingresos_pendientes)}</span>
                   </div>
                 )}
               </>
             ) : (
-              <div className="px-4 py-2 pl-12 text-xs text-surface-400 border-b">Sin pagos marcados como pagados — registre pagos para ver datos reales</div>
+              <div className="px-4 py-2 pl-12 text-xs text-surface-400 border-b">Sin pagos facturados activos — los borradores y rechazados no se incluyen</div>
             )}
             <div className="h-2 bg-surface-50"/>
             {/* 5 — EGRESOS EJECUTADOS */}

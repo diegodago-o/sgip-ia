@@ -842,7 +842,8 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
         `SELECT status, COALESCE(SUM(gross_value),0) as gross FROM payments WHERE project_id=? GROUP BY status`, [pid]);
       pays.forEach(p => {
         if (p.status === 'pagado') pagosCobrados += parseFloat(p.gross);
-        pagosFacturados += parseFloat(p.gross);
+        // pagosFacturados = solo estados activos (excluye borrador y rechazado)
+        if (!['borrador','rechazado'].includes(p.status)) pagosFacturados += parseFloat(p.gross);
       });
       pagosPendientes = pagosFacturados - pagosCobrados;
     } catch {}
@@ -888,7 +889,7 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
           COALESCE(SUM(reteiva_value),     0) AS reteiva,
           COALESCE(SUM(IFNULL(gmf_value,0)),0) AS gmf,
           COALESCE(SUM(CASE WHEN status='pagado' THEN base_value ELSE 0 END), 0) AS base_cobrado
-        FROM payments WHERE project_id = ? AND status IN ('pagado','aprobado')`, [pid]);
+        FROM payments WHERE project_id = ? AND status IN ('presentado','en_revision','aprobado','pagado')`, [pid]);
       rfReal          = Math.round(parseFloat(payTax[0].retefuente   || 0));
       ricaReal        = Math.round(parseFloat(payTax[0].reteica      || 0));
       rivaReal        = Math.round(parseFloat(payTax[0].reteiva      || 0));
@@ -897,14 +898,15 @@ router.get('/:projectId/financial-summary', [param('projectId').isInt()], async 
     } catch {}
 
     // ── CASCADA REAL UC / UD / UR (misma lógica que presupuesto) ─────────────
-    // UC real = 4 real (gross cobrado) − 5 real (egresos ejecutados)
-    const ucReal   = pagosCobrados - egresosEjecutados;
+    // 4 real = pagosFacturados (todos los estados activos: presentado/en_revision/aprobado/pagado)
+    // 5 real = egresos ejecutados
+    const ucReal   = pagosFacturados - egresosEjecutados;
     // UD real = UC real − RETEFUENTE real − Activos Fijos (del presupuesto)
     const udReal   = ucReal - rfReal - activosFijos;
     // UR real = UD real − GNC (del presupuesto)
     const urReal   = udReal - gnc;
-    const margenUcReal = pagosCobrados > 0 ? (ucReal / pagosCobrados * 100) : 0;
-    const margenUdReal = pagosCobrados > 0 ? (udReal / pagosCobrados * 100) : 0;
+    const margenUcReal = pagosFacturados > 0 ? (ucReal / pagosFacturados * 100) : 0;
+    const margenUdReal = pagosFacturados > 0 ? (udReal / pagosFacturados * 100) : 0;
 
     // Legado (compatibilidad con vista anterior)
     const ingresosBaseReal  = baseRealCobrado;

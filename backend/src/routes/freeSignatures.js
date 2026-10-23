@@ -91,6 +91,12 @@ async function trySendMail(emailCfg, opts) {
   } catch (e) { console.error('[freeSignatures] email error:', e.message); }
 }
 
+// Igual que trySendMail pero propaga el error: el reenvío manual debe informar si el correo falló.
+async function sendMailOrThrow(emailCfg, opts) {
+  const { sendMail } = require('../services/mailer');
+  await sendMail(emailCfg, opts);
+}
+
 // ── Email Templates ──────────────────────────────────────────────────────────
 function emailInviteFree({ signer, request, project, allSigners, position }) {
   const url = `${FRONTEND_URL()}/firma/libre/${signer.token}`;
@@ -776,6 +782,48 @@ authRouter.delete('/:id/eliminar', authenticate, async (req, res) => {
   }
 });
 
+// POST /:id/recordar — reenvía la invitación al firmante en turno (mismo enlace)
+authRouter.post('/:id/recordar', authenticate, async (req, res) => {
+  const { projectId, id } = req.params;
+  try {
+    const [reqs] = await pool.execute(
+      `SELECT r.*, p.name, p.code FROM free_signature_requests r JOIN projects p ON p.id = r.project_id
+       WHERE r.id = ? AND r.project_id = ? AND r.status = 'in_progress'`, [id, projectId]
+    );
+    if (!reqs.length) return res.status(404).json({ error: 'El proceso no está en curso' });
+    const request = reqs[0];
+    const project = { name: request.name, code: request.code };
+    const [signers] = await pool.execute(
+      'SELECT * FROM free_signature_signers WHERE request_id = ? ORDER BY sign_order ASC', [id]
+    );
+    const current = signers.find(s => !['signed', 'rejected'].includes(s.status));
+    if (!current) return res.status(409).json({ error: 'No hay firmantes pendientes' });
+
+    const emailCfg = await loadEmailConfig();
+    if (!emailCfg) return res.status(400).json({ error: 'No hay correo saliente configurado. Configúrelo en Configuración → Correo.' });
+
+    const position = signers.findIndex(s => s.id === current.id) + 1;
+    await sendMailOrThrow(emailCfg, {
+      to: current.signer_email,
+      subject: `🔔 Recordatorio — Firma requerida: ${request.title}`,
+      html: emailInviteFree({ signer: current, request, project, allSigners: signers, position }),
+    });
+    if (current.status === 'pending') {
+      await pool.execute("UPDATE free_signature_signers SET status='notified' WHERE id=?", [current.id]);
+    }
+    try {
+      await pool.execute(
+        'INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES (?,?,?,?,?)',
+        [req.user.id, 'remind', 'firma_libre', id, JSON.stringify({ signer_name: current.signer_name, signer_email: current.signer_email })]
+      );
+    } catch (_) { /* audit_log opcional */ }
+    res.json({ sent: true, to: current.signer_email, name: current.signer_name, position, total: signers.length });
+  } catch (e) {
+    console.error('[freeSignatures] recordar:', e.message);
+    res.status(502).json({ error: `No se pudo enviar el correo: ${e.message}` });
+  }
+});
+
 // GET /:id/pdf — download original or signed PDF
 authRouter.get('/:id/pdf', authenticate, async (req, res) => {
   const { projectId, id } = req.params;
@@ -786,19 +834,30 @@ authRouter.get('/:id/pdf', authenticate, async (req, res) => {
     if (!reqs.length) return res.status(404).json({ error: 'No encontrado' });
     const request = reqs[0];
 
+    const [signers] = await pool.execute(
+      'SELECT * FROM free_signature_signers WHERE request_id=? ORDER BY sign_order', [id]
+    );
+    const [projRows] = await pool.execute('SELECT name, code FROM projects WHERE id=?', [projectId]);
+    const project = projRows[0] || { name: '', code: '' };
+
     if (request.status === 'completed') {
-      // Return signed PDF
-      const [signers] = await pool.execute(
-        'SELECT * FROM free_signature_signers WHERE request_id=? ORDER BY sign_order', [id]
-      );
-      const [projRows] = await pool.execute('SELECT name, code FROM projects WHERE id=?', [projectId]);
-      const project = projRows[0] || { name: '', code: '' };
       const signedPdf = await buildSignedPdf(request, project, signers);
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="firmado_${request.file_name}"`,
       });
       return res.send(signedPdf);
+    }
+
+    // En proceso: versión parcial con las firmas registradas hasta ahora (sin página de auditoría)
+    const signed = signers.filter(s => s.status === 'signed' && s.signature_image);
+    if (signed.length) {
+      const partialPdf = await buildSignedPdf(request, project, signed, { auditPage: false });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="parcial_${signed.length}de${signers.length}_${request.file_name}"`,
+      });
+      return res.send(partialPdf);
     }
 
     // Return original PDF

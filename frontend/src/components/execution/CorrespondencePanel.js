@@ -2186,6 +2186,20 @@ export default function CorrespondencePanel({ projectId, perms }) {
                           <Download className="w-3 h-3" />PDF firmado
                         </button>
                       )}
+                      {req.status === 'in_progress' && req.signed_count > 0 && (
+                        <button title={`Descargar el documento con las ${req.signed_count} firmas registradas hasta ahora`}
+                          onClick={async () => { try { const r = await freeSignaturesAPI.downloadPdf(projectId, req.id); const blob = new Blob([r.data], { type: 'application/pdf' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `parcial_${req.signed_count}de${req.total_signers}_${req.file_name || req.title}.pdf`; a.click(); URL.revokeObjectURL(url); } catch { alert('Error al descargar'); } }}
+                          className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors">
+                          <Download className="w-3 h-3" />PDF parcial ({req.signed_count}/{req.total_signers})
+                        </button>
+                      )}
+                      {req.status === 'in_progress' && perms?.canEdit && (
+                        <button title="Reenviar el correo con el enlace de firma al firmante en turno"
+                          onClick={async () => { try { const r = await freeSignaturesAPI.remind(projectId, req.id); alert(`Correo reenviado a ${r.data.name} (${r.data.to}) — firmante ${r.data.position} de ${r.data.total}.`); } catch (e) { alert(e.response?.data?.error || 'No se pudo reenviar el correo'); } }}
+                          className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors">
+                          <Mail className="w-3 h-3" />Reenviar correo
+                        </button>
+                      )}
                       {req.status === 'in_progress' && perms?.canEdit && (
                         <button title="Cancelar firma" onClick={async () => { if (!window.confirm('¿Cancelar este proceso de firma?')) return; await freeSignaturesAPI.cancel(projectId, req.id); loadFreeRequests(); }}
                           className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors"><Ban className="w-4 h-4" /></button>

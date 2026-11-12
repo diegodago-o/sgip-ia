@@ -341,10 +341,16 @@ router.put('/:id',
         'correspondence_sender_name', 'correspondence_logo',
       ];
 
+      // Los campos vacíos del formulario ('') deben guardarse como NULL: MySQL rechaza '' en columnas
+      // numéricas y de fecha (sharepoint_connection_id, director_id, contract_value, sign_date, etc.).
       const updates = [];
       const values = [];
       for (const f of allowed) {
-        if (req.body[f] !== undefined) { updates.push(`${f} = ?`); values.push(req.body[f]); }
+        if (req.body[f] === undefined) continue;
+        const v = req.body[f];
+        if (f === 'name' && !String(v || '').trim()) continue;
+        updates.push(`${f} = ?`);
+        values.push(v === '' ? null : v);
       }
 
       if (req.body.start_date || req.body.execution_term || req.body.execution_term_unit) {
@@ -434,7 +440,8 @@ router.put('/:id',
       res.json({ data: rows[0], message: 'Proyecto actualizado' });
     } catch (err) {
       console.error('Update error:', err);
-      res.status(500).json({ error: 'Error actualizando proyecto' });
+      const detail = err.sqlMessage || err.message || '';
+      res.status(500).json({ error: `Error actualizando proyecto${detail ? `: ${detail}` : ''}` });
     }
   }
 );

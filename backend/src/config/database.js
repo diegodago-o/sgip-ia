@@ -14,6 +14,16 @@ const pool = mysql.createPool({
   queueLimit: 0,
   charset: 'utf8mb4',
   timezone: '+00:00',         // MySQL stores UTC; JS conversion uses toLocaleString with timeZone
+  // Las columnas DATE (sin hora) salían como medianoche UTC y en Colombia (UTC-5) se mostraban
+  // un día antes. Se entregan como 'YYYY-MM-DDT12:00:00' (mediodía, sin zona): el navegador lo
+  // interpreta en hora local y muestra el día correcto; split('T')[0] sigue dando la fecha.
+  typeCast: (field, next) => {
+    if (field.type === 'DATE') {
+      const v = field.string();
+      return v ? `${v}T12:00:00` : v;
+    }
+    return next();
+  },
   connectTimeout: 10000,      // 10s connection timeout
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
